@@ -1,0 +1,17 @@
+{"level":"info","message":"Database connected","time":"2026-05-21T04:25:00.807Z","timestamp":"2026-05-21 09:55:00"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-21 09:55:00"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-21 09:55:00"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-21 09:55:01"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-21 09:55:01"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-21 09:55:01"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-21 09:55:01"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-21 09:55:01"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-21 09:55:01"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-21 09:55:01"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-21 09:55:01"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-21 09:55:01"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-21 09:55:48","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-21 09:59:47","userId":"70915da2-fb15-4d06-870d-f9b76c382d75","username":"admin2_mpdw07oh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-21 11:01:39","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-21 11:11:47","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-21 17:22:11","userId":"70915da2-fb15-4d06-870d-f9b76c382d75","username":"admin2_mpdw07oh"}

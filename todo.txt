@@ -1,0 +1,6 @@
+remove the user managment list from admin and add to the super admin if there is not 
+
+checking the whatsapp settings 
+
+
+can you add the home page where all the details about the application is showen and then there is one register button also for community and that community for will automaticaly generate the code for residents and guards to enter and the community login is also there just not visible to residents and guards but the community heads and admins can login to it and is there any hard coded login credentials in this file if there just tell me in chat and make that community feature with dashboard and the featurs are like managing the whole community
