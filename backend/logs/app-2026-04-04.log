@@ -1,0 +1,104 @@
+{"error":"password authentication failed for user \"postgres\"","level":"error","message":"Failed to start server","timestamp":"2026-04-04 09:13:23"}
+{"error":"password authentication failed for user \"postgres\"","level":"error","message":"Failed to start server","timestamp":"2026-04-04 09:14:31"}
+{"error":"database \"recoverlab_crm\" does not exist","level":"error","message":"Failed to start server","timestamp":"2026-04-04 09:25:08"}
+{"level":"info","message":"Database connected","time":"2026-04-04T03:55:39.968Z","timestamp":"2026-04-04 09:25:39"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-04-04 09:25:39"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS stock_number VARCHAR(100)","timestamp":"2026-04-04 09:25:39"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS company VARCHAR(100)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS brand VARCHAR(100)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS model VARCHAR(200)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS firmware VARCHAR(100)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS site_code VARCHAR(100)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS date_code VARCHAR(50)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS head_map VARCHAR(200)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS family VARCHAR(100)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS capacity VARCHAR(50)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS interface VARCHAR(50)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS form_factor VARCHAR(50)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'available'","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS source_case_id INTEGER","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS tenant_id INTEGER","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"UPDATE inventory_items SET tenant_id=1 WHERE tenant_id IS NULL","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"UPDATE inventory_items SET stock_number=sku WHERE stock_number IS NULL","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"UPDATE inventory_items SET status='available' WHERE status IS NULL","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory_items(tenant_id)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_inventory_stock_number ON inventory_items(stock_number)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_inventory_pcb ON inventory_items(pcb_number)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_inventory_serial ON inventory_items(serial_number)","timestamp":"2026-04-04 09:25:40"}
+{"error":"relation \"inventory_items\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_inventory_model ON inventory_items(model)","timestamp":"2026-04-04 09:25:40"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-04-04 09:25:40"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5000","timestamp":"2026-04-04 09:25:40"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-04-04 09:25:40"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 09:35:02","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 09:35:02"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 09:35:02"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 09:36:18","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 09:36:18"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 09:36:18"}
+{"level":"info","message":"Database connected","time":"2026-04-04T04:11:05.227Z","timestamp":"2026-04-04 09:41:05"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-04-04 09:41:05"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-04-04 09:41:05"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5000","timestamp":"2026-04-04 09:41:05"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-04-04 09:41:05"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 09:42:35","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 09:42:35"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 09:42:35"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 09:44:40","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 09:44:40"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 09:44:40"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:09:41","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:09:41"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:09:41"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:11:17","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:12:55","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:12:55"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:12:55"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:13:19","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"level":"info","message":"Database connected","time":"2026-04-04T05:53:41.266Z","timestamp":"2026-04-04 11:23:41"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-04-04 11:23:41"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-04-04 11:23:41"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5000","timestamp":"2026-04-04 11:23:41"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-04-04 11:23:41"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:24:39","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:24:39"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:24:39"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:24:59","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:24:59"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:24:59"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:25:18","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:25:18"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:25:18"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:26:26","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"level":"info","message":"Database connected","time":"2026-04-04T05:59:06.320Z","timestamp":"2026-04-04 11:29:06"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-04-04 11:29:06"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-04-04 11:29:06"}
+{"level":"info","message":"Database connected","time":"2026-04-04T05:59:54.333Z","timestamp":"2026-04-04 11:29:54"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-04-04 11:29:54"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-04-04 11:29:54"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5000","timestamp":"2026-04-04 11:29:54"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-04-04 11:29:54"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:30:10","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:30:58","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:30:58"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:30:58"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:31:18","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:31:18"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:31:18"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:31:53","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Query error","text":"INSERT INTO refresh_tokens (user_id, token, expires_at) \n         VALUES ($1, $2, NOW() + INTERVAL '","timestamp":"2026-04-04 11:31:53"}
+{"error":"duplicate key value violates unique constraint \"refresh_tokens_token_key\"","level":"error","message":"Login error","timestamp":"2026-04-04 11:31:53"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:32:17","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:32:18","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:34:23"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:34:23"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:35:04","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"level":"info","message":"User logged in","timestamp":"2026-04-04 11:35:05","userId":"32d6a324-3f27-4160-acd3-012fa4559061","username":"superadmin"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:35:05"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:35:05"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:38:50"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:39:54"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:40:45"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:41:40"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:43:12"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-04-04 11:43:12"}
+{"error":"syntax error at end of input","level":"error","message":"Query error","text":"SELECT id, username, role, is_active FROM users WHERE role=","timestamp":"2026-04-04 15:58:45"}

@@ -84,6 +84,13 @@ async function migrate() {
     await client.query(invBrandsSchema);
     console.log('✅ Inventory brands & categories migration applied');
 
+    const invSoftDeleteSchema = fs.readFileSync(
+      path.join(__dirname, 'migrations', '006_inventory_soft_delete.sql'),
+      'utf8'
+    );
+    await client.query(invSoftDeleteSchema);
+    console.log('✅ Inventory soft delete migration applied');
+
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");
     if (hasRoleEnum.rows.length) {
       try {

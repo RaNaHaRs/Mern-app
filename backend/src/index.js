@@ -175,6 +175,8 @@ async function runInventoryMigration() {
     "CREATE INDEX IF NOT EXISTS idx_inventory_pcb ON inventory_items(pcb_number)",
     "CREATE INDEX IF NOT EXISTS idx_inventory_serial ON inventory_items(serial_number)",
     "CREATE INDEX IF NOT EXISTS idx_inventory_model ON inventory_items(model)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_inventory_deleted_at ON inventory_items(deleted_at)",
   ];
   for (const sql of migrations) {
     try { await query(sql); } catch (e) { /* column may already exist */ }

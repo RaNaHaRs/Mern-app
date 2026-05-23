@@ -3,7 +3,7 @@ const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const {
-  toDbCategory, formatItemRow, isInventoryHddCategory, inventoryToConfigKey,
+  toDbCategory, formatItemRow, isInventoryHddCategory, normalizeUiCategory, validatePcbPayload,
 } = require('../utils/hddCategoryMap');
 
 const router = express.Router();
@@ -65,7 +65,7 @@ async function recordTransfer(req, item, body) {
 }
 
 function buildItemPayload(body, categoriesList = []) {
-  const uiCategory = body.category || body.ui_category;
+  const uiCategory = normalizeUiCategory(body.category || body.ui_category);
   
   // Find category dynamically in the categoriesList loaded from the database
   const dbCat = Array.isArray(categoriesList)
@@ -102,19 +102,73 @@ function buildItemPayload(body, categoriesList = []) {
   };
 }
 
+// GET /api/inventory/recycle-bin — soft-deleted items only
+router.get('/recycle-bin', async (req, res) => {
+  try {
+    const { page = 1, limit = 40, search } = req.query;
+    const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const conditions = ['ii.deleted_at IS NOT NULL'];
+    const params = [];
+    let pi = 1;
+
+    if (search) {
+      conditions.push(`(
+        ii.name ILIKE $${pi} OR ii.sku ILIKE $${pi} OR ii.stock_number ILIKE $${pi}
+        OR ii.serial_number ILIKE $${pi} OR ii.pcb_number ILIKE $${pi}
+        OR ii.model ILIKE $${pi} OR ii.company ILIKE $${pi} OR ii.brand ILIKE $${pi}
+      )`);
+      params.push(`%${search}%`);
+      pi++;
+    }
+
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const count = await query(`SELECT COUNT(*) FROM inventory_items ii ${where}`, params);
+    const result = await query(
+      `SELECT ii.* FROM inventory_items ii ${where}
+       ORDER BY ii.deleted_at DESC LIMIT $${pi} OFFSET $${pi + 1}`,
+      [...params, parseInt(limit, 10), offset]
+    );
+
+    const items = await Promise.all(result.rows.map(async row => {
+      const { labeled } = await loadCustomFieldValues(row.id);
+      return formatItemRow({ ...row, custom_fields_display: labeled });
+    }));
+
+    res.json({
+      items,
+      pagination: {
+        total: parseInt(count.rows[0].count, 10),
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        pages: Math.ceil(parseInt(count.rows[0].count, 10) / parseInt(limit, 10)),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/inventory
 router.get('/', async (req, res) => {
   try {
     const { page = 1, limit = 40, category, search, is_available, storage_model_id } = req.query;
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
-    const conditions = [];
+    const conditions = ['ii.deleted_at IS NULL'];
     const params = [];
     let pi = 1;
 
     if (category) {
-      conditions.push(`(ii.ui_category = $${pi} OR (ii.ui_category IS NULL AND ii.category::text = $${pi}))`);
-      params.push(category);
-      pi++;
+      const norm = normalizeUiCategory(category);
+      if (norm === 'hdd') {
+        conditions.push(`(
+          ii.ui_category IN ('hdd', 'harddisk', 'wd_35', 'wd_25', 'seagate_35', 'seagate_25', 'others_35', 'others_25')
+          OR (ii.ui_category IS NULL AND ii.category::text IN ('donor_drive', 'hdd', 'harddisk'))
+        )`);
+      } else {
+        conditions.push(`(ii.ui_category = $${pi} OR (ii.ui_category IS NULL AND ii.category::text = $${pi}))`);
+        params.push(norm);
+        pi++;
+      }
     }
     if (is_available !== undefined) {
       conditions.push(`COALESCE(ii.status, CASE WHEN ii.is_available THEN 'available' ELSE 'used' END) = $${pi}`);
@@ -170,6 +224,9 @@ router.get('/', async (req, res) => {
 router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory', 'inventory'), async (req, res) => {
   try {
     const body = req.body;
+    const pcbErr = validatePcbPayload(body);
+    if (pcbErr) return res.status(400).json({ error: pcbErr });
+
     const catsRes = await query('SELECT category_key, is_hdd FROM inventory_categories');
     const built = buildItemPayload(body, catsRes.rows);
 
@@ -250,6 +307,9 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
 router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory', 'inventory'), async (req, res) => {
   try {
     const body = req.body;
+    const pcbErr = validatePcbPayload(body);
+    if (pcbErr) return res.status(400).json({ error: pcbErr });
+
     const catsRes = await query('SELECT category_key, is_hdd FROM inventory_categories');
     const built = buildItemPayload(body, catsRes.rows);
 
@@ -418,12 +478,105 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
   }
 });
 
+// POST /api/inventory/bulk-delete — soft delete (move to recycle bin)
+router.post('/bulk-delete', requireMinRole('junior_engineer'), auditLog('bulk_delete_inventory', 'inventory'), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No items specified' });
+    }
+
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    await query(
+      `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      ids
+    );
+
+    res.json({ message: `${ids.length} item(s) moved to recycle bin`, deleted_count: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/inventory/bulk-recycle — alias for bulk-delete (backward compatible)
+router.post('/bulk-recycle', requireMinRole('junior_engineer'), auditLog('bulk_recycle_inventory', 'inventory'), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No items specified' });
+    }
+
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    await query(
+      `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      ids
+    );
+
+    res.json({ message: `${ids.length} item(s) moved to recycle bin`, recycled_count: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/inventory/bulk-permanent-delete — permanently remove soft-deleted items
+router.post('/bulk-permanent-delete', requireMinRole('admin'), auditLog('bulk_permanent_delete_inventory', 'inventory'), async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No items specified' });
+    }
+
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+    const result = await query(
+      `DELETE FROM inventory_items WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL RETURNING id`,
+      ids
+    );
+
+    res.json({ message: `${result.rows.length} item(s) permanently deleted`, deleted_count: result.rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/inventory/recycle-bin/:id/restore
+router.post('/recycle-bin/:id/restore', requireMinRole('junior_engineer'), auditLog('restore_inventory', 'inventory'), async (req, res) => {
+  try {
+    const result = await query(
+      `UPDATE inventory_items SET deleted_at=NULL, status='available', updated_at=NOW()
+       WHERE id=$1 AND deleted_at IS NOT NULL RETURNING *`,
+      [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Item not found in recycle bin' });
+    const { labeled } = await loadCustomFieldValues(req.params.id);
+    res.json({ message: 'Item restored', item: formatItemRow({ ...result.rows[0], custom_fields_display: labeled }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/inventory/recycle-bin/:id/permanent-delete
+router.delete('/recycle-bin/:id/permanent-delete', requireMinRole('admin'), auditLog('permanent_delete_inventory', 'inventory'), async (req, res) => {
+  try {
+    const result = await query(
+      'DELETE FROM inventory_items WHERE id=$1 AND deleted_at IS NOT NULL RETURNING id',
+      [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Item not found in recycle bin' });
+    res.json({ message: 'Item permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/inventory/donors
 router.get('/donors', async (req, res) => {
   try {
     const result = await query(
       `SELECT * FROM inventory_items
-       WHERE COALESCE(status,'available')='available' AND quantity > 0
+       WHERE deleted_at IS NULL
+         AND COALESCE(status,'available')='available' AND quantity > 0
        ORDER BY created_at DESC`
     );
     res.json(result.rows.map(formatItemRow));
@@ -435,7 +588,7 @@ router.get('/donors', async (req, res) => {
 // GET /api/inventory/:id
 router.get('/:id', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM inventory_items WHERE id=$1', [req.params.id]);
+    const result = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'Item not found' });
     const { values, labeled } = await loadCustomFieldValues(req.params.id);
     const row = result.rows[0];
@@ -486,6 +639,44 @@ router.delete('/:id/images/:imgId', requireMinRole('junior_engineer'), async (re
     const result = await query('DELETE FROM inventory_images WHERE id=$1 AND item_id=$2 RETURNING id', [req.params.imgId, req.params.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'Image not found' });
     res.json({ message: 'Image deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/inventory/:id/transfer — Transfer item to transferred_items
+router.post('/:id/transfer', requireMinRole('junior_engineer'), auditLog('transfer_inventory', 'inventory'), async (req, res) => {
+  try {
+    const itemId = req.params.id;
+    const { notes } = req.body;
+    
+    const itemResult = await query('SELECT * FROM inventory_items WHERE id=$1', [itemId]);
+    if (!itemResult.rows.length) return res.status(404).json({ error: 'Item not found' });
+    
+    const item = itemResult.rows[0];
+    
+    await query(
+      `INSERT INTO transferred_items (
+        inventory_item_id, stock_number, ui_category,
+        company, brand, model, serial_number,
+        field_snapshot, custom_field_snapshot, transferred_by, notes
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        itemId, item.stock_number || item.sku, item.ui_category || item.category,
+        item.company, item.brand, item.model, item.serial_number,
+        JSON.stringify(item.dynamic_fields || {}),
+        JSON.stringify(item.custom_field_values || {}),
+        req.user.id,
+        notes || 'Transferred from inventory stock'
+      ]
+    );
+
+    await query(
+      `UPDATE inventory_items SET status='transferred', updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL`,
+      [itemId]
+    );
+    
+    res.json({ message: 'Item transferred successfully', item_id: itemId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

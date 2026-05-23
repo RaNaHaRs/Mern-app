@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "C:\\Users\\hr160\\Desktop\\nodejs-app\\backend\\logs\\.cd55040e7316af586aca8092ad7bf503e86fae85-audit.json",
+    "files": [
+        {
+            "date": 1779080346718,
+            "name": "C:\\Users\\hr160\\Desktop\\nodejs-app\\backend\\logs\\app-2026-05-18.log",
+            "hash": "c02a3a748dbbb722d05ca62ebe76af34001f33fb0717d5702dfafbb3fe04beea"
+        }
+    ],
+    "hashType": "sha256"
+}

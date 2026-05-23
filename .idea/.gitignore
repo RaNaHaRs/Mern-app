@@ -24,6 +24,7 @@ backend/logs/
 # node modules
 node_modules/
 frontend/node_modules/
+backend/node_modules
 
 # vite
 .vite/

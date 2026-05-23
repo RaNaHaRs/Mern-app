@@ -136,6 +136,12 @@ export const inventoryApi = {
   getImages: (id) => api.get(`/inventory/${id}/images`),
   uploadImages: (id, formData) => api.upload(`/inventory/${id}/images`, formData),
   deleteImage: (id, imgId) => api.delete(`/inventory/${id}/images/${imgId}`),
+  transfer: (id, notes) => api.post(`/inventory/${id}/transfer`, { notes }),
+  bulkSoftDelete: (ids) => api.post('/inventory/bulk-delete', { ids }),
+  listRecycleBin: (params) => api.get('/inventory/recycle-bin', params),
+  restore: (id) => api.post(`/inventory/recycle-bin/${id}/restore`),
+  permanentDelete: (id) => api.delete(`/inventory/recycle-bin/${id}/permanent-delete`),
+  bulkPermanentDelete: (ids) => api.post('/inventory/bulk-permanent-delete', { ids }),
 };
 
 export const transferredItemsApi = {

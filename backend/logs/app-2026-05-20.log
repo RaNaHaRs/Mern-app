@@ -1,0 +1,411 @@
+{"level":"info","message":"Database connected","time":"2026-05-20T04:42:10.108Z","timestamp":"2026-05-20 10:12:10"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 10:12:10"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 10:12:10"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 10:12:10"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 10:12:10"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 10:12:10"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 10:12:10"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 10:12:10"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 10:12:10"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 10:12:10"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 10:12:10"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 11:53:11","userId":"c457cd39-d4c8-4702-bea8-6ef1cc5b324f","username":"abcd_mpb01wzi"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 11:55:40","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 11:55:40"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 11:55:41"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:09:20"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:09:20"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 12:09:41","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:09:41"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:09:41"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:10:02"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:10:02"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:11:15"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:11:15"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 12:23:31","userId":"c457cd39-d4c8-4702-bea8-6ef1cc5b324f","username":"abcd_mpb01wzi"}
+{"level":"info","message":"Database connected","time":"2026-05-20T06:58:51.272Z","timestamp":"2026-05-20 12:28:51"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:28:51"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:28:51"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:28:51"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:28:51"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:28:51"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:28:51"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:28:51"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:28:51"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:28:51"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:28:51"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:00:19.102Z","timestamp":"2026-05-20 12:30:19"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:30:19"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:30:19"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:30:19"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:30:19"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:30:19"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:30:19"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:30:19"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:30:19"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:30:19"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:30:19"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:02:20.167Z","timestamp":"2026-05-20 12:32:20"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:32:20"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:32:20"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:32:20"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:32:20"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:32:20"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:32:20"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:32:20"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:32:20"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:32:20"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:32:20"}
+{"error":"duplicate key value violates unique constraint \"users_email_key\"","level":"error","message":"Query error","text":"INSERT INTO users (username, email, password_hash, full_name, role, phone, specializations, notes)\n ","timestamp":"2026-05-20 12:33:04"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:09:31.751Z","timestamp":"2026-05-20 12:39:31"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:39:31"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:39:31"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:39:31"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:39:31"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:39:31"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:39:31"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:39:31"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:39:32"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:39:32"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:39:32"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:10:01.047Z","timestamp":"2026-05-20 12:40:01"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:40:01"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:40:01"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:40:01"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:40:01"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:40:01"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:40:01"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:40:01"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:40:01"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:40:01"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:40:01"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:40:24"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:10:24.622Z","timestamp":"2026-05-20 12:40:24"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:40:24"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:40:24"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:40:24"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:40:24"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:40:24"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:40:24"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:40:24"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:40:24"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:40:24"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:11:18.621Z","timestamp":"2026-05-20 12:41:18"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:41:18"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:41:18"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:41:18"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:41:18"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:41:18"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:41:18"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:41:18"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:41:18"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:41:18"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:41:19"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:11:24.297Z","timestamp":"2026-05-20 12:41:24"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:41:24"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:41:24"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:41:24"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:41:24"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:41:24"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:41:24"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:41:24"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:41:24"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:41:24"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:41:24"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:12:12.463Z","timestamp":"2026-05-20 12:42:12"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:42:12"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:42:12"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:42:12"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:42:12"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:42:12"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:42:12"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:42:12"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:42:12"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:42:12"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:42:12"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:42:45"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:12:45.709Z","timestamp":"2026-05-20 12:42:45"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:42:45"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:42:45"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:42:45"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:42:45"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:42:45"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:42:45"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:42:45"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:42:45"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:42:46"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:14:29.615Z","timestamp":"2026-05-20 12:44:29"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:44:29"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:44:29"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:44:29"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:44:29"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:44:29"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:44:29"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:44:29"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:44:29"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:44:29"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:44:30"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, last_lo","timestamp":"2026-05-20 12:44:32"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations,\n            avatar_url, pho","timestamp":"2026-05-20 12:44:33"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:17:23.708Z","timestamp":"2026-05-20 12:47:23"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 12:47:23"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 12:47:23"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 12:47:23"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 12:47:23"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 12:47:23"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 12:47:23"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 12:47:23"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 12:47:23"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 12:47:23"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 12:47:24"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 12:50:01","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:50:01"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:50:01"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, last_lo","timestamp":"2026-05-20 12:50:05"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, last_lo","timestamp":"2026-05-20 12:50:05"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, last_lo","timestamp":"2026-05-20 12:51:26"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 12:52:03","userId":"c457cd39-d4c8-4702-bea8-6ef1cc5b324f","username":"abcd_mpb01wzi"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 12:52:53","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:52:53"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 12:52:53"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, last_lo","timestamp":"2026-05-20 12:52:57"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, last_lo","timestamp":"2026-05-20 12:52:57"}
+{"error":"column \"permissions\" of relation \"users\" does not exist","level":"error","message":"Query error","text":"INSERT INTO users (username, email, password_hash, full_name, role, phone, specializations, notes, p","timestamp":"2026-05-20 12:54:38"}
+{"error":"column \"permissions\" of relation \"users\" does not exist","level":"error","message":"Query error","text":"INSERT INTO users (username, email, password_hash, full_name, role, phone, specializations, notes, p","timestamp":"2026-05-20 12:54:47"}
+{"error":"column \"permissions\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, is_active, specializations,\n            avatar_url, pho","timestamp":"2026-05-20 12:56:00"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:27:18.111Z","timestamp":"2026-05-20 12:57:18"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:31:00.125Z","timestamp":"2026-05-20 13:01:00"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:01:00"}
+{"error":"type \"user_role\" already exists","level":"error","message":"Failed to start server","timestamp":"2026-05-20 13:01:00"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:32:42.190Z","timestamp":"2026-05-20 13:02:42"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:02:42"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:02:42"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:02:42"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:02:42"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:02:42"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:02:42"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:02:42"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:02:42"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:02:42"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:02:42"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:02:43"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:34:29.737Z","timestamp":"2026-05-20 13:04:29"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:04:29"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:04:30"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:04:30"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:04:30"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:04:30"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:04:30"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:04:30"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:04:30"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:04:30"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:04:30"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:04:30"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:34:57.675Z","timestamp":"2026-05-20 13:04:57"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:04:57"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:04:57"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:04:58"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:04:58"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:04:58"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:04:58"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:04:58"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:04:58"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:04:58"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:04:58"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:04:58"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 13:05:17","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 13:05:18"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 13:05:18"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 13:06:06"}
+{"error":"column t.tenant_owner_id does not exist","level":"error","message":"Query error","text":"SELECT u.id, u.username, u.email AS admin_email, u.full_name AS admin_name,\n              u.phone, u","timestamp":"2026-05-20 13:06:06"}
+{"error":"invalid input value for enum user_role: \"senior_manager\"","level":"error","message":"Query error","text":"UPDATE users SET full_name=COALESCE($1,full_name), phone=COALESCE($2,phone), specializations=COALESC","timestamp":"2026-05-20 13:09:30"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:41:20.927Z","timestamp":"2026-05-20 13:11:20"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:11:20"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:11:21"}
+{"error":"cannot drop type user_role because other objects depend on it","level":"error","message":"Failed to start server","timestamp":"2026-05-20 13:11:21"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:42:05.413Z","timestamp":"2026-05-20 13:12:05"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:12:05"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:12:05"}
+{"error":"cannot drop type user_role because other objects depend on it","level":"error","message":"Failed to start server","timestamp":"2026-05-20 13:12:05"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:45:29.827Z","timestamp":"2026-05-20 13:15:29"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:15:29"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:15:29"}
+{"error":"cannot drop type user_role because other objects depend on it","level":"error","message":"Failed to start server","timestamp":"2026-05-20 13:15:29"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:53:14.125Z","timestamp":"2026-05-20 13:23:14"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:23:14"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:23:14"}
+{"error":"cannot drop type user_role because other objects depend on it","level":"error","message":"Failed to start server","timestamp":"2026-05-20 13:23:14"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:56:49.699Z","timestamp":"2026-05-20 13:26:49"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:26:49"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:26:49"}
+{"error":"cannot drop type user_role because other objects depend on it","level":"error","message":"Failed to start server","timestamp":"2026-05-20 13:26:49"}
+{"level":"info","message":"Database connected","time":"2026-05-20T07:57:49.140Z","timestamp":"2026-05-20 13:27:49"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:27:49"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:27:49"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:27:49"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:27:49"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:27:49"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:27:49"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:27:49"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:27:49"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:27:49"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:27:49"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:27:50"}
+{"level":"info","message":"Database connected","time":"2026-05-20T08:00:33.624Z","timestamp":"2026-05-20 13:30:33"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:30:33"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:30:33"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:30:34"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:30:34"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:30:34"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:30:34"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:30:34"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:30:34"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:30:34"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:30:34"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:30:34"}
+{"level":"info","message":"Database connected","time":"2026-05-20T08:02:02.374Z","timestamp":"2026-05-20 13:32:02"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:32:02"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:32:02"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:32:02"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:32:03"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:32:03"}
+{"level":"info","message":"Database connected","time":"2026-05-20T08:04:19.813Z","timestamp":"2026-05-20 13:34:19"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:34:19"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:34:19"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:34:20"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:34:20"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:34:20"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:34:20"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:34:20"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:34:20"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:34:20"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:34:20"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:34:20"}
+{"level":"info","message":"Database connected","time":"2026-05-20T08:04:21.573Z","timestamp":"2026-05-20 13:34:21"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:34:21"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:34:21"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:34:22"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:34:22"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:34:22"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:34:22"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:34:22"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:34:22"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:34:22"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:34:22"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:34:22"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 13:34:59","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"Database connected","time":"2026-05-20T08:06:31.533Z","timestamp":"2026-05-20 13:36:31"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 13:36:31"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 13:36:31"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 13:36:32"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 13:36:32"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 13:36:32"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 13:36:32"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 13:36:32"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 13:36:32"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 13:36:32"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 13:36:32"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 13:36:32"}
+{"level":"info","message":"Database connected","time":"2026-05-20T09:25:37.028Z","timestamp":"2026-05-20 14:55:37"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 14:55:37"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 14:55:37"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 14:55:37"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 14:55:38"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 14:55:38"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 14:55:38"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 14:55:38"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 14:55:38"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 14:55:38"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 14:55:38"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 14:55:38"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 14:56:11","userId":"c457cd39-d4c8-4702-bea8-6ef1cc5b324f","username":"abcd_mpb01wzi"}
+{"level":"info","message":"Database connected","time":"2026-05-20T09:26:34.193Z","timestamp":"2026-05-20 14:56:34"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 14:56:34"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 14:56:34"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 14:56:35"}
+{"level":"info","message":"Database connected","time":"2026-05-20T09:52:24.188Z","timestamp":"2026-05-20 15:22:24"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 15:22:24"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 15:22:24"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 15:22:24"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 15:22:24"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 15:22:24"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 15:22:24"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 15:22:24"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 15:22:24"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 15:22:24"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 15:22:24"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 15:22:25"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 15:24:05","userId":"c457cd39-d4c8-4702-bea8-6ef1cc5b324f","username":"abcd_mpb01wzi"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 15:24:37","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 15:25:33","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"by":"ceba8d1c-fb87-4343-893e-77c1e6f67067","level":"info","message":"Tenant provisioned","tenant":"70915da2-fb15-4d06-870d-f9b76c382d75","timestamp":"2026-05-20 15:26:26"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 15:26:45","userId":"70915da2-fb15-4d06-870d-f9b76c382d75","username":"admin2_mpdw07oh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 15:33:54","userId":"70915da2-fb15-4d06-870d-f9b76c382d75","username":"admin2_mpdw07oh"}
+{"level":"info","message":"Database connected","time":"2026-05-20T10:36:45.601Z","timestamp":"2026-05-20 16:06:45"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 16:06:45"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 16:06:45"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 16:06:46"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 16:06:47"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 16:06:47"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 16:06:47"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 16:06:47"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 16:06:47"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 16:06:47"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 16:06:47"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 16:06:47"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 16:07:44","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"Database connected","time":"2026-05-20T11:11:56.475Z","timestamp":"2026-05-20 16:41:56"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 16:41:56"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 16:41:56"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 16:41:57"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 16:41:58"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 16:41:58"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 16:41:58"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 16:41:58"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 16:41:58"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 16:41:58"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 16:41:58"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 16:41:58"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 16:43:04","userId":"70915da2-fb15-4d06-870d-f9b76c382d75","username":"admin2_mpdw07oh"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 16:59:56","userId":"ceba8d1c-fb87-4343-893e-77c1e6f67067","username":"Harsh"}
+{"level":"info","message":"Database connected","time":"2026-05-20T11:59:49.539Z","timestamp":"2026-05-20 17:29:49"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 17:29:49"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 17:29:49"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 17:29:50"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 17:29:50"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 17:29:50"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 17:29:50"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 17:29:50"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 17:29:50"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 17:29:50"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 17:29:50"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 17:29:50"}
+{"level":"info","message":"Database connected","time":"2026-05-20T12:04:46.735Z","timestamp":"2026-05-20 17:34:46"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 17:34:46"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 17:34:46"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 17:34:47"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 17:34:47"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 17:34:47"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 17:34:47"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 17:34:47"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 17:34:47"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 17:34:47"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 17:34:47"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 17:34:47"}
+{"level":"info","message":"User logged in","timestamp":"2026-05-20 17:37:03","userId":"70915da2-fb15-4d06-870d-f9b76c382d75","username":"admin2_mpdw07oh"}
+{"level":"info","message":"Database connected","time":"2026-05-20T12:10:40.224Z","timestamp":"2026-05-20 17:40:40"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 17:40:40"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 17:40:40"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 17:40:40"}
+{"level":"info","message":"✅ Database schema migration completed","timestamp":"2026-05-20 17:40:40"}
+{"level":"info","message":"✅ Inventory schema migration complete","timestamp":"2026-05-20 17:40:40"}
+{"level":"info","message":"🚀 Data Recovery CRM API running on port 5001","timestamp":"2026-05-20 17:40:40"}
+{"level":"info","message":"📊 Environment: development","timestamp":"2026-05-20 17:40:40"}
+{"error":"relation \"marketing_email_templates\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaigns (\n      id SERIAL PRIMARY KEY,\n      name VARCHAR(300","timestamp":"2026-05-20 17:40:40"}
+{"error":"relation \"marketing_campaigns\" does not exist","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (\n      id SERIAL PRIMARY KEY,\n      campai","timestamp":"2026-05-20 17:40:41"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)","timestamp":"2026-05-20 17:40:41"}
+{"error":"relation \"marketing_campaign_recipients\" does not exist","level":"error","message":"Query error","text":"CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)","timestamp":"2026-05-20 17:40:41"}
+{"level":"info","message":"Database connected","time":"2026-05-20T12:29:59.254Z","timestamp":"2026-05-20 17:59:59"}
+{"level":"info","message":"✅ Database connection established","timestamp":"2026-05-20 17:59:59"}
+{"error":"foreign key constraint \"marketing_email_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_email_templates (\n      id SERIAL PRIMARY KEY,\n      name VARCH","timestamp":"2026-05-20 17:59:59"}
+{"error":"foreign key constraint \"marketing_whatsapp_templates_created_by_fkey\" cannot be implemented","level":"error","message":"Query error","text":"CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (\n      id SERIAL PRIMARY KEY,\n      name VA","timestamp":"2026-05-20 17:59:59"}

@@ -1,0 +1,20 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "C:\\Users\\hr160\\Desktop\\Node-app-main\\backend\\logs\\.fa9eeda521bd83b8187a44704ee01a5911521912-audit.json",
+    "files": [
+        {
+            "date": 1779184621214,
+            "name": "C:\\Users\\hr160\\Desktop\\Node-app-main\\backend\\logs\\app-2026-05-19.log",
+            "hash": "94183b63bb3d83343d4428a101cab9d7a2381c3b160f13e5c295c18b510f8712"
+        },
+        {
+            "date": 1779252128921,
+            "name": "C:\\Users\\hr160\\Desktop\\Node-app-main\\backend\\logs\\app-2026-05-20.log",
+            "hash": "07a35f00869fd0f68224578992f63398623fdcd987cd4b532336f03918cdf370"
+        }
+    ],
+    "hashType": "sha256"
+}

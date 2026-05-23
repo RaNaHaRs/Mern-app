@@ -1,5 +1,6 @@
 /** Map inventory UI category keys to field-config HDD type keys */
 const INV_TO_CONFIG = {
+  hdd: 'harddisk',
   harddisk: 'harddisk',
   wd_35: 'wd_3_5',
   wd_25: 'wd_2_5',
@@ -47,11 +48,23 @@ function isInventoryHddCategory(category) {
     lower.startsWith('seagate_') ||
     lower.startsWith('toshiba_') ||
     lower.includes('hdd') ||
-    lower.includes('harddisk')
+    lower.includes('harddisk') ||
+    lower === 'hdd'
   );
 }
 
+/** Normalize UI category to hdd | ssd | pcb | other */
+function normalizeUiCategory(category) {
+  if (!category) return 'hdd';
+  const k = String(category).toLowerCase().trim();
+  if (k === 'hdd' || k === 'harddisk' || k.startsWith('wd_') || k.startsWith('seagate_') || k.includes('hdd')) return 'hdd';
+  if (k === 'ssd') return 'ssd';
+  if (k === 'pcb') return 'pcb';
+  return 'other';
+}
+
 const CATEGORY_ENUM_MAP = {
+  hdd: 'donor_drive',
   harddisk: 'donor_drive',
   wd_35: 'donor_drive', wd_25: 'donor_drive',
   seagate_35: 'donor_drive', seagate_25: 'donor_drive',
@@ -72,6 +85,20 @@ function formatItemRow(row) {
   };
 }
 
+function validatePcbPayload(body) {
+  const cat = normalizeUiCategory(body.category || body.ui_category);
+  if (cat !== 'pcb') return null;
+  const model = String(body.model || '').trim();
+  const name = String(body.name || '').trim();
+  const pcbNumber = String(body.pcb_number || (body.dynamicFields && body.dynamicFields.pcb_number) || '').trim();
+  const problem = String(body.notes || '').trim();
+  if (!model) return 'Model is required for PCB items';
+  if (!name) return 'PCB Name is required for PCB items';
+  if (!pcbNumber) return 'PCB Number is required for PCB items';
+  if (!problem) return 'Problem is required for PCB items';
+  return null;
+}
+
 module.exports = {
   INV_TO_CONFIG,
   CONFIG_TO_INV,
@@ -80,6 +107,8 @@ module.exports = {
   configToInventoryKey,
   normalizeConfigKey,
   isInventoryHddCategory,
+  normalizeUiCategory,
+  validatePcbPayload,
   toDbCategory,
   formatItemRow,
 };

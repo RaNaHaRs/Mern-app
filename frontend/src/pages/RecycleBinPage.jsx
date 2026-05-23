@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
+import { inventoryApi } from '../services/api';
+import { getCategoryMeta } from '../constants/inventoryConfig';
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -132,18 +134,34 @@ function PermanentDeleteModal({ item, onConfirm, onClose }) {
 }
 
 export default function RecycleBinPage() {
-  const { canAccess, user } = useAuth();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [binTab, setBinTab] = useState('cases'); // cases | inventory
   const [items, setItems] = useState([]);
+  const [invItems, setInvItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const isSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
+  const loadCases = useCallback(async () => {
+    try { const d = await binApi.list(); setItems(d.items || []); }
+    catch { setItems([]); }
+  }, []);
+
+  const loadInventory = useCallback(async () => {
+    try {
+      const d = await inventoryApi.listRecycleBin({ limit: 200 });
+      setInvItems(d.items || []);
+    } catch { setInvItems([]); }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
-    try { const d = await binApi.list(); setItems(d.items || []); }
-    catch {} finally { setLoading(false); }
-  }, []);
+    if (binTab === 'cases') await loadCases();
+    else await loadInventory();
+    setLoading(false);
+  }, [binTab, loadCases, loadInventory]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -163,27 +181,85 @@ export default function RecycleBinPage() {
     alert('🗑️ Case permanently deleted.');
   };
 
+  const handleInvRestore = async (id) => {
+    try {
+      await inventoryApi.restore(id);
+      await loadInventory();
+      alert('✅ Stock item restored.');
+    } catch (e) { alert(e.message); }
+  };
+
+  const handleInvPermanentDelete = async (id) => {
+    if (!confirm('Permanently delete this stock item? This cannot be undone.')) return;
+    try {
+      await inventoryApi.permanentDelete(id);
+      await loadInventory();
+    } catch (e) { alert(e.message); }
+  };
+
   return (
     <div>
-      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24 }}>
+      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
         <div>
           <h2 style={{ marginBottom:4 }}>🗑️ Recycle Bin</h2>
-          <p style={{ color:'var(--text-muted)',fontSize:'0.82rem' }}>Soft-deleted cases — restore only. Permanent deletion is disabled for data safety.</p>
+          <p style={{ color:'var(--text-muted)',fontSize:'0.82rem' }}>Soft-deleted cases and inventory stock — restore or permanently remove.</p>
         </div>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/inventory')}>📦 Inventory</button>
       </div>
 
+      <div className="tabs" style={{ marginBottom: 16 }}>
+        <button type="button" className={`tab-btn ${binTab === 'cases' ? 'active' : ''}`} onClick={() => setBinTab('cases')}>📂 Cases</button>
+        <button type="button" className={`tab-btn ${binTab === 'inventory' ? 'active' : ''}`} onClick={() => setBinTab('inventory')}>📦 Inventory Stock</button>
+      </div>
+
+      {binTab === 'cases' && (
       <div style={{ padding:'10px 16px',background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.25)',borderRadius:'var(--radius-md)',marginBottom:16,display:'flex',alignItems:'center',gap:10,fontSize:'0.8rem',color:'var(--status-warning)' }}>
         <span>⚠️</span>
-        <span>Items in the Recycle Bin will remain here indefinitely until restored. Restore requires the Recycle Bin password (set in Settings). <strong>Permanent deletion</strong> is available to Admins and Super Admins only.</span>
+        <span>Case restore requires the Recycle Bin password (Settings → Recycle Bin). Permanent case deletion is for Admins only.</span>
       </div>
+      )}
 
       {loading ? (
         <div style={{ display:'flex',justifyContent:'center',padding:60 }}><div className="spinner" style={{ width:32,height:32 }} /></div>
-      ) : items.length === 0 ? (
+      ) : binTab === 'cases' && items.length === 0 ? (
         <div className="empty-state" style={{ padding:80 }}>
           <div className="empty-icon">🗑️</div>
-          <div className="empty-title">Recycle Bin is Empty</div>
-          <div className="empty-desc">Deleted cases will appear here and can be restored using the Recycle Bin password.</div>
+          <div className="empty-title">No deleted cases</div>
+          <div className="empty-desc">Deleted cases appear here and can be restored using the Recycle Bin password.</div>
+        </div>
+      ) : binTab === 'inventory' && invItems.length === 0 ? (
+        <div className="empty-state" style={{ padding:80 }}>
+          <div className="empty-icon">📦</div>
+          <div className="empty-title">No deleted stock items</div>
+          <div className="empty-desc">Delete items from Inventory → Stock to move them here. Manage fully in Inventory → Recycle Bin tab.</div>
+        </div>
+      ) : binTab === 'inventory' ? (
+        <div className="table-container">
+          <table>
+            <thead><tr><th>Stock ID</th><th>Category</th><th>Model</th><th>PCB #</th><th>Deleted</th><th>Actions</th></tr></thead>
+            <tbody>
+              {invItems.map(item => {
+                const cat = getCategoryMeta(item.ui_category || item.category);
+                return (
+                  <tr key={item.id}>
+                    <td className="font-mono text-xs">{item.stock_number || item.sku || '—'}</td>
+                    <td>{cat.icon} {cat.label}</td>
+                    <td>{item.model || item.name || '—'}</td>
+                    <td className="font-mono text-xs">{item.pcb_number || '—'}</td>
+                    <td className="text-xs text-muted">{item.deleted_at ? daysAgo(item.deleted_at) : '—'}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleInvRestore(item.id)}>Restore</button>
+                        {isSuperAdmin && (
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => handleInvPermanentDelete(item.id)}>Delete Permanently</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
         <div className="table-container">

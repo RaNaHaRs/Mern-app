@@ -1,0 +1,25 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "C:\\NodejsApp\\CRM\\Mern-app\\backend\\logs\\.a734ad9be33295ff64a7f83139329d60176c1d17-audit.json",
+    "files": [
+        {
+            "date": 1779347752014,
+            "name": "C:\\NodejsApp\\CRM\\Mern-app\\backend\\logs\\app-2026-05-21.log",
+            "hash": "32126229ddacc114f352dc9174cb1f3f1f3b9fec78b56797d51e9edf912d8226"
+        },
+        {
+            "date": 1779423599251,
+            "name": "C:\\NodejsApp\\CRM\\Mern-app\\backend\\logs\\app-2026-05-22.log",
+            "hash": "f5fe4cd423cd68ca1d27f00ebf3c460b9acfe38bdd40402bd333e2c3ffed720c"
+        },
+        {
+            "date": 1779510303401,
+            "name": "C:\\NodejsApp\\CRM\\Mern-app\\backend\\logs\\app-2026-05-23.log",
+            "hash": "4debb0661d2b8c5808dc2c9987df26b2889f37298c7cf75911f48ea9d0dd61b7"
+        }
+    ],
+    "hashType": "sha256"
+}

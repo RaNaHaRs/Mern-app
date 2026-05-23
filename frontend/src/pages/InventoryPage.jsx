@@ -4,16 +4,11 @@ import { inventoryApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
 import InventoryHddFields from '../components/InventoryHddFields';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
-import { isHddCategoryKey } from '../constants/inventoryConfig';
+import {
+  FORM_INV_CATEGORIES, isHddCategoryKey, getCategoryMeta, normalizeCategoryKey,
+} from '../constants/inventoryConfig';
 
-export const INV_CATEGORIES = [
-  { key: 'harddisk', label: 'Harddisk', icon: '💿', color: '#3b82f6', brand: '' },
-  { key: 'pcb', label: 'PCB', icon: '🔌', color: '#10b981', brand: '' },
-  { key: 'ssd', label: 'SSD', icon: '⚡', color: '#06b6d4', brand: '' },
-  { key: 'other', label: 'Other', icon: '📦', color: '#8b5cf6', brand: '' },
-];
-
-const INVENTORY_CATEGORY_KEYS = ['harddisk', 'pcb', 'ssd', 'other'];
+export const INV_CATEGORIES = FORM_INV_CATEGORIES;
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -33,6 +28,8 @@ function StatusBadge({ status }) {
     damaged:   { color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
     in_stock:  { color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
     donated:   { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+    transferred: { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
+    deleted:   { color: '#94a3b8', bg: 'rgba(100,116,139,0.12)' },
   };
   const s = map[status] || map.available;
   return (
@@ -67,10 +64,14 @@ function InventoryFormField({ label, field, type = 'text', placeholder = '', req
 }
 
 // ─── Add / Edit Stock Item Modal ──────────────────────────────────────────────
-function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanies }) {
+function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
   const isEdit = !!editItem;
-  const [form, setForm] = useState(() => editItem ? { ...editItem } : {
-    category: 'harddisk', quantity: 1, min_quantity: 1, condition: 'used',
+  const formCategories = FORM_INV_CATEGORIES;
+  const [form, setForm] = useState(() => editItem ? {
+    ...editItem,
+    category: normalizeCategoryKey(editItem.ui_category || editItem.category),
+  } : {
+    category: 'hdd', quantity: 1, min_quantity: 1, condition: 'used',
     status: 'available', company: '', stock_number: '', brand: '', model: '',
     name: '', description: '', serial_number: '', pcb_number: '', capacity: '', interface: '', form_factor: '',
     firmware: '', site_code: '', family: '', date_code: '', head_map: '',
@@ -80,19 +81,22 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
   const [error, setError] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState(() => editItem?.custom_field_values || {});
 
-  const categoriesRaw = invCategories?.length ? invCategories : INV_CATEGORIES;
-  const formCategories = invCategories?.length ? invCategories : INV_CATEGORIES;
   const companies = hddCompanies?.length ? hddCompanies : ['Western Digital', 'Seagate', 'Other'];
-  const catInfo = formCategories.find(c => c.key === form.category) || formCategories[0];
   const isHDD = isHddCategoryKey(form.category, formCategories);
   const isPcb = form.category === 'pcb';
   const isSsd = form.category === 'ssd';
-  const isOther = form.category === 'other' || form.category === 'others' || form.category === 'stock_item' || (!isHDD && !isPcb && !isSsd);
+  const isOther = form.category === 'other';
   const showStockNumber = !isPcb;
-  const showDynamicFields = !isSsd && !isOther;
+  const showDynamicFields = isHDD && !isPcb;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isPcb) {
+      if (!String(form.model || '').trim()) { setError('Model is required for PCB'); return; }
+      if (!String(form.name || '').trim()) { setError('PCB Name is required'); return; }
+      if (!String(form.pcb_number || '').trim()) { setError('PCB Number is required'); return; }
+      if (!String(form.notes || '').trim()) { setError('Problem is required for PCB'); return; }
+    }
     let stockId = String(form.stock_number || form.stock_id || '').trim();
     if (!stockId) {
       if (form.category === 'pcb') {
@@ -151,9 +155,20 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
                 </select>
               </InventoryFormField>
               {showStockNumber && (
-                <InventoryFormField label={form.category === 'harddisk' ? 'Harddisk No' : 'Stock ID'} field="stock_number" placeholder="Enter unique stock ID (required)" required form={form} setForm={setForm} />
+                <InventoryFormField label={form.category === 'hdd' ? 'HDD No' : 'Stock ID'} field="stock_number" placeholder="Enter unique stock ID (required)" required form={form} setForm={setForm} />
               )}
             </div>
+
+            {isPcb && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <InventoryFormField label="Model" field="model" placeholder="Enter model" required form={form} setForm={setForm} />
+                <InventoryFormField label="PCB Name" field="name" placeholder="Enter PCB name" required form={form} setForm={setForm} />
+                <InventoryFormField label="PCB Number" field="pcb_number" placeholder="Enter PCB number" required form={form} setForm={setForm} />
+                <InventoryFormField label="Problem" field="notes" placeholder="Describe the problem" required full form={form} setForm={setForm}>
+                  <textarea className="form-textarea" style={{ minHeight: 60 }} required value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                </InventoryFormField>
+              </div>
+            )}
 
             {isSsd && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -185,7 +200,7 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
 
             {showDynamicFields && (
               <InventoryHddFields
-                category={form.category}
+                category={form.category === 'hdd' ? 'harddisk' : form.category}
                 form={form}
                 setForm={setForm}
                 customFieldValues={customFieldValues}
@@ -233,7 +248,7 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
                 </div>
               </>
             ) : (
-              !isSsd && !isOther && (
+              !isSsd && !isOther && !isPcb && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
                   <InventoryFormField label="Problem / Notes" field="notes" full form={form} setForm={setForm}>
                     <textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
@@ -487,24 +502,115 @@ function exportToPDF(items, catFilter) {
 }
 
 // ─── Main InventoryPage ────────────────────────────────────────────────────────
+// ─── Delete Confirmation Modal ─────────────────────────────────────────────────
+function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
+  const [loading, setLoading] = useState(false);
+  const handleDelete = async () => {
+    setLoading(true);
+    try {
+      await onConfirm();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const title = '🗑️ Move to Recycle Bin';
+  const message = `Move ${selectedCount} item${selectedCount > 1 ? 's' : ''} to the recycle bin? You can restore them from the Recycle Bin tab.`;
+  const btnText = 'Move to Recycle Bin';
+  const btnStyle = 'btn-secondary';
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">{title}</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body">
+          <p style={{ marginBottom: 16, color: 'var(--text-primary)' }}>{message}</p>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel} disabled={loading}>Cancel</button>
+          <button className={`btn ${btnStyle}`} onClick={handleDelete} disabled={loading}>
+            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Processing...</> : btnText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PermanentDeleteModal({ selectedCount, onConfirm, onCancel }) {
+  const [loading, setLoading] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+
+  const handleConfirm = async () => {
+    if (confirmText !== 'DELETE') return;
+    setLoading(true);
+    try {
+      await onConfirm();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420, border: '1px solid rgba(239,68,68,0.35)' }}>
+        <div className="modal-header" style={{ background: 'rgba(239,68,68,0.06)' }}>
+          <h3 className="modal-title" style={{ color: 'var(--status-danger)' }}>⚠️ Delete Permanently</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body">
+          <p style={{ fontSize: '0.85rem', marginBottom: 12 }}>
+            Permanently delete {selectedCount} item{selectedCount > 1 ? 's' : ''}? This cannot be undone.
+          </p>
+          <div className="form-group">
+            <label className="form-label required">Type DELETE to confirm</label>
+            <input className="form-input" value={confirmText} onChange={e => setConfirmText(e.target.value)} placeholder="DELETE" />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel} disabled={loading}>Cancel</button>
+          <button className="btn btn-danger" disabled={loading || confirmText !== 'DELETE'} onClick={handleConfirm}>
+            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Deleting...</> : 'Delete Permanently'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InventoryPage() {
-  const { canAccess } = useAuth();
+  const { canAccess, user } = useAuth();
   const navigate = useNavigate();
-  const { activeCategories, activeBrandNames } = useInventoryConfig();
+  const { activeBrandNames } = useInventoryConfig();
   const [items, setItems] = useState([]);
+  const [recycleItems, setRecycleItems] = useState([]);
   const [pagination, setPagination] = useState({});
+  const [recyclePagination, setRecyclePagination] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [recyclePage, setRecyclePage] = useState(1);
   const [showNew, setShowNew] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [adjustItem, setAdjustItem] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [lowStockAlerts, setLowStockAlerts] = useState(0);
-  const [activeTab, setActiveTab] = useState('all');   // 'all' | category key | 'low_stock'
-  const [exportLoading, setExportLoading] = useState(false);
+  const [viewMode, setViewMode] = useState('stock'); // 'stock' | 'recycle'
+  const [activeTab, setActiveTab] = useState('all');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPermanentDelete, setShowPermanentDelete] = useState(false);
 
-  const load = useCallback(async () => {
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const displayList = viewMode === 'recycle' ? recycleItems : items;
+  const activePagination = viewMode === 'recycle' ? recyclePagination : pagination;
+  const activePage = viewMode === 'recycle' ? recyclePage : page;
+  const setActivePage = viewMode === 'recycle' ? setRecyclePage : setPage;
+
+  const loadStock = useCallback(async () => {
     setLoading(true);
     try {
       const params = { page, limit: 40 };
@@ -517,8 +623,24 @@ export default function InventoryPage() {
       setItems(finalItems);
       setPagination(d.pagination || {});
       setLowStockAlerts(d.lowStockAlerts || 0);
-    } catch { } finally { setLoading(false); }
+    } catch { /* ignore */ } finally { setLoading(false); }
   }, [search, page, activeTab]);
+
+  const loadRecycle = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { page: recyclePage, limit: 40 };
+      if (search) params.search = search;
+      const d = await inventoryApi.listRecycleBin(params);
+      setRecycleItems(d.items || []);
+      setRecyclePagination(d.pagination || {});
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [search, recyclePage]);
+
+  const load = useCallback(async () => {
+    if (viewMode === 'recycle') await loadRecycle();
+    else await loadStock();
+  }, [viewMode, loadStock, loadRecycle]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -527,42 +649,131 @@ export default function InventoryPage() {
   const availableCount = items.filter(i => (i.status || 'available') === 'available').length;
   const totalValue = items.reduce((s, i) => s + (i.quantity * (parseFloat(i.unit_cost) || 0)), 0);
 
-  const displayCategoryTabs = activeCategories.length ? activeCategories : INV_CATEGORIES;
-
   const TABS = [
     { key: 'all', label: '📦 All', icon: '' },
-    ...displayCategoryTabs.map(c => ({ key: c.key, label: `${c.icon} ${c.label}`, icon: c.icon, color: c.color })),
+    ...INV_CATEGORIES.map(c => ({ key: c.key, label: `${c.icon} ${c.label}`, icon: c.icon, color: c.color })),
     { key: 'low_stock', label: `⚠️ Low Stock${lowStockAlerts > 0 ? ` (${lowStockAlerts})` : ''}` },
   ];
 
-  const catForExport = activeTab !== 'all' && activeTab !== 'low_stock' ? displayCategoryTabs.find(c => c.key === activeTab)?.label : '';
+  const catForExport = activeTab !== 'all' && activeTab !== 'low_stock' ? INV_CATEGORIES.find(c => c.key === activeTab)?.label : '';
+
+  const handleTransfer = async (item) => {
+    if (item.status === 'transferred') return;
+    if (!confirm(`Transfer "${item.stock_number || item.name}" to Transferred Items?`)) return;
+    try {
+      await inventoryApi.transfer(item.id, 'Transferred from inventory stock');
+      await loadStock();
+      navigate('/transferred-items');
+    } catch (err) {
+      alert(`Transfer failed: ${err.message}`);
+    }
+  };
+
+  const handleSoftDelete = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await inventoryApi.bulkSoftDelete(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      setShowDeleteConfirm(false);
+      await loadStock();
+      setViewMode('recycle');
+      setRecyclePage(1);
+      await loadRecycle();
+    } catch (err) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      if (selectedIds.size === 1) {
+        await inventoryApi.permanentDelete(Array.from(selectedIds)[0]);
+      } else {
+        await inventoryApi.bulkPermanentDelete(Array.from(selectedIds));
+      }
+      setSelectedIds(new Set());
+      setShowPermanentDelete(false);
+      await loadRecycle();
+    } catch (err) {
+      alert(`Permanent delete failed: ${err.message}`);
+    }
+  };
+
+  const handleRestore = async (id) => {
+    try {
+      await inventoryApi.restore(id);
+      await loadRecycle();
+      await loadStock();
+    } catch (err) {
+      alert(`Restore failed: ${err.message}`);
+    }
+  };
+
+  const toggleSelect = (itemId) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(itemId)) {
+      newSelected.delete(itemId);
+    } else {
+      newSelected.add(itemId);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayList.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayList.map(i => i.id)));
+    }
+  };
+
+  const selectedCount = selectedIds.size;
 
   return (
-    <div>
-      {/* Page Header */}
+    <div className="inventory-page">
       <div className="page-header">
         <div className="page-header-left">
           <h2>Inventory — Stock Management</h2>
-          <p>Donor drives, PCBs, SSDs, phones and spare parts · {totalItems} total items</p>
+          <p>HDD, SSD, PCB &amp; other parts · {viewMode === 'stock' ? totalItems : recyclePagination.total || 0} {viewMode === 'stock' ? 'in stock' : 'in recycle bin'}</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowImport(true)}>📥 Import</button>
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => exportToPDF(items, catForExport)}>📄 PDF</button>
-          </div>
-          <button className="btn btn-secondary btn-sm" onClick={() => exportToCSV(items)}>📊 CSV</button>
-          {canAccess('junior_engineer') && (
-            <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ Add Item</button>
+        <div className="inventory-toolbar">
+          {selectedCount > 0 && viewMode === 'stock' && (
+            <>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowDeleteConfirm(true)}>🗑️ Delete ({selectedCount})</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear</button>
+            </>
+          )}
+          {selectedCount > 0 && viewMode === 'recycle' && isAdmin && (
+            <>
+              <button className="btn btn-danger btn-sm" onClick={() => setShowPermanentDelete(true)}>Delete Permanently ({selectedCount})</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear</button>
+            </>
+          )}
+          {selectedCount === 0 && viewMode === 'stock' && (
+            <>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowImport(true)}>📥 Import</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => exportToPDF(items, catForExport)}>📄 PDF</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => exportToCSV(items)}>📊 CSV</button>
+              {canAccess('junior_engineer') && (
+                <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>+ Add Item</button>
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="stats-grid" style={{ marginBottom: 20 }}>
+      <div className="tabs" style={{ flexShrink: 0 }}>
+        <button type="button" className={`tab-btn ${viewMode === 'stock' ? 'active' : ''}`} onClick={() => { setViewMode('stock'); setSelectedIds(new Set()); setPage(1); }}>📦 Stock</button>
+        <button type="button" className={`tab-btn ${viewMode === 'recycle' ? 'active' : ''}`} onClick={() => { setViewMode('recycle'); setSelectedIds(new Set()); setRecyclePage(1); }}>🗑️ Recycle Bin{recyclePagination.total ? ` (${recyclePagination.total})` : ''}</button>
+      </div>
+
+      {viewMode === 'stock' && (
+      <div className="inventory-stats-grid stats-grid">
         {[
           { icon: '📦', value: totalItems, label: 'Total Items', color: 'var(--accent-primary)', bg: 'rgba(0,212,255,0.1)' },
           { icon: '✅', value: availableCount, label: 'Available', color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
-          { icon: '⚠️', value: lowStockAlerts, label: 'Low Stock', color: lowStockAlerts > 0 ? 'var(--status-danger)' : 'var(--status-success)', bg: lowStockAlerts > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' },
+          { icon: '⚠️', value: lowStockAlerts, label: 'Donor Drive', color: lowStockAlerts > 0 ? 'var(--status-danger)' : 'var(--status-success)', bg: lowStockAlerts > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' },
           { icon: '💰', value: `₹${totalValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, label: 'Stock Value', color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
         ].map(s => (
           <div key={s.label} className="stat-card" style={{ '--stat-color': s.color, '--stat-bg': s.bg }}>
@@ -572,12 +783,13 @@ export default function InventoryPage() {
           </div>
         ))}
       </div>
+      )}
 
-      {/* Category Tabs */}
-      <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+      {viewMode === 'stock' && (
+      <div style={{ overflowX: 'auto', flexShrink: 0 }}>
         <div className="tabs" style={{ flexWrap: 'nowrap', minWidth: 'max-content' }}>
           {TABS.map(t => (
-            <button key={t.key}
+            <button key={t.key} type="button"
               className={`tab-btn ${activeTab === t.key ? 'active' : ''}`}
               style={t.color && activeTab === t.key ? { borderBottomColor: t.color, color: t.color } : {}}
               onClick={() => { setActiveTab(t.key); setPage(1); }}>
@@ -586,9 +798,9 @@ export default function InventoryPage() {
           ))}
         </div>
       </div>
+      )}
 
-      {/* Search */}
-      <div className="filters-bar" style={{ marginBottom: 16 }}>
+      <div className="filters-bar" style={{ marginBottom: 0, flexShrink: 0 }}>
         <div className="search-bar">
           <span className="search-icon">🔍</span>
           <input className="search-input" placeholder="Search stock#, serial, PCB, model…" value={search}
@@ -596,9 +808,8 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="table-container">
-        <div style={{ overflowX: 'auto' }}>
+      <div className="inventory-table-panel table-container">
+        <div className="inventory-table-scroll">
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
               <div className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
@@ -607,6 +818,11 @@ export default function InventoryPage() {
             <table>
               <thead>
                 <tr>
+                  {(viewMode === 'stock' || viewMode === 'recycle') && (
+                    <th style={{ width: '30px' }}>
+                      <input type="checkbox" checked={selectedIds.size === displayList.length && displayList.length > 0} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} />
+                    </th>
+                  )}
                   <th>Stock ID</th>
                   <th>Category</th>
                   <th>Company / Brand</th>
@@ -614,27 +830,28 @@ export default function InventoryPage() {
                   <th>Serial #</th>
                   <th>PCB #</th>
                   <th>Capacity</th>
-                  <th>Firmware</th>
-                  <th>Condition</th>
-                  <th>Status</th>
+                  {viewMode === 'stock' && <th>Status</th>}
                   <th>Qty</th>
-                  <th>Location</th>
-                  <th>Cost</th>
+                  {viewMode === 'recycle' && <th>Deleted</th>}
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {items.map(item => {
-                  const isLow = item.quantity <= (item.min_quantity || 1);
-                  const catList = activeCategories.length ? activeCategories : INV_CATEGORIES;
-                  const cat = catList.find(c => c.key === (item.ui_category || item.category)) || { key: (item.ui_category || item.category), label: (item.ui_category || item.category)?.replace(/_/g, ' '), icon: '📦', color: '#64748b' };
+                {displayList.map(item => {
+                  const isLow = viewMode === 'stock' && item.quantity <= (item.min_quantity || 1);
+                  const isTransferred = item.status === 'transferred';
+                  const cat = getCategoryMeta(item.ui_category || item.category);
                   const dyn = item.dynamic_fields && typeof item.dynamic_fields === 'object'
                     ? item.dynamic_fields
                     : (typeof item.dynamic_fields === 'string' ? (() => { try { return JSON.parse(item.dynamic_fields); } catch { return {}; } })() : {});
+                  const rowClass = isTransferred ? 'row-transferred' : isLow ? 'row-low-stock' : '';
                   return (
                     <tr key={item.id}
-                      style={{ background: isLow ? 'rgba(239,68,68,0.03)' : undefined, cursor: 'pointer' }}
-                      onClick={() => navigate(`/inventory/${item.id}`)}>
+                      className={rowClass}
+                      onClick={viewMode === 'stock' ? () => navigate(`/inventory/${item.id}`) : undefined}>
+                      <td onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} style={{ cursor: 'pointer' }} />
+                      </td>
                       <td>
                         <span className="font-mono text-accent" style={{ fontSize: '0.78rem', fontWeight: 700 }}>
                           {item.stock_number || item.sku || '—'}
@@ -650,42 +867,51 @@ export default function InventoryPage() {
                       <td className="text-xs font-mono text-muted">{item.serial_number || dyn.serial_number || '—'}</td>
                       <td className="text-xs font-mono">{item.pcb_number || dyn.pcb_number || '—'}</td>
                       <td className="text-xs text-muted">{item.capacity || dyn.capacity || '—'}</td>
-                      <td className="text-xs font-mono text-muted">{item.firmware || item.firmware_version || dyn.firmware || '—'}</td>
+                      {viewMode === 'stock' && <td><StatusBadge status={item.status || 'available'} /></td>}
                       <td>
-                        <span style={{ fontSize: '0.68rem', fontWeight: 600, color: item.condition === 'new' ? 'var(--status-success)' : item.condition === 'for_parts' ? 'var(--text-muted)' : 'var(--status-warning)' }}>
-                          {item.condition?.replace(/_/g,' ').toUpperCase() || '—'}
-                        </span>
-                      </td>
-                      <td><StatusBadge status={item.status || 'available'} /></td>
-                      <td>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.9rem', color: isLow ? 'var(--status-danger)' : item.quantity > 5 ? 'var(--status-success)' : 'var(--status-warning)' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.85rem', color: isLow ? 'var(--status-danger)' : 'inherit' }}>
                           {item.quantity}
-                          {isLow && <span style={{ marginLeft: 4, fontSize: '0.55rem', color: 'var(--status-danger)', fontWeight: 700 }}> ↓LOW</span>}
+                          {isLow && <span style={{ marginLeft: 4, fontSize: '0.55rem', color: 'var(--status-danger)' }}> LOW</span>}
                         </span>
                       </td>
-                      <td className="text-xs text-muted">{item.location || '—'}</td>
-                      <td className="text-xs font-mono">{item.unit_cost ? `₹${parseFloat(item.unit_cost).toLocaleString('en-IN')}` : '—'}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                          {canAccess('junior_engineer') && (
+                      {viewMode === 'recycle' && (
+                        <td className="text-xs text-muted">
+                          {item.deleted_at ? new Date(item.deleted_at).toLocaleDateString('en-IN') : '—'}
+                        </td>
+                      )}
+                      <td onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap' }}>
+                          {viewMode === 'stock' && canAccess('junior_engineer') && (
                             <>
-                              <button className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)} style={{ padding: '4px 8px' }}>✏️</button>
-                              <button className="btn btn-secondary btn-sm" onClick={() => setAdjustItem(item)} style={{ padding: '4px 8px' }}>± Qty</button>
+                              <button type="button" className="btn btn-secondary btn-sm" disabled={isTransferred}
+                                onClick={() => handleTransfer(item)} style={{ padding: '4px 8px', fontSize: '0.72rem' }} title="Transfer">Transfer</button>
+                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)} style={{ padding: '4px 8px' }}>Edit</button>
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdjustItem(item)} style={{ padding: '4px 8px' }}>±</button>
                             </>
                           )}
-                          <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/inventory/${item.id}`)} style={{ padding: '4px 8px' }}>→</button>
+                          {viewMode === 'recycle' && (
+                            <>
+                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRestore(item.id)}>Restore</button>
+                              {isAdmin && (
+                                <button type="button" className="btn btn-danger btn-sm" onClick={() => { setSelectedIds(new Set([item.id])); setShowPermanentDelete(true); }}>Delete Permanently</button>
+                              )}
+                            </>
+                          )}
+                          {viewMode === 'stock' && (
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate(`/inventory/${item.id}`)} style={{ padding: '4px 8px' }}>→</button>
+                          )}
                         </div>
                       </td>
                     </tr>
                   );
                 })}
-                {!items.length && (
-                  <tr><td colSpan={14}>
+                {!displayList.length && (
+                  <tr><td colSpan={viewMode === 'recycle' ? 10 : 11}>
                     <div className="empty-state">
-                      <div className="empty-icon">📦</div>
-                      <div className="empty-title">No items found</div>
+                      <div className="empty-icon">{viewMode === 'recycle' ? '🗑️' : '📦'}</div>
+                      <div className="empty-title">{viewMode === 'recycle' ? 'Recycle bin is empty' : 'No items found'}</div>
                       <div className="empty-desc">
-                        {activeTab === 'low_stock' ? '✅ No low-stock alerts! Inventory looks good.' : 'Add stock items or import from CSV.'}
+                        {viewMode === 'recycle' ? 'Deleted stock items appear here until restored or permanently removed.' : (activeTab === 'low_stock' ? '✅ No low-stock alerts!' : 'Add stock items or import from CSV.')}
                       </div>
                     </div>
                   </td></tr>
@@ -694,26 +920,37 @@ export default function InventoryPage() {
             </table>
           )}
         </div>
-        {pagination.pages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 16, borderTop: '1px solid var(--border-subtle)' }}>
-            <button className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-            <span className="text-xs text-muted font-mono">Page {page} of {pagination.pages}</span>
-            <button className="btn btn-secondary btn-sm" disabled={page >= pagination.pages} onClick={() => setPage(p => p + 1)}>Next →</button>
+        {activePagination.pages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 10, borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={activePage <= 1} onClick={() => setActivePage(p => p - 1)}>← Prev</button>
+            <span className="text-xs text-muted font-mono">Page {activePage} of {activePagination.pages}</span>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={activePage >= activePagination.pages} onClick={() => setActivePage(p => p + 1)}>Next →</button>
           </div>
         )}
       </div>
 
-      {/* Modals */}
       {showNew && (
-        <NewItemModal onClose={() => setShowNew(false)} onCreated={load}
-          invCategories={activeCategories} hddCompanies={activeBrandNames} />
+        <NewItemModal onClose={() => setShowNew(false)} onCreated={loadStock} hddCompanies={activeBrandNames} />
       )}
       {editItem && (
-        <NewItemModal onClose={() => setEditItem(null)} onCreated={load} editItem={editItem}
-          invCategories={activeCategories} hddCompanies={activeBrandNames} />
+        <NewItemModal onClose={() => setEditItem(null)} onCreated={loadStock} editItem={editItem} hddCompanies={activeBrandNames} />
       )}
-      {adjustItem && <AdjustStockModal item={adjustItem} onClose={() => setAdjustItem(null)} onDone={load} />}
-      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={load} />}
+      {adjustItem && <AdjustStockModal item={adjustItem} onClose={() => setAdjustItem(null)} onDone={loadStock} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={loadStock} />}
+      {showDeleteConfirm && (
+        <DeleteConfirmModal
+          selectedCount={selectedCount}
+          onConfirm={handleSoftDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
+      {showPermanentDelete && (
+        <PermanentDeleteModal
+          selectedCount={selectedCount}
+          onConfirm={handlePermanentDelete}
+          onCancel={() => setShowPermanentDelete(false)}
+        />
+      )}
     </div>
   );
 }

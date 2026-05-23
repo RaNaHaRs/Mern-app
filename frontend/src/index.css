@@ -1341,6 +1341,59 @@ input[type="datetime-local"], input[type="date"], input[type="time"] {
 .page-header-left h2 { font-size: 1.2rem; margin-bottom: 2px; }
 .page-header-left p { font-size: 0.78rem; color: var(--text-muted); }
 
+/* ── Inventory page (single-view layout) ─────────────────────── */
+.inventory-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 88px);
+  overflow: hidden;
+}
+.inventory-page .page-header { margin-bottom: 0; flex-shrink: 0; }
+.inventory-page .inventory-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+.inventory-page .inventory-stats-grid .stat-card { padding: 10px 12px; }
+.inventory-page .inventory-stats-grid .stat-value { font-size: 1.1rem; }
+.inventory-page .inventory-stats-grid .stat-label { font-size: 0.68rem; }
+.inventory-page .inventory-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.inventory-page .inventory-table-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.inventory-page .inventory-table-panel .table-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.inventory-page .inventory-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.inventory-page .inventory-table-scroll table { font-size: 0.78rem; }
+.inventory-page .inventory-table-scroll th,
+.inventory-page .inventory-table-scroll td { padding: 6px 8px; }
+.inventory-page tr.row-transferred {
+  background: rgba(139, 92, 246, 0.08) !important;
+}
+.inventory-page tr.row-transferred td { border-left: none; }
+.inventory-page tr.row-low-stock { background: rgba(239, 68, 68, 0.04); }
+
 /* ── Filters Bar ──────────────────────────────────────────────── */
 .filters-bar {
   display: flex;

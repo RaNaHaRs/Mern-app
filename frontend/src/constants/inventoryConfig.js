@@ -7,14 +7,15 @@ export const DEFAULT_INVENTORY_BRANDS = [
   'ADATA', 'SK Hynix', 'Micron', 'Intel', 'Other',
 ];
 
-export const DEFAULT_INV_CATEGORIES = [
-  { key: 'harddisk', label: 'Harddisk', icon: '💿', color: '#3b82f6', brand: '', isHdd: true },
-  { key: 'pcb', label: 'PCB', icon: '🔌', color: '#10b981', brand: '', isHdd: false },
+/** Add Stock form + tabs: HDD, SSD, PCB, Other only */
+export const FORM_INV_CATEGORIES = [
+  { key: 'hdd', label: 'HDD', icon: '💿', color: '#3b82f6', brand: '', isHdd: true },
   { key: 'ssd', label: 'SSD', icon: '⚡', color: '#06b6d4', brand: '', isHdd: false },
-  { key: 'stock_item', label: 'Stock Item', icon: '📦', color: '#f59e0b', brand: '', isHdd: false },
+  { key: 'pcb', label: 'PCB', icon: '🔌', color: '#10b981', brand: '', isHdd: false },
   { key: 'other', label: 'Other', icon: '📦', color: '#8b5cf6', brand: '', isHdd: false },
-  { key: 'others', label: 'Others', icon: '📦', color: '#8b5cf6', brand: '', isHdd: false },
 ];
+
+export const DEFAULT_INV_CATEGORIES = FORM_INV_CATEGORIES;
 
 export const DEFAULT_STOCK_FIELD_KEYS = [
   'serial_number', 'model', 'pcb_number', 'capacity', 'interface', 'form_factor',
@@ -77,7 +78,22 @@ export function getActiveBrands(brands) {
 
 export function isHddCategoryKey(key, categories = loadCategories()) {
   const cat = categories.find(c => c.key === key);
-  return cat ? cat.isHdd !== false : ['harddisk', 'wd_35', 'wd_25', 'seagate_35', 'seagate_25', 'others_35', 'others_25'].includes(key);
+  return cat ? cat.isHdd !== false : ['hdd', 'harddisk', 'wd_35', 'wd_25', 'seagate_35', 'seagate_25', 'others_35', 'others_25'].includes(key);
+}
+
+/** Map legacy DB keys to display category */
+export function normalizeCategoryKey(key) {
+  if (!key) return 'hdd';
+  const k = String(key).toLowerCase();
+  if (k === 'harddisk' || k.startsWith('wd_') || k.startsWith('seagate_') || k.includes('hdd')) return 'hdd';
+  if (k === 'ssd') return 'ssd';
+  if (k === 'pcb') return 'pcb';
+  return 'other';
+}
+
+export function getCategoryMeta(key, categories = FORM_INV_CATEGORIES) {
+  const norm = normalizeCategoryKey(key);
+  return categories.find(c => c.key === norm) || categories.find(c => c.key === key) || { key: norm, label: norm.toUpperCase(), icon: '📦', color: '#64748b' };
 }
 
 /** Field Config + dynamic form fields use inventory category key (wd_35, pcb, ssd, …) */
