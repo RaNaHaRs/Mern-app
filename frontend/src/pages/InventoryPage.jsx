@@ -2,26 +2,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { inventoryApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
+import InventoryHddFields from '../components/InventoryHddFields';
+import { useInventoryConfig } from '../hooks/useInventoryConfig';
+import { isHddCategoryKey } from '../constants/inventoryConfig';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const INV_CATEGORIES = [
-  { key: 'wd_35',      label: 'WD 3.5"',       icon: '💿', color: '#3b82f6',  brand: 'Western Digital' },
-  { key: 'wd_25',      label: 'WD 2.5"',       icon: '💽', color: '#22d3ee',  brand: 'Western Digital' },
-  { key: 'seagate_35', label: 'Seagate 3.5"',  icon: '💿', color: '#f59e0b',  brand: 'Seagate' },
-  { key: 'seagate_25', label: 'Seagate 2.5"',  icon: '💽', color: '#fbbf24',  brand: 'Seagate' },
-  { key: 'others_35',  label: 'Others 3.5"',   icon: '💿', color: '#8b5cf6',  brand: '' },
-  { key: 'others_25',  label: 'Others 2.5"',   icon: '💽', color: '#a78bfa',  brand: '' },
-  { key: 'pcb',        label: 'PCB',            icon: '🔌', color: '#10b981',  brand: '' },
-  { key: 'ssd',        label: 'SSD',            icon: '⚡', color: '#06b6d4',  brand: '' },
-  { key: 'phone',      label: 'Phone',          icon: '📱', color: '#ec4899',  brand: '' },
+export const INV_CATEGORIES = [
+  { key: 'harddisk', label: 'Harddisk', icon: '💿', color: '#3b82f6', brand: '' },
+  { key: 'pcb', label: 'PCB', icon: '🔌', color: '#10b981', brand: '' },
+  { key: 'ssd', label: 'SSD', icon: '⚡', color: '#06b6d4', brand: '' },
+  { key: 'other', label: 'Other', icon: '📦', color: '#8b5cf6', brand: '' },
 ];
 
-const HDD_COMPANIES = [
-  'Western Digital', 'Seagate', 'Toshiba', 'Samsung', 'Hitachi (HGST)',
-  'Fujitsu', 'IBM / HGST', 'Maxtor', 'Quantum', 'LaCie', 'Buffalo',
-  'Transcend', 'SanDisk', 'Kingston', 'Crucial', 'Lexar', 'Corsair',
-  'ADATA', 'SK Hynix', 'Micron', 'Intel', 'Other'
-];
+const INVENTORY_CATEGORY_KEYS = ['harddisk', 'pcb', 'ssd', 'other'];
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -75,10 +67,10 @@ function InventoryFormField({ label, field, type = 'text', placeholder = '', req
 }
 
 // ─── Add / Edit Stock Item Modal ──────────────────────────────────────────────
-function NewItemModal({ onClose, onCreated, editItem }) {
+function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanies }) {
   const isEdit = !!editItem;
   const [form, setForm] = useState(() => editItem ? { ...editItem } : {
-    category: 'wd_35', quantity: 1, min_quantity: 1, condition: 'used',
+    category: 'harddisk', quantity: 1, min_quantity: 1, condition: 'used',
     status: 'available', company: '', stock_number: '', brand: '', model: '',
     serial_number: '', pcb_number: '', capacity: '', interface: '', form_factor: '',
     firmware: '', site_code: '', family: '', date_code: '', head_map: '',
@@ -86,26 +78,39 @@ function NewItemModal({ onClose, onCreated, editItem }) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [customFieldValues, setCustomFieldValues] = useState(() => editItem?.custom_field_values || {});
 
-  const catInfo = INV_CATEGORIES.find(c => c.key === form.category) || INV_CATEGORIES[0];
-  const isHDD = ['wd_35','wd_25','seagate_35','seagate_25','others_35','others_25'].includes(form.category);
-  const isPCB = form.category === 'pcb';
-  const isSSD = form.category === 'ssd';
-  const isPhone = form.category === 'phone';
+  const categoriesRaw = invCategories?.length ? invCategories : INV_CATEGORIES;
+  const categories = categoriesRaw.filter(c => INVENTORY_CATEGORY_KEYS.includes(c.key));
+  const formCategories = categories.length ? categories : INV_CATEGORIES;
+  const companies = hddCompanies?.length ? hddCompanies : ['Western Digital', 'Seagate', 'Other'];
+  const catInfo = formCategories.find(c => c.key === form.category) || formCategories[0];
+  const isHDD = isHddCategoryKey(form.category, formCategories);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const stockId = String(form.stock_number || form.stock_id || '').trim();
+    if (!stockId) {
+      setError('Stock ID is required — enter a unique ID manually.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
+      const payload = {
+        ...form,
+        stock_number: stockId,
+        stock_id: stockId,
+        customFieldValues,
+        quantity: form.quantity != null ? form.quantity : 1,
+        min_quantity: form.min_quantity != null ? form.min_quantity : 1,
+        status: form.status || 'available',
+        condition: form.condition || 'used',
+      };
       if (isEdit) {
-        await fetch(`${BASE_URL}/inventory/${editItem.id}`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
-        });
+        await inventoryApi.update(editItem.id, payload);
       } else {
-        await inventoryApi.create(form);
+        await inventoryApi.create(payload);
       }
       onCreated();
       onClose();
@@ -123,114 +128,71 @@ function NewItemModal({ onClose, onCreated, editItem }) {
         <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
           {error && <div className="alert alert-danger" style={{ marginBottom: 16 }}><span className="alert-icon">⚠</span> {error}</div>}
           <form onSubmit={handleSubmit}>
-            {/* Category & Identity */}
+            {/* Category & Stock ID — required for all item types */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <InventoryFormField label="Category" field="category" required form={form} setForm={setForm}>
-                <select className="form-select" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, company: INV_CATEGORIES.find(c=>c.key===e.target.value)?.brand || '' }))}>
-                  {INV_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
+                <select className="form-select" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, company: categories.find(c => c.key === e.target.value)?.brand || f.company }))}>
+                  {categories.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
                 </select>
               </InventoryFormField>
-              <InventoryFormField label="Stock Number (Manual)" field="stock_number" placeholder="e.g. STK-001, WD-2025-042" required form={form} setForm={setForm} />
+              <InventoryFormField label={form.category === 'harddisk' ? 'Harddisk No' : 'Stock ID'} field="stock_number" placeholder="Enter unique stock ID (required)" required form={form} setForm={setForm} />
             </div>
 
-            {/* Company / Brand row */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <InventoryFormField label="Company / Manufacturer" field="company" form={form} setForm={setForm}>
-                <select className="form-select" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value, brand: e.target.value !== 'Other' ? e.target.value : f.brand }))}>
-                  <option value="">Select Company…</option>
-                  {HDD_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </InventoryFormField>
-              {form.company === 'Other' ? (
-                <InventoryFormField label="Custom Brand Name" field="brand" placeholder="Enter brand name" form={form} setForm={setForm} />
-              ) : (
-                <InventoryFormField label="Model / Part No." field="model" placeholder="e.g. WD10EZEX, ST1000DM010" form={form} setForm={setForm} />
-              )}
-            </div>
+            {/* Dynamic fields from Settings → Field Config (per category) */}
+            <InventoryHddFields
+              category={form.category}
+              form={form}
+              setForm={setForm}
+              customFieldValues={customFieldValues}
+              setCustomFieldValues={setCustomFieldValues}
+            />
 
-            {/* HDD Specific */}
             {isHDD && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <InventoryFormField label="Serial Number" field="serial_number" placeholder="S/N from label" form={form} setForm={setForm} />
-                <InventoryFormField label="PCB Number" field="pcb_number" placeholder="e.g. 2060-771824-000" form={form} setForm={setForm} />
-                <InventoryFormField label="Capacity" field="capacity" placeholder="e.g. 1TB, 500GB" form={form} setForm={setForm} />
-                <InventoryFormField label="Interface" field="interface" form={form} setForm={setForm}>
-                  <select className="form-select" value={form.interface || ''} onChange={e => setForm(f => ({ ...f, interface: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {['SATA','IDE','SAS','USB','PCIe','NVMe'].map(i => <option key={i}>{i}</option>)}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <InventoryFormField label="Company / Manufacturer" field="company" form={form} setForm={setForm}>
+                  <select className="form-select" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value, brand: e.target.value !== 'Other' ? e.target.value : f.brand }))}>
+                    <option value="">Select Company…</option>
+                    {companies.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </InventoryFormField>
-                <InventoryFormField label="Firmware / SW Rev" field="firmware" placeholder="e.g. CC4H, ABCDE1" form={form} setForm={setForm} />
-                <InventoryFormField label="Site Code / DCM" field="site_code" placeholder="e.g. WCAZBB" form={form} setForm={setForm} />
-                <InventoryFormField label="Date Code" field="date_code" placeholder="e.g. 2502" form={form} setForm={setForm} />
-                <InventoryFormField label="Head Map" field="head_map" placeholder="e.g. 00 01 02 03" form={form} setForm={setForm} />
-                <InventoryFormField label="ROM Family" field="family" placeholder="e.g. RYNO5" form={form} setForm={setForm} />
-                <InventoryFormField label="Form Factor" field="form_factor" form={form} setForm={setForm}>
-                  <select className="form-select" value={form.form_factor || ''} onChange={e => setForm(f => ({ ...f, form_factor: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {['3.5" HDD','2.5" HDD','1.8" HDD'].map(i => <option key={i}>{i}</option>)}
-                  </select>
+                {form.company === 'Other' ? (
+                  <InventoryFormField label="Custom Brand Name" field="brand" placeholder="Enter brand name" form={form} setForm={setForm} />
+                ) : (
+                  <InventoryFormField label="Model / Part No." field="model" placeholder="e.g. WD10EZEX" form={form} setForm={setForm} />
+                )}
+              </div>
+            )}
+            {isEdit ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <InventoryFormField label="Condition" field="condition" form={form} setForm={setForm}>
+                    <select className="form-select" value={form.condition || 'used'} onChange={e => setForm(f => ({ ...f, condition: e.target.value }))}>
+                      {[['new','New (Unused)'],['used','Used / Working'],['refurb','Refurbished'],['for_parts','For Parts / Faulty'],['untested','Untested']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </InventoryFormField>
+                  <InventoryFormField label="Status" field="status" form={form} setForm={setForm}>
+                    <select className="form-select" value={form.status || 'available'} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                      {[['available','✅ Available'],['reserved','🔒 Reserved'],['used','📤 Used/Consumed'],['damaged','⚠️ Damaged'],['donated','💿 Donated to Case']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </InventoryFormField>
+                  <InventoryFormField label="Quantity" field="quantity" type="number" form={form} setForm={setForm} />
+                  <InventoryFormField label="Min Stock Alert" field="min_quantity" type="number" form={form} setForm={setForm} />
+                  <InventoryFormField label="Unit Cost (₹)" field="unit_cost" type="number" placeholder="0.00" form={form} setForm={setForm} />
+                  <InventoryFormField label="Shelf Location" field="location" placeholder="e.g. Cabinet A, Row 3" form={form} setForm={setForm} />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+                  <InventoryFormField label="Problem / Notes" field="notes" full form={form} setForm={setForm}>
+                    <textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+                  </InventoryFormField>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
+                <InventoryFormField label="Problem / Notes" field="notes" full form={form} setForm={setForm}>
+                  <textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </InventoryFormField>
               </div>
             )}
-
-            {/* PCB Specific */}
-            {isPCB && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <InventoryFormField label="PCB Number" field="pcb_number" placeholder="e.g. 2060-771824-000" required form={form} setForm={setForm} />
-                <InventoryFormField label="Compatible Drives" field="compatible_drives" placeholder="e.g. WD10EZEX, WD20EZRZ" form={form} setForm={setForm} />
-                <InventoryFormField label="Firmware Chip" field="firmware" placeholder="Firmware chip ID" form={form} setForm={setForm} />
-                <InventoryFormField label="Voltage" field="voltage" placeholder="e.g. 5V/12V" form={form} setForm={setForm} />
-              </div>
-            )}
-
-            {/* SSD Specific */}
-            {isSSD && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <InventoryFormField label="Serial Number" field="serial_number" placeholder="S/N from label" form={form} setForm={setForm} />
-                <InventoryFormField label="Capacity" field="capacity" placeholder="e.g. 256GB, 1TB" form={form} setForm={setForm} />
-                <InventoryFormField label="Interface" field="interface" form={form} setForm={setForm}>
-                  <select className="form-select" value={form.interface || ''} onChange={e => setForm(f => ({ ...f, interface: e.target.value }))}>
-                    <option value="">Select…</option>
-                    {['SATA','NVMe M.2','PCIe','mSATA','USB'].map(i => <option key={i}>{i}</option>)}
-                  </select>
-                </InventoryFormField>
-                <InventoryFormField label="Controller Chip" field="firmware" placeholder="e.g. Phison S11, Marvell" form={form} setForm={setForm} />
-              </div>
-            )}
-
-            {/* Phone Specific */}
-            {isPhone && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <InventoryFormField label="IMEI" field="serial_number" placeholder="IMEI number" form={form} setForm={setForm} />
-                <InventoryFormField label="Storage Capacity" field="capacity" placeholder="e.g. 64GB, 128GB" form={form} setForm={setForm} />
-                <InventoryFormField label="OS Version" field="firmware" placeholder="e.g. Android 13, iOS 17" form={form} setForm={setForm} />
-                <InventoryFormField label="Chipset" field="family" placeholder="e.g. Snapdragon 8 Gen 1" form={form} setForm={setForm} />
-              </div>
-            )}
-
-            {/* Common fields */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <InventoryFormField label="Condition" field="condition" form={form} setForm={setForm}>
-                <select className="form-select" value={form.condition || 'used'} onChange={e => setForm(f => ({ ...f, condition: e.target.value }))}>
-                  {[['new','New (Unused)'],['used','Used / Working'],['refurb','Refurbished'],['for_parts','For Parts / Faulty'],['untested','Untested']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </InventoryFormField>
-              <InventoryFormField label="Status" field="status" form={form} setForm={setForm}>
-                <select className="form-select" value={form.status || 'available'} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                  {[['available','✅ Available'],['reserved','🔒 Reserved'],['used','📤 Used/Consumed'],['damaged','⚠️ Damaged'],['donated','💿 Donated to Case']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </InventoryFormField>
-              <InventoryFormField label="Quantity" field="quantity" type="number" form={form} setForm={setForm} />
-              <InventoryFormField label="Min Stock Alert" field="min_quantity" type="number" form={form} setForm={setForm} />
-              <InventoryFormField label="Unit Cost (₹)" field="unit_cost" type="number" placeholder="0.00" form={form} setForm={setForm} />
-              <InventoryFormField label="Shelf Location" field="location" placeholder="e.g. Cabinet A, Row 3" form={form} setForm={setForm} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12 }}>
-              <InventoryFormField label="Notes / Description" field="notes" full form={form} setForm={setForm}>
-                <textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes || ''} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
-              </InventoryFormField>
-            </div>
           </form>
         </div>
         <div className="modal-footer">
@@ -480,6 +442,7 @@ function exportToPDF(items, catFilter) {
 export default function InventoryPage() {
   const { canAccess } = useAuth();
   const navigate = useNavigate();
+  const { activeCategories, activeBrandNames } = useInventoryConfig();
   const [items, setItems] = useState([]);
   const [pagination, setPagination] = useState({});
   const [loading, setLoading] = useState(true);
@@ -516,13 +479,17 @@ export default function InventoryPage() {
   const availableCount = items.filter(i => (i.status || 'available') === 'available').length;
   const totalValue = items.reduce((s, i) => s + (i.quantity * (parseFloat(i.unit_cost) || 0)), 0);
 
+  const categoryTabs = (activeCategories.length ? activeCategories : INV_CATEGORIES)
+    .filter(c => INVENTORY_CATEGORY_KEYS.includes(c.key));
+  const displayCategoryTabs = categoryTabs.length ? categoryTabs : INV_CATEGORIES;
+
   const TABS = [
     { key: 'all', label: '📦 All', icon: '' },
-    ...INV_CATEGORIES.map(c => ({ key: c.key, label: `${c.icon} ${c.label}`, icon: c.icon, color: c.color })),
+    ...displayCategoryTabs.map(c => ({ key: c.key, label: `${c.icon} ${c.label}`, icon: c.icon, color: c.color })),
     { key: 'low_stock', label: `⚠️ Low Stock${lowStockAlerts > 0 ? ` (${lowStockAlerts})` : ''}` },
   ];
 
-  const catForExport = activeTab !== 'all' && activeTab !== 'low_stock' ? INV_CATEGORIES.find(c => c.key === activeTab)?.label : '';
+  const catForExport = activeTab !== 'all' && activeTab !== 'low_stock' ? displayCategoryTabs.find(c => c.key === activeTab)?.label : '';
 
   return (
     <div>
@@ -594,7 +561,7 @@ export default function InventoryPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Stock #</th>
+                  <th>Stock ID</th>
                   <th>Category</th>
                   <th>Company / Brand</th>
                   <th>Model</th>
@@ -613,7 +580,10 @@ export default function InventoryPage() {
               <tbody>
                 {items.map(item => {
                   const isLow = item.quantity <= (item.min_quantity || 1);
-                  const cat = INV_CATEGORIES.find(c => c.key === item.category) || INV_CATEGORIES[0];
+                  const cat = INV_CATEGORIES.find(c => c.key === (item.ui_category || item.category)) || INV_CATEGORIES[0];
+                  const dyn = item.dynamic_fields && typeof item.dynamic_fields === 'object'
+                    ? item.dynamic_fields
+                    : (typeof item.dynamic_fields === 'string' ? (() => { try { return JSON.parse(item.dynamic_fields); } catch { return {}; } })() : {});
                   return (
                     <tr key={item.id}
                       style={{ background: isLow ? 'rgba(239,68,68,0.03)' : undefined, cursor: 'pointer' }}
@@ -630,10 +600,10 @@ export default function InventoryPage() {
                       </td>
                       <td style={{ fontSize: '0.8rem', fontWeight: 600 }}>{item.company || item.brand || '—'}</td>
                       <td className="text-xs font-mono">{item.model || item.name || '—'}</td>
-                      <td className="text-xs font-mono text-muted">{item.serial_number || '—'}</td>
-                      <td className="text-xs font-mono">{item.pcb_number || '—'}</td>
-                      <td className="text-xs text-muted">{item.capacity || '—'}</td>
-                      <td className="text-xs font-mono text-muted">{item.firmware || item.firmware_version || '—'}</td>
+                      <td className="text-xs font-mono text-muted">{item.serial_number || dyn.serial_number || '—'}</td>
+                      <td className="text-xs font-mono">{item.pcb_number || dyn.pcb_number || '—'}</td>
+                      <td className="text-xs text-muted">{item.capacity || dyn.capacity || '—'}</td>
+                      <td className="text-xs font-mono text-muted">{item.firmware || item.firmware_version || dyn.firmware || '—'}</td>
                       <td>
                         <span style={{ fontSize: '0.68rem', fontWeight: 600, color: item.condition === 'new' ? 'var(--status-success)' : item.condition === 'for_parts' ? 'var(--text-muted)' : 'var(--status-warning)' }}>
                           {item.condition?.replace(/_/g,' ').toUpperCase() || '—'}
@@ -687,8 +657,14 @@ export default function InventoryPage() {
       </div>
 
       {/* Modals */}
-      {showNew && <NewItemModal onClose={() => setShowNew(false)} onCreated={load} />}
-      {editItem && <NewItemModal onClose={() => setEditItem(null)} onCreated={load} editItem={editItem} />}
+      {showNew && (
+        <NewItemModal onClose={() => setShowNew(false)} onCreated={load}
+          invCategories={activeCategories} hddCompanies={activeBrandNames} />
+      )}
+      {editItem && (
+        <NewItemModal onClose={() => setEditItem(null)} onCreated={load} editItem={editItem}
+          invCategories={activeCategories} hddCompanies={activeBrandNames} />
+      )}
       {adjustItem && <AdjustStockModal item={adjustItem} onClose={() => setAdjustItem(null)} onDone={load} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={load} />}
     </div>

@@ -15,6 +15,7 @@ const ClientsPage      = React.lazy(() => import('./pages/ClientsPage'));
 const ClientDetail     = React.lazy(() => import('./pages/ClientDetail'));
 const InventoryPage    = React.lazy(() => import('./pages/InventoryPage'));
 const InventoryDetail  = React.lazy(() => import('./pages/InventoryDetail'));
+const TransferredItemsPage = React.lazy(() => import('./pages/TransferredItemsPage'));
 const AnalyticsPage    = React.lazy(() => import('./pages/AnalyticsPage'));
 const SettingsPage     = React.lazy(() => import('./pages/SettingsPage'));
 const AccountingPage   = React.lazy(() => import('./pages/AccountingPage'));
@@ -57,6 +58,7 @@ function Sidebar({ open, onClose }) {
   ];
   const intelItems = isSuperAdmin ? [] : [
     ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '🔄', label: 'Inventory', to: '/inventory' }] : []),
+    ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '📤', label: 'Transferred Items', to: '/transferred-items' }] : []),
     ...(hasPermission('knowledge_base', 'view') || isAdmin ? [{ icon: '📚', label: 'Knowledge Base', to: '/solutions' }] : []),
     ...(isAdmin ? [{ icon: '📣', label: 'Marketing', to: '/marketing' }] : []),
   ];
@@ -300,6 +302,7 @@ function AppLayout() {
               <Route path="/clients/:id"       element={<ClientDetail />} />
               <Route path="/inventory"         element={<InventoryPage />} />
               <Route path="/inventory/:id"     element={<InventoryDetail />} />
+              <Route path="/transferred-items" element={<TransferredItemsPage />} />
               <Route path="/accounting"        element={<AccountingPage />} />
               <Route path="/solutions"         element={<SolutionsPage />} />
               <Route path="/reports"           element={<ReportsPage />} />

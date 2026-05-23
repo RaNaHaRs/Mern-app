@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../store/AuthContext';
 import { usersApi } from '../services/api';
+import HddFieldConfigManager from '../components/settings/HddFieldConfigManager';
+import InventoryStockConfigManager from '../components/settings/InventoryStockConfigManager';
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -345,67 +347,6 @@ function PaymentMethodsManager() {
   );
 }
 
-// ── HDD Types Manager ───────────────────────────────────────────────────────
-function HddTypesManager() {
-  const DEFAULT_TYPES = [
-    { key:'wd_2.5',      label:'WD 2.5"',      brand:'Western Digital', active:true },
-    { key:'wd_3.5',      label:'WD 3.5"',      brand:'Western Digital', active:true },
-    { key:'seagate_2.5', label:'Seagate 2.5"', brand:'Seagate',         active:true },
-    { key:'seagate_3.5', label:'Seagate 3.5"', brand:'Seagate',         active:true },
-    { key:'others_2.5',  label:'Others 2.5"',  brand:'',                active:true },
-    { key:'others_3.5',  label:'Others 3.5"',  brand:'',                active:true },
-  ];
-  const [types, setTypes] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('custom_hdd_types_full') || 'null') || DEFAULT_TYPES; } catch { return DEFAULT_TYPES; }
-  });
-  const [newLabel, setNewLabel] = useState('');
-  const [newBrand, setNewBrand] = useState('');
-
-  const save = (t) => { setTypes(t); localStorage.setItem('custom_hdd_types_full', JSON.stringify(t)); localStorage.setItem('custom_hdd_types', JSON.stringify(t.filter(x=>x.active).map(x=>x.label))); };
-  const toggle = (key) => save(types.map(t => t.key===key ? {...t,active:!t.active} : t));
-  const remove = (key) => { if(confirm('Remove this HDD type?')) save(types.filter(t=>t.key!==key)); };
-  const add = () => {
-    if (!newLabel.trim()) return;
-    const key = newLabel.toLowerCase().replace(/[^a-z0-9]/g,'_');
-    save([...types, { key, label: newLabel.trim(), brand: newBrand.trim(), active: true }]);
-    setNewLabel(''); setNewBrand('');
-  };
-
-  return (
-    <div style={{display:'flex',flexDirection:'column',gap:12}}>
-      <div className="alert alert-info" style={{marginBottom:0}}>
-        <span className="alert-icon">💡</span> Active HDD types appear in the New Case form. Toggle to hide without deleting.
-      </div>
-      {types.map(t => (
-        <div key={t.key} className="card" style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12}}>
-          <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',flex:1}}>
-            <input type="checkbox" checked={t.active} onChange={()=>toggle(t.key)} />
-            <span style={{fontWeight:700,color:t.active?'var(--text-primary)':'var(--text-muted)'}}>{t.label}</span>
-            {t.brand && <span style={{fontSize:'0.75rem',color:'var(--text-muted)'}}>— {t.brand}</span>}
-          </label>
-          {!DEFAULT_TYPES.find(d=>d.key===t.key) && (
-            <button className="btn btn-danger btn-sm" onClick={()=>remove(t.key)}>✕ Remove</button>
-          )}
-        </div>
-      ))}
-      <div className="card" style={{padding:16}}>
-        <div style={{fontWeight:700,marginBottom:10}}>➕ Add Custom HDD Type</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr auto',gap:10,alignItems:'flex-end'}}>
-          <div className="form-group" style={{margin:0}}>
-            <label className="form-label">HDD Type Label</label>
-            <input className="form-input" placeholder='e.g. Toshiba 2.5"' value={newLabel} onChange={e=>setNewLabel(e.target.value)} />
-          </div>
-          <div className="form-group" style={{margin:0}}>
-            <label className="form-label">Brand (optional)</label>
-            <input className="form-input" placeholder='e.g. Toshiba' value={newBrand} onChange={e=>setNewBrand(e.target.value)} />
-          </div>
-          <button className="btn btn-primary" onClick={add}>+ Add</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ── Capacities Manager ────────────────────────────────────────────────────────
 function CapacitiesManager() {
   const DEFAULT_CAPS = ['160GB','250GB','320GB','500GB','750GB','1TB','1.5TB','2TB','3TB','4TB','6TB','8TB','10TB','12TB','14TB','16TB','18TB','20TB'];
@@ -437,176 +378,6 @@ function CapacitiesManager() {
         <button className="btn btn-primary" onClick={add}>+ Add</button>
       </div>
       <button className="btn btn-secondary btn-sm" style={{alignSelf:'flex-start'}} onClick={()=>{if(confirm('Reset to defaults?'))save(DEFAULT_CAPS);}}>↺ Reset Defaults</button>
-    </div>
-  );
-}
-
-// ── HDD Field Config Manager ─────────────────────────────────────────────────
-function HddFieldConfigManager() {
-  const HDD_TYPES_KEYS = [
-    { key:'wd_2_5',      label:'WD 2.5"' },
-    { key:'wd_3_5',      label:'WD 3.5"' },
-    { key:'seagate_2_5', label:'Seagate 2.5"' },
-    { key:'seagate_3_5', label:'Seagate 3.5"' },
-    { key:'others_2_5',  label:'Others 2.5"' },
-    { key:'others_3_5',  label:'Others 3.5"' },
-  ];
-  const HDD_FIELDS_DEF = {
-    wd_2_5:      ['serial_number','model','manufacture_country','manufacture_date','pcb_number','pn_number','dcm'],
-    wd_3_5:      ['serial_number','model','manufacture_country','manufacture_date','pcb_number','pn_number','dcm','dcx'],
-    seagate_2_5: ['serial_number','model','manufacture_country','manufacture_date','pcb_number','pn_number','date_code','site_code','firmware'],
-    seagate_3_5: ['serial_number','model','manufacture_country','manufacture_date','pcb_number','pn_number','date_code','site_code','firmware'],
-    others_2_5:  ['company_name','serial_number','model','manufacture_country','manufacture_date','pcb_number','pn_number','mlc','hdd_code','four_code','firmware','dcm'],
-    others_3_5:  ['company_name','serial_number','model','manufacture_country','manufacture_date','pcb_number','pn_number','mlc','hdd_code','four_code','firmware','dcm'],
-  };
-  const FIELD_LABELS_MAP = {
-    serial_number:'Serial Number', model:'Model', manufacture_country:'Manufacture Country',
-    manufacture_date:'Manufacture Date', pcb_number:'PCB Number', pn_number:'PN Number',
-    dcm:'DCM', dcx:'DCX (3.5 only)', date_code:'Date Code', site_code:'Site Code',
-    firmware:'Firmware', company_name:'Company Name', mlc:'MLC', hdd_code:'HDD Code', four_code:'4 Code',
-  };
-  const STATUS_OPTIONS = [
-    { key:'mandatory', label:'Mandatory', color:'#ef4444', bg:'rgba(239,68,68,0.15)' },
-    { key:'optional',  label:'Optional',  color:'#3b82f6', bg:'rgba(59,130,246,0.1)' },
-    { key:'hidden',    label:'Hidden',    color:'#64748b', bg:'rgba(100,116,139,0.1)' },
-  ];
-
-  const loadConfig = () => { try { return JSON.parse(localStorage.getItem('crm_field_config') || '{}'); } catch { return {}; } };
-  const [config, setConfig] = useState(loadConfig);
-  const [activeType, setActiveType] = useState('wd_2_5');
-  const [newFieldLabel, setNewFieldLabel] = useState('');
-  const [savedMsg, setSavedMsg] = useState(false);
-
-  const persist = (cfg) => {
-    setConfig(cfg);
-    localStorage.setItem('crm_field_config', JSON.stringify(cfg));
-    setSavedMsg(true);
-    setTimeout(() => setSavedMsg(false), 2000);
-  };
-
-  const getField = (typeKey, fieldKey) => config?.hdd_fields?.[typeKey]?.[fieldKey] || 'optional';
-  const setField = (typeKey, fieldKey, status) => {
-    const cfg = JSON.parse(JSON.stringify(config));
-    if (!cfg.hdd_fields) cfg.hdd_fields = {};
-    if (!cfg.hdd_fields[typeKey]) cfg.hdd_fields[typeKey] = {};
-    cfg.hdd_fields[typeKey][fieldKey] = status;
-    persist(cfg);
-  };
-  const getSec = (k) => config?.sections?.[k] !== false;
-  const toggleSec = (k) => { const cfg = JSON.parse(JSON.stringify(config)); if (!cfg.sections) cfg.sections = {}; cfg.sections[k] = !getSec(k); persist(cfg); };
-  const customFields = (typeKey) => config?.custom_fields?.[typeKey] || [];
-  const addCustomField = () => {
-    if (!newFieldLabel.trim()) return;
-    const cfg = JSON.parse(JSON.stringify(config));
-    if (!cfg.custom_fields) cfg.custom_fields = {};
-    if (!cfg.custom_fields[activeType]) cfg.custom_fields[activeType] = [];
-    const key = 'cf_' + newFieldLabel.toLowerCase().replace(/[^a-z0-9]/g,'_') + '_' + Date.now();
-    cfg.custom_fields[activeType].push({ key, label: newFieldLabel.trim() });
-    setNewFieldLabel('');
-    persist(cfg);
-  };
-  const removeCustomField = (typeKey, fieldKey) => {
-    const cfg = JSON.parse(JSON.stringify(config));
-    if (cfg.custom_fields?.[typeKey]) cfg.custom_fields[typeKey] = cfg.custom_fields[typeKey].filter(f => f.key !== fieldKey);
-    persist(cfg);
-  };
-
-  return (
-    <div style={{display:'flex',flexDirection:'column',gap:20}}>
-      {/* Section toggles */}
-      <div style={{display:'flex',flexDirection:'column',gap:8}}>
-        <div style={{fontWeight:700,fontSize:'0.88rem',marginBottom:4}}>⚙️ Section Visibility (applies to all HDD types)</div>
-        {[
-          ['image_upload','📷 Image Upload Section','Show/hide the image upload area in new case form'],
-          ['diagnosis','🔍 Diagnosis Field','Show/hide the Initial Diagnosis textarea'],
-          ['quotation','💰 Commercial / Quotation Section','Show/hide quotation, advance, balance fields'],
-        ].map(([k,label,desc]) => (
-          <div key={k} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:8,border:'1px solid var(--border-subtle)'}}>
-            <div>
-              <div style={{fontWeight:600,fontSize:'0.82rem'}}>{label}</div>
-              <div style={{fontSize:'0.7rem',color:'var(--text-muted)',marginTop:2}}>{desc}</div>
-            </div>
-            <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
-              <input type="checkbox" checked={getSec(k)} onChange={() => toggleSec(k)} />
-              <span style={{fontSize:'0.78rem',fontWeight:700,color:getSec(k)?'#22c55e':'var(--text-muted)'}}>{getSec(k)?'Enabled':'Disabled'}</span>
-            </label>
-          </div>
-        ))}
-      </div>
-
-      {/* Per-type field config */}
-      <div style={{display:'flex',flexDirection:'column',gap:12}}>
-        <div style={{fontWeight:700,fontSize:'0.88rem'}}>🔧 Field Config per HDD Type</div>
-        {/* Type tabs */}
-        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-          {HDD_TYPES_KEYS.map(t => (
-            <button key={t.key} onClick={() => setActiveType(t.key)}
-              style={{padding:'6px 14px',borderRadius:6,border:'1px solid',fontSize:'0.78rem',cursor:'pointer',
-                borderColor:activeType===t.key?'var(--accent-primary)':'var(--border-default)',
-                background:activeType===t.key?'var(--accent-glow)':'transparent',
-                color:activeType===t.key?'var(--accent-primary)':'var(--text-secondary)',
-                fontWeight:activeType===t.key?700:400}}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {/* Legend */}
-        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',fontSize:'0.72rem',color:'var(--text-muted)'}}>
-          <span>Field status:</span>
-          {STATUS_OPTIONS.map(s => (
-            <span key={s.key} style={{padding:'2px 8px',borderRadius:20,background:s.bg,color:s.color,fontWeight:700,border:`1px solid ${s.color}50`}}>{s.label}</span>
-          ))}
-        </div>
-        {/* Fields list */}
-        <div style={{display:'flex',flexDirection:'column',gap:6}}>
-          {(HDD_FIELDS_DEF[activeType]||[]).map(field => {
-            const status = getField(activeType, field);
-            return (
-              <div key={field} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',background:'var(--bg-elevated)',borderRadius:8,border:'1px solid var(--border-subtle)'}}>
-                <span style={{fontSize:'0.82rem',fontWeight:500,color:status==='hidden'?'var(--text-muted)':'var(--text-primary)',textDecoration:status==='hidden'?'line-through':'none'}}>
-                  {FIELD_LABELS_MAP[field]||field}
-                </span>
-                <div style={{display:'flex',gap:5}}>
-                  {STATUS_OPTIONS.map(s => (
-                    <button key={s.key} onClick={() => setField(activeType,field,s.key)}
-                      style={{padding:'3px 9px',borderRadius:5,border:`1px solid ${status===s.key?s.color:'var(--border-default)'}`,
-                        background:status===s.key?s.bg:'transparent',color:status===s.key?s.color:'var(--text-muted)',
-                        fontSize:'0.7rem',fontWeight:status===s.key?700:400,cursor:'pointer',whiteSpace:'nowrap'}}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Custom fields */}
-        <div style={{background:'var(--bg-elevated)',borderRadius:8,border:'1px solid var(--border-subtle)',padding:14}}>
-          <div style={{fontWeight:700,fontSize:'0.8rem',marginBottom:10}}>
-            ➕ Custom Fields — {HDD_TYPES_KEYS.find(t=>t.key===activeType)?.label}
-          </div>
-          {customFields(activeType).map(cf => (
-            <div key={cf.key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'7px 12px',background:'rgba(99,102,241,0.08)',borderRadius:6,marginBottom:6,border:'1px solid rgba(99,102,241,0.2)'}}>
-              <span style={{fontSize:'0.8rem',fontWeight:600,color:'var(--accent-secondary)'}}>✦ {cf.label}</span>
-              <button onClick={() => removeCustomField(activeType,cf.key)}
-                style={{background:'none',border:'none',color:'var(--danger)',cursor:'pointer',fontSize:11,fontWeight:700}}>✕ Remove</button>
-            </div>
-          ))}
-          <div style={{display:'flex',gap:8,marginTop:4}}>
-            <input className="form-input" style={{flex:1,fontSize:'0.8rem'}} placeholder='e.g. "Warranty Status", "RMA Number"'
-              value={newFieldLabel} onChange={e=>setNewFieldLabel(e.target.value)}
-              onKeyDown={e=>{if(e.key==='Enter')addCustomField();}} />
-            <button className="btn btn-primary btn-sm" onClick={addCustomField}>+ Add</button>
-          </div>
-        </div>
-      </div>
-
-      {savedMsg && (
-        <div style={{position:'fixed',bottom:24,right:24,background:'#22c55e',color:'#fff',padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:'0.85rem',zIndex:9999,boxShadow:'0 4px 12px rgba(0,0,0,0.3)'}}>
-          ✓ Field config saved
-        </div>
-      )}
     </div>
   );
 }
@@ -1827,8 +1598,11 @@ export default function SettingsPage() {
           {/* HDD TYPES */}
           {activeTab === 'hdd_types' && (
             <div className="card">
-              <div className="card-title" style={{marginBottom:16}}>💾 HDD Type Management</div>
-              <HddTypesManager />
+              <div className="card-title" style={{ marginBottom: 4 }}>💾 HDD Types & Stock Form</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+                Manage brands (Company dropdown), categories (Add Stock), and field definitions used on the inventory form.
+              </div>
+              <InventoryStockConfigManager />
             </div>
           )}
 
@@ -1845,7 +1619,7 @@ export default function SettingsPage() {
             <div className="card">
               <div className="card-title" style={{marginBottom:4}}>🔧 HDD Field Configuration</div>
               <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginBottom:16}}>
-                Control which fields are mandatory, optional, or hidden per HDD type. Add custom fields. Toggle section visibility.
+                Choose an inventory category (WD 3.5", PCB, SSD, Phone, …). Set fields mandatory/optional/hidden and add custom fields — they appear on the Add Stock form for that category.
               </div>
               <HddFieldConfigManager />
             </div>

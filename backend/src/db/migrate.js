@@ -67,6 +67,23 @@ async function migrate() {
 
     console.log('✅ Tenant fields migration applied (subscription_plan, company_name, etc.)');
 
+    // =========================================================
+    // STEP 2c: FIELD CONFIG + INVENTORY + TRANSFERRED ITEMS
+    // =========================================================
+    const fieldConfigSchema = fs.readFileSync(
+      path.join(__dirname, 'migrations', '004_field_config_inventory_transferred.sql'),
+      'utf8'
+    );
+    await client.query(fieldConfigSchema);
+    console.log('✅ Field config, inventory extensions, and transferred items migration applied');
+
+    const invBrandsSchema = fs.readFileSync(
+      path.join(__dirname, 'migrations', '005_inventory_brands_categories.sql'),
+      'utf8'
+    );
+    await client.query(invBrandsSchema);
+    console.log('✅ Inventory brands & categories migration applied');
+
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");
     if (hasRoleEnum.rows.length) {
       try {

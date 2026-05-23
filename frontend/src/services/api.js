@@ -128,13 +128,21 @@ export const modelsApi = {
 // Inventory
 export const inventoryApi = {
   list: (params) => api.get('/inventory', params),
+  get: (id) => api.get(`/inventory/${id}`),
   create: (data) => api.post('/inventory', data),
+  update: (id, data) => api.put(`/inventory/${id}`, data),
   adjust: (id, data) => api.patch(`/inventory/${id}/quantity`, data),
   donors: () => api.get('/inventory/donors'),
-  // Images
   getImages: (id) => api.get(`/inventory/${id}/images`),
   uploadImages: (id, formData) => api.upload(`/inventory/${id}/images`, formData),
   deleteImage: (id, imgId) => api.delete(`/inventory/${id}/images/${imgId}`),
+};
+
+export const transferredItemsApi = {
+  list: (params) => api.get('/transferred-items', params),
+  get: (id) => api.get(`/transferred-items/${id}`),
+  create: (data) => api.post('/transferred-items', data),
+  delete: (id) => api.delete(`/transferred-items/${id}`),
 };
 
 // Payments

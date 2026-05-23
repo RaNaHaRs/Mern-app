@@ -18,6 +18,9 @@ const caseRoutes       = require('./routes/cases');
 const storageModelRoutes = require('./routes/storageModels');
 const donorRoutes      = require('./routes/donors');
 const inventoryRoutes  = require('./routes/inventory');
+const fieldConfigRoutes = require('./routes/fieldConfig');
+const transferredItemsRoutes = require('./routes/transferredItems');
+const inventoryConfigRoutes = require('./routes/inventoryConfig');
 const fileRoutes       = require('./routes/files');
 const paymentRoutes    = require('./routes/payments');
 const analyticsRoutes  = require('./routes/analytics');
@@ -95,6 +98,9 @@ app.use('/api/cases', caseRoutes);
 app.use('/api/storage-models', storageModelRoutes);
 app.use('/api/donors', donorRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/field-config', fieldConfigRoutes);
+app.use('/api/transferred-items', transferredItemsRoutes);
+app.use('/api/inventory-config', inventoryConfigRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/analytics', analyticsRoutes);
@@ -157,10 +163,12 @@ async function runInventoryMigration() {
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS interface VARCHAR(50)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS form_factor VARCHAR(50)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'available'",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS source_case_id INTEGER",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS ui_category VARCHAR(50)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS dynamic_fields JSONB DEFAULT '{}'",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS source_case_id UUID",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS tenant_id INTEGER",
     "UPDATE inventory_items SET tenant_id=1 WHERE tenant_id IS NULL",
-    "UPDATE inventory_items SET stock_number=sku WHERE stock_number IS NULL",
     "UPDATE inventory_items SET status='available' WHERE status IS NULL",
     "CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory_items(tenant_id)",
     "CREATE INDEX IF NOT EXISTS idx_inventory_stock_number ON inventory_items(stock_number)",
