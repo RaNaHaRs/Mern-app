@@ -267,7 +267,8 @@ export default function InventoryDetail() {
   if (!item) return <div className="empty-state"><div className="empty-title">Stock item not found</div></div>;
 
   const uiCat = item.ui_category || item.category;
-  const cat = (activeCategories.length ? activeCategories : INV_CATEGORIES).find(c => c.key === uiCat) || INV_CATEGORIES[0];
+  const catList = activeCategories.length ? activeCategories : INV_CATEGORIES;
+  const cat = catList.find(c => c.key === uiCat) || { key: uiCat, label: uiCat?.replace(/_/g, ' '), icon: '📦', color: '#64748b' };
   const isHDD = isHddCategoryKey(uiCat, activeCategories);
   const dyn = (() => {
     const d = item.dynamic_fields;
@@ -278,6 +279,7 @@ export default function InventoryDetail() {
   const val = (k) => item[k] || dyn[k] || null;
   const isPCB = uiCat === 'pcb';
   const isSSD = uiCat === 'ssd';
+  const isOtherCat = uiCat === 'other' || uiCat === 'others' || uiCat === 'stock_item' || (!isHDD && !isPCB && !isSSD);
 
   const TABS = [
     { key: 'overview', label: '📋 Overview' },
@@ -342,7 +344,7 @@ export default function InventoryDetail() {
             <span style={{ fontSize:'0.72rem',padding:'3px 10px',borderRadius:999,background:`${cat.color}1a`,color:cat.color,fontWeight:700 }}>{cat.label}</span>
             <StatusBadge status={item.status || 'available'} />
           </div>
-          <h2 style={{ marginBottom:4 }}>{item.company || item.brand || '—'} {item.model || ''}</h2>
+          <h2 style={{ marginBottom:4 }}>{isOtherCat ? (item.name || item.model || '—') : (`${item.company || item.brand || '—'} ${item.model || ''}`)}</h2>
           <div className="text-sm text-muted">
             {item.capacity && `${item.capacity} · `}
             {item.interface && `${item.interface} · `}
@@ -406,22 +408,42 @@ export default function InventoryDetail() {
                     )}
                   </div>
                 ))}
-                <div style={{ gridColumn: '1/-1' }}>
-                  <InventoryHddFields
-                    category={uiCat}
-                    form={editForm}
-                    setForm={setEditForm}
-                    customFieldValues={editForm.custom_field_values || {}}
-                    setCustomFieldValues={(fn) => setEditForm(f => ({
-                      ...f,
-                      custom_field_values: typeof fn === 'function' ? fn(f.custom_field_values || {}) : fn,
-                    }))}
-                  />
-                </div>
-                <div className="form-group" style={{ gridColumn:'1/-1' }}>
-                  <label className="form-label">Notes</label>
-                  <textarea className="form-textarea" style={{ minHeight:70 }} value={editForm.notes||''} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))} />
-                </div>
+                {!isOtherCat && (
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <InventoryHddFields
+                      category={uiCat}
+                      form={editForm}
+                      setForm={setEditForm}
+                      customFieldValues={editForm.custom_field_values || {}}
+                      setCustomFieldValues={(fn) => setEditForm(f => ({
+                        ...f,
+                        custom_field_values: typeof fn === 'function' ? fn(f.custom_field_values || {}) : fn,
+                      }))}
+                    />
+                  </div>
+                )}
+                {isOtherCat && (
+                  <div style={{ gridColumn: '1/-1', display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 12 }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Device Name</label>
+                      <input className="form-input" value={editForm.name || ''} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Problem</label>
+                      <textarea className="form-textarea" style={{ minHeight: 60 }} value={editForm.notes || ''} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label">Note</label>
+                      <textarea className="form-textarea" style={{ minHeight: 60 }} value={editForm.description || ''} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} />
+                    </div>
+                  </div>
+                )}
+                {!isOtherCat && (
+                  <div className="form-group" style={{ gridColumn:'1/-1' }}>
+                    <label className="form-label">Notes</label>
+                    <textarea className="form-textarea" style={{ minHeight:70 }} value={editForm.notes||''} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))} />
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -470,9 +492,15 @@ export default function InventoryDetail() {
                   </div>
                 )}
                 {item.notes && (
-                  <div className="card" style={{ padding:14 }}>
-                    <div style={{ fontWeight:700,marginBottom:6,fontSize:'0.82rem' }}>📝 Notes</div>
+                  <div className="card" style={{ padding:14, marginBottom: item.description ? 12 : 0 }}>
+                    <div style={{ fontWeight:700,marginBottom:6,fontSize:'0.82rem' }}>📝 {isOtherCat ? 'Problem' : 'Notes'}</div>
                     <p style={{ fontSize:'0.82rem',lineHeight:1.7,color:'var(--text-secondary)' }}>{item.notes}</p>
+                  </div>
+                )}
+                {item.description && (
+                  <div className="card" style={{ padding:14 }}>
+                    <div style={{ fontWeight:700,marginBottom:6,fontSize:'0.82rem' }}>📝 Note</div>
+                    <p style={{ fontSize:'0.82rem',lineHeight:1.7,color:'var(--text-secondary)' }}>{item.description}</p>
                   </div>
                 )}
               </div>

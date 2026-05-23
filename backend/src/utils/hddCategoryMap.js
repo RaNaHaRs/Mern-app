@@ -35,7 +35,20 @@ function normalizeConfigKey(hddType) {
 }
 
 function isInventoryHddCategory(category) {
-  return HDD_INV_KEYS.has(category);
+  if (!category) return false;
+  if (HDD_INV_KEYS.has(category)) return true;
+  const lower = category.toLowerCase().trim();
+  return (
+    lower.endsWith('_3_5') ||
+    lower.endsWith('_2_5') ||
+    lower.endsWith('_35') ||
+    lower.endsWith('_25') ||
+    lower.startsWith('wd_') ||
+    lower.startsWith('seagate_') ||
+    lower.startsWith('toshiba_') ||
+    lower.includes('hdd') ||
+    lower.includes('harddisk')
+  );
 }
 
 const CATEGORY_ENUM_MAP = {

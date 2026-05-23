@@ -92,3 +92,5 @@
 {"error":"column \"tenant_id\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, tenant_id, is_active, specializations FROM users WHERE ","timestamp":"2026-05-23 10:09:15"}
 {"error":"column \"tenant_id\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, tenant_id, is_active, specializations FROM users WHERE ","timestamp":"2026-05-23 10:09:21"}
 {"error":"column \"tenant_id\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, tenant_id, is_active, specializations FROM users WHERE ","timestamp":"2026-05-23 10:09:21"}
+{"error":"column \"tenant_id\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, tenant_id, is_active, specializations FROM users WHERE ","timestamp":"2026-05-23 10:21:58"}
+{"error":"column \"tenant_id\" does not exist","level":"error","message":"Query error","text":"SELECT id, username, email, full_name, role, tenant_id, is_active, specializations FROM users WHERE ","timestamp":"2026-05-23 10:21:58"}

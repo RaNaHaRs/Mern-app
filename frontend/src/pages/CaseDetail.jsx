@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { casesApi, paymentsApi, accountingApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
 import { printInwardForm } from '../components/NewCaseModal';
+import { useInventoryConfig } from '../hooks/useInventoryConfig';
 
 
 const BASE_URL = '/api';
@@ -758,6 +759,8 @@ const HDD_CAT_MAP = {
 };
 
 function TransferToStockForm({ caseData, caseId, onDone, onClose }) {
+  const { activeCategories } = useInventoryConfig();
+
   // Auto-detect category from brand + form factor
   const guessCategory = () => {
     const brand = (caseData?.device_brand || '').trim();
@@ -800,6 +803,8 @@ function TransferToStockForm({ caseData, caseId, onDone, onClose }) {
     { key: 'pcb', label: 'PCB' }, { key: 'ssd', label: 'SSD' }, { key: 'phone', label: 'Phone' },
   ];
 
+  const categoriesList = activeCategories?.length ? activeCategories : INV_CATEGORIES;
+
   const handle = async () => {
     setLoading(true);
     try {
@@ -840,7 +845,7 @@ function TransferToStockForm({ caseData, caseId, onDone, onClose }) {
         <div className="form-group">
           <label className="form-label">Category</label>
           <select className="form-select" value={form.category} onChange={e => setForm(f=>({...f,category:e.target.value}))}>
-            {INV_CATEGORIES.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+            {categoriesList.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </div>
         <F label="Company / Brand" field="company" />

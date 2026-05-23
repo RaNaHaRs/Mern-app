@@ -11,7 +11,9 @@ export const DEFAULT_INV_CATEGORIES = [
   { key: 'harddisk', label: 'Harddisk', icon: '💿', color: '#3b82f6', brand: '', isHdd: true },
   { key: 'pcb', label: 'PCB', icon: '🔌', color: '#10b981', brand: '', isHdd: false },
   { key: 'ssd', label: 'SSD', icon: '⚡', color: '#06b6d4', brand: '', isHdd: false },
+  { key: 'stock_item', label: 'Stock Item', icon: '📦', color: '#f59e0b', brand: '', isHdd: false },
   { key: 'other', label: 'Other', icon: '📦', color: '#8b5cf6', brand: '', isHdd: false },
+  { key: 'others', label: 'Others', icon: '📦', color: '#8b5cf6', brand: '', isHdd: false },
 ];
 
 export const DEFAULT_STOCK_FIELD_KEYS = [

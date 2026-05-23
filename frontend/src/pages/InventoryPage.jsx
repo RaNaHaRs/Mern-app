@@ -81,14 +81,13 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
   const [customFieldValues, setCustomFieldValues] = useState(() => editItem?.custom_field_values || {});
 
   const categoriesRaw = invCategories?.length ? invCategories : INV_CATEGORIES;
-  const categories = categoriesRaw.filter(c => INVENTORY_CATEGORY_KEYS.includes(c.key));
-  const formCategories = categories.length ? categories : INV_CATEGORIES;
+  const formCategories = invCategories?.length ? invCategories : INV_CATEGORIES;
   const companies = hddCompanies?.length ? hddCompanies : ['Western Digital', 'Seagate', 'Other'];
   const catInfo = formCategories.find(c => c.key === form.category) || formCategories[0];
   const isHDD = isHddCategoryKey(form.category, formCategories);
   const isPcb = form.category === 'pcb';
   const isSsd = form.category === 'ssd';
-  const isOther = form.category === 'other';
+  const isOther = form.category === 'other' || form.category === 'others' || form.category === 'stock_item' || (!isHDD && !isPcb && !isSsd);
   const showStockNumber = !isPcb;
   const showDynamicFields = !isSsd && !isOther;
 
@@ -98,8 +97,12 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
     if (!stockId) {
       if (form.category === 'pcb') {
         stockId = `PCB-${Date.now()}`;
-      } else if (form.category === 'other') {
+      } else if (form.category === 'other' || form.category === 'others') {
         stockId = `OTH-${Date.now()}`;
+      } else if (form.category === 'stock_item') {
+        stockId = `STK-${Date.now()}`;
+      } else {
+        stockId = `${String(form.category).substring(0, 3).toUpperCase()}-${Date.now()}`;
       }
     }
     if (!stockId) {
@@ -143,8 +146,8 @@ function NewItemModal({ onClose, onCreated, editItem, invCategories, hddCompanie
             {/* Category & Stock ID — required for all item types */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <InventoryFormField label="Category" field="category" required form={form} setForm={setForm}>
-                <select className="form-select" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, company: categories.find(c => c.key === e.target.value)?.brand || f.company }))}>
-                  {categories.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
+                <select className="form-select" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, company: formCategories.find(c => c.key === e.target.value)?.brand || f.company }))}>
+                  {formCategories.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
                 </select>
               </InventoryFormField>
               {showStockNumber && (
@@ -524,9 +527,7 @@ export default function InventoryPage() {
   const availableCount = items.filter(i => (i.status || 'available') === 'available').length;
   const totalValue = items.reduce((s, i) => s + (i.quantity * (parseFloat(i.unit_cost) || 0)), 0);
 
-  const categoryTabs = (activeCategories.length ? activeCategories : INV_CATEGORIES)
-    .filter(c => INVENTORY_CATEGORY_KEYS.includes(c.key));
-  const displayCategoryTabs = categoryTabs.length ? categoryTabs : INV_CATEGORIES;
+  const displayCategoryTabs = activeCategories.length ? activeCategories : INV_CATEGORIES;
 
   const TABS = [
     { key: 'all', label: '📦 All', icon: '' },
@@ -625,7 +626,8 @@ export default function InventoryPage() {
               <tbody>
                 {items.map(item => {
                   const isLow = item.quantity <= (item.min_quantity || 1);
-                  const cat = INV_CATEGORIES.find(c => c.key === (item.ui_category || item.category)) || INV_CATEGORIES[0];
+                  const catList = activeCategories.length ? activeCategories : INV_CATEGORIES;
+                  const cat = catList.find(c => c.key === (item.ui_category || item.category)) || { key: (item.ui_category || item.category), label: (item.ui_category || item.category)?.replace(/_/g, ' '), icon: '📦', color: '#64748b' };
                   const dyn = item.dynamic_fields && typeof item.dynamic_fields === 'object'
                     ? item.dynamic_fields
                     : (typeof item.dynamic_fields === 'string' ? (() => { try { return JSON.parse(item.dynamic_fields); } catch { return {}; } })() : {});

@@ -27,10 +27,36 @@ async function ensureDefaultBrands() {
   }
 }
 
+const DEFAULT_CATEGORIES = [
+  { key: 'wd_35', label: 'WD 3.5"', icon: '💿', color: '#3b82f6', brand: 'Western Digital', form_factor: '3.5', isHdd: true, sort_order: 1 },
+  { key: 'wd_25', label: 'WD 2.5"', icon: '💽', color: '#22d3ee', brand: 'Western Digital', form_factor: '2.5', isHdd: true, sort_order: 2 },
+  { key: 'seagate_35', label: 'Seagate 3.5"', icon: '💿', color: '#f59e0b', brand: 'Seagate', form_factor: '3.5', isHdd: true, sort_order: 3 },
+  { key: 'seagate_25', label: 'Seagate 2.5"', icon: '💽', color: '#fbbf24', brand: 'Seagate', form_factor: '2.5', isHdd: true, sort_order: 4 },
+  { key: 'others_35', label: 'Others 3.5"', icon: '💿', color: '#8b5cf6', brand: '', form_factor: '3.5', isHdd: true, sort_order: 5 },
+  { key: 'others_25', label: 'Others 2.5"', icon: '💽', color: '#a78bfa', brand: '', form_factor: '2.5', isHdd: true, sort_order: 6 },
+  { key: 'pcb', label: 'PCB', icon: '🔌', color: '#10b981', brand: '', form_factor: '', isHdd: false, sort_order: 7 },
+  { key: 'ssd', label: 'SSD', icon: '⚡', color: '#06b6d4', brand: '', form_factor: '', isHdd: false, sort_order: 8 },
+  { key: 'phone', label: 'Phone', icon: '📱', color: '#ec4899', brand: '', form_factor: '', isHdd: false, sort_order: 9 },
+  { key: 'stock_item', label: 'Stock Item', icon: '📦', color: '#f59e0b', brand: '', form_factor: '', isHdd: false, sort_order: 10 },
+  { key: 'other', label: 'Other', icon: '📦', color: '#8b5cf6', brand: '', form_factor: '', isHdd: false, sort_order: 11 },
+];
+
+async function ensureDefaultCategories() {
+  for (let i = 0; i < DEFAULT_CATEGORIES.length; i++) {
+    const c = DEFAULT_CATEGORIES[i];
+    await query(
+      `INSERT INTO inventory_categories (category_key, label, icon, color, brand_name, form_factor, is_hdd, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (category_key) DO NOTHING`,
+      [c.key, c.label, c.icon, c.color, c.brand || null, c.form_factor || null, c.isHdd, c.sort_order]
+    );
+  }
+}
+
 // GET /api/inventory-config
 router.get('/', async (req, res) => {
   try {
     await ensureDefaultBrands();
+    await ensureDefaultCategories();
     const brands = await query(
       `SELECT id, name, config_key, is_system, active, sort_order
        FROM inventory_brands ORDER BY sort_order, name`

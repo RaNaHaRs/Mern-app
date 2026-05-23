@@ -64,10 +64,15 @@ async function recordTransfer(req, item, body) {
   }
 }
 
-function buildItemPayload(body) {
+function buildItemPayload(body, categoriesList = []) {
   const uiCategory = body.category || body.ui_category;
-  const mappedCategory = toDbCategory(uiCategory);
-  const isHdd = isInventoryHddCategory(uiCategory);
+  
+  // Find category dynamically in the categoriesList loaded from the database
+  const dbCat = Array.isArray(categoriesList)
+    ? categoriesList.find(c => c.category_key === uiCategory || c.key === uiCategory)
+    : null;
+  const isHdd = dbCat ? dbCat.is_hdd : isInventoryHddCategory(uiCategory);
+  const mappedCategory = isHdd ? 'donor_drive' : toDbCategory(uiCategory);
 
   const dynamicFields = { ...(body.dynamicFields || {}) };
   const hddKeys = [
@@ -165,7 +170,8 @@ router.get('/', async (req, res) => {
 router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory', 'inventory'), async (req, res) => {
   try {
     const body = req.body;
-    const built = buildItemPayload(body);
+    const catsRes = await query('SELECT category_key, is_hdd FROM inventory_categories');
+    const built = buildItemPayload(body, catsRes.rows);
 
     const stockId = String(body.stock_number || body.stock_id || '').trim();
     if (!stockId) {
@@ -244,7 +250,8 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
 router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory', 'inventory'), async (req, res) => {
   try {
     const body = req.body;
-    const built = buildItemPayload(body);
+    const catsRes = await query('SELECT category_key, is_hdd FROM inventory_categories');
+    const built = buildItemPayload(body, catsRes.rows);
 
     const result = await query(
       `UPDATE inventory_items SET
@@ -336,11 +343,13 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
     if (!Array.isArray(data) || !data.length) return res.status(400).json({ error: 'No data provided' });
 
     let imported = 0, skipped = 0;
+    const catsRes = await query('SELECT category_key, is_hdd FROM inventory_categories');
+    const categoriesList = catsRes.rows;
 
     for (const row of data) {
       if (!row.serial_number && !row.name && !row.stock_number) { skipped++; continue; }
 
-      const built = buildItemPayload(row);
+      const built = buildItemPayload(row, categoriesList);
       const skuResult = await query('SELECT COUNT(*) FROM inventory_items', []);
       const sku = row.sku || `INV-${String(parseInt(skuResult.rows[0].count, 10) + imported + 1).padStart(5, '0')}`;
       const stockNumber = row.stock_number || sku;
