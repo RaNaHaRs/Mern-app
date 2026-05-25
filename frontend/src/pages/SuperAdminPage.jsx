@@ -1331,7 +1331,7 @@ function AccountsTab() {
   );
 }
 
-// ── Activity Logs Tab ───────────────────────��───────────────────────────────���
+// ── Activity Logs Tab ────────────────────────────────────────────────────────
 function ActivityLogsTab() {
   const [logs, setLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(true);

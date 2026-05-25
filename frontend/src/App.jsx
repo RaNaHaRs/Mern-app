@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './store/AuthContext';
 import { ThemeProvider, FontSizeProvider, useTheme, useFontSize } from './store/ThemeContext';
+import FloatingChat from './components/FloatingChat';
+import SuperAdminFloatingChat from './components/SuperAdminFloatingChat';
+
 
 // Re-export so any existing import { useTheme, useFontSize } from '../App' still works
 export { useTheme, useFontSize };
@@ -47,6 +50,7 @@ function Sidebar({ open, onClose }) {
   const { user, logout, canAccess, hasPermission, isSuperAdmin, isOwner, isAdmin } = useAuth();
   const { theme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const handleLogout = async () => { await logout(); navigate('/login'); };
 
   // Build nav with permission guards
@@ -144,7 +148,7 @@ function Sidebar({ open, onClose }) {
                 item.saTab ? (
                   <button
                     key={item.saTab}
-                    className={`nav-item${saActiveTab === item.saTab ? ' active' : ''}`}
+                    className={`nav-item${location.pathname === '/super-admin' && saActiveTab === item.saTab ? ' active' : ''}`}
                     onClick={() => { setSaTab(item.saTab); navigate('/super-admin'); onClose(); }}
                     style={{ width: '100%', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
                   >
@@ -276,9 +280,12 @@ function Header() {
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const impersonating = sessionStorage.getItem('impersonating_as');
+  const { isSuperAdmin } = useAuth();
+
+  const isSuperAdminUser = isSuperAdmin && !impersonating;
 
   return (
-    <div className="app-layout" style={impersonating ? { paddingTop: 36 } : {}}>
+    <div className={`app-layout ${isSuperAdminUser ? 'super-admin-layout' : 'saas-app'}`} style={impersonating ? { paddingTop: 36 } : {}}>
       {impersonating && (
         <div className="impersonation-banner">
           <span>👁️ Viewing as <strong>{impersonating}</strong> — Super Admin Impersonation Mode</span>
@@ -321,6 +328,8 @@ function AppLayout() {
           </React.Suspense>
         </div>
       </div>
+      {!isSuperAdminUser && <FloatingChat />}
+      {isSuperAdminUser && <SuperAdminFloatingChat />}
     </div>
   );
 }

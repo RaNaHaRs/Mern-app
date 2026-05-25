@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { analyticsApi } from '../services/api';
+import { useAuth } from '../store/AuthContext';
+import NewCaseModal from '../components/NewCaseModal';
 
 const STAGE_COLORS = {
   received:'#64748b',inspection:'#3b82f6',diagnosis:'#6366f1',quotation:'#f59e0b',
@@ -63,9 +65,11 @@ function CaseRow({ c, onClick }) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { canAccess } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [size, setSize] = useState(() => localStorage.getItem('dash_size') || 'normal');
+  const [size, setSize] = useState(() => localStorage.getItem('dash_size') || 'compact');
+  const [showNewCase, setShowNewCase] = useState(false);
 
   useEffect(() => {
     analyticsApi.dashboard().then(setData).catch(console.error).finally(() => setLoading(false));
@@ -82,19 +86,26 @@ export default function Dashboard() {
   return (
     <div>
       {/* Dashboard Controls */}
-      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:12 }}>
         <div style={{ fontSize:'0.8rem',color:'var(--text-muted)' }}>
           {new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}
         </div>
-        <div style={{ display:'flex',gap:6,background:'var(--bg-elevated)',padding:'4px 6px',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
-          {SIZE_MODES.map(m => (
-            <button key={m.key} onClick={() => setDashSize(m.key)} style={{
-              padding:'4px 10px',borderRadius:'var(--radius-sm)',border:'none',
-              background:size===m.key?'var(--accent-primary)':'transparent',
-              color:size===m.key?'#fff':'var(--text-muted)',cursor:'pointer',
-              fontSize:'0.72rem',fontWeight:size===m.key?700:400,transition:'all 0.15s',
-            }}>{m.label}</button>
-          ))}
+        <div style={{ display:'flex',alignItems:'center',gap:12 }}>
+          {canAccess('staff') && (
+            <button className="btn btn-primary" onClick={() => setShowNewCase(true)} style={{ padding:'6px 14px',fontSize:'0.78rem',display:'flex',alignItems:'center',gap:6 }}>
+              ✨ Create New Case
+            </button>
+          )}
+          <div style={{ display:'flex',gap:6,background:'var(--bg-elevated)',padding:'4px 6px',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+            {SIZE_MODES.map(m => (
+              <button key={m.key} onClick={() => setDashSize(m.key)} style={{
+                padding:'4px 10px',borderRadius:'var(--radius-sm)',border:'none',
+                background:size===m.key?'var(--accent-primary)':'transparent',
+                color:size===m.key?'#fff':'var(--text-muted)',cursor:'pointer',
+                fontSize:'0.72rem',fontWeight:size===m.key?700:400,transition:'all 0.15s',
+              }}>{m.label}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -108,7 +119,7 @@ export default function Dashboard() {
         <StatCard icon="⏳" label="Pending Payment"    value={`₹${parseFloat(r.pending_revenue||0).toLocaleString('en-IN')}`} color="#ef4444" bg="rgba(239,68,68,0.1)" size={size} onClick={() => navigate('/accounting')} />
       </div>
 
-      <div className="grid-2" style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 24 }}>
         {/* Stage Distribution — clickable stages */}
         <div className="card">
           <div className="card-header">
@@ -127,34 +138,6 @@ export default function Dashboard() {
               </div>
             ))}
             {!data?.stageDistribution?.length && <div className="empty-state" style={{ padding:30 }}><div className="empty-desc">No cases yet</div></div>}
-          </div>
-        </div>
-
-        {/* Engineer Performance — clickable → analytics */}
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">⚡ Engineer Performance</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/analytics')}>Full Analytics →</button>
-          </div>
-          <div style={{ display:'flex',flexDirection:'column',gap:10 }}>
-            {(data?.engineers||[]).slice(0,5).map(eng => (
-              <div key={eng.id} style={{ display:'flex',alignItems:'center',gap:12,cursor:'pointer' }} onClick={() => navigate('/analytics')}>
-                <div className="user-avatar" style={{ width:32,height:32,fontSize:'0.7rem',flexShrink:0 }}>
-                  {eng.full_name?.split(' ').map(n=>n[0]).join('').slice(0,2)}
-                </div>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ fontSize:'0.8rem',fontWeight:600,color:'var(--text-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{eng.full_name}</div>
-                  <div className="progress-bar" style={{ marginTop:4 }}>
-                    <div className="progress-fill" style={{ width:`${eng.success_rate||0}%` }} />
-                  </div>
-                </div>
-                <div style={{ textAlign:'right',flexShrink:0 }}>
-                  <div style={{ fontSize:'0.8rem',fontWeight:700,color:'var(--text-primary)' }}>{eng.completed_cases}</div>
-                  <div className="text-xs text-muted">{eng.success_rate?`${eng.success_rate}%`:'—'}</div>
-                </div>
-              </div>
-            ))}
-            {!data?.engineers?.length && <div className="empty-state" style={{ padding:30 }}><div className="empty-desc">No engineer data</div></div>}
           </div>
         </div>
       </div>
@@ -195,6 +178,11 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+      )}
+      {showNewCase && (
+        <NewCaseModal onClose={() => setShowNewCase(false)} onCreated={(newCase) => {
+          if (newCase && newCase.id) navigate(`/cases/${newCase.id}`);
+        }} />
       )}
     </div>
   );
