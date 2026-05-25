@@ -28,6 +28,7 @@ const userRoutes       = require('./routes/users');
 const accountingRoutes = require('./routes/accounting');
 const superAdminRoutes = require('./routes/super-admin');
 const marketingRoutes  = require('./routes/marketing');
+const suggestionsRoutes = require('./routes/suggestions');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -107,6 +108,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/accounting', accountingRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/marketing',   marketingRoutes);
+app.use('/api/suggestions', suggestionsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

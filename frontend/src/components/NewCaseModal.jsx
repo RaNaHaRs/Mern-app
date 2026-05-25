@@ -4,6 +4,36 @@ import React, {
   useState,
   useMemo,
 } from "react";
+
+// Simple ErrorBoundary to avoid leaving a blank/black overlay if a render
+// error occurs inside the modal. Shows a friendly message and Close button.
+class ModalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    // console the error for diagnostics
+    console.error("Modal render error:", error, info);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, maxWidth: 720, color: 'var(--text-primary)' }}>
+          <div style={{ fontWeight: 800, marginBottom: 8 }}>Something went wrong</div>
+          <div style={{ marginBottom: 12 }}>There was an error rendering this dialog. You can close it and try again.</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-secondary" onClick={this.props.onClose}>Close</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { casesApi, clientsApi, usersApi } from "../services/api";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -333,7 +363,7 @@ export function printInwardForm(caseData, template = "standard") {
       <div class="sec-title">💾 Device Information</div>
       <table class="fields">
         <tr><td class="fl">Type</td><td class="fv">${caseData.hdd_type ? HDD_TYPES.find((h) => h.key === caseData.hdd_type)?.label || caseData.hdd_type : caseData.device_brand || "—"}</td></tr>
-        <tr><td class="fl">Harddisk No.</td><td class="fv">${caseData.harddisk_no || "—"}</td></tr>
+        <tr><td class="fl">Case Number</td><td class="fv">${caseData.case_number || "—"}</td></tr>
         <tr><td class="fl">Model</td><td class="fv">${caseData.device_model || caseData.model || "—"}</td></tr>
         <tr><td class="fl">Capacity</td><td class="fv">${caseData.capacity || (caseData.capacity_gb ? caseData.capacity_gb + "GB" : "—")}</td></tr>
         <tr><td class="fl">S/N</td><td class="fv">${caseData.serial_number || "—"}</td></tr>
@@ -703,7 +733,7 @@ function FileUploadArea({ files, onChange }) {
 
 // ── HDD Dynamic Fields ─────────────────────────────────────────────────────
 // ── HDD Dynamic Fields ─────────────────────────────────────────────────────
-function HddFields({ hddKey, form, setForm }) {
+function HddFields({ hddKey, form, setForm, stepErrors }) {
   const normKey = hddKey.replace(/\./g, "_").replace(/-/g, "_");
 
   const fields = useMemo(() => {
@@ -781,8 +811,7 @@ function HddFields({ hddKey, form, setForm }) {
         }}
       >
         {visibleFields.map((field) => {
-          const isMandatory =
-            fieldStatus(cfg, normKey, field) === "mandatory";
+          const isMandatory = true; // all visible HDD fields are required for the modal
 
           return (
             <div
@@ -830,6 +859,11 @@ function HddFields({ hddKey, form, setForm }) {
                     handleFieldChange(field, e.target.value)
                   }
                 />
+              ) : field === "manufacture_country" ? (
+                <select className="form-select" value={form[field] || ""} onChange={(e)=>handleFieldChange(field, e.target.value)}>
+                  <option value="">Select Manufacturing Country...</option>
+                  { ["Thailand","China","Malaysia","Philippines"].map(c => <option key={c} value={c}>{c}</option>) }
+                </select>
               ) : (
                 <input
                   type="text"
@@ -841,6 +875,9 @@ function HddFields({ hddKey, form, setForm }) {
                   autoComplete="off"
                   spellCheck={false}
                 />
+              )}
+              {stepErrors && stepErrors[field] && (
+                <div style={{ color: 'var(--danger)', fontSize: '0.78rem', marginTop: 6 }}>{stepErrors[field]}</div>
               )}
             </div>
           );
@@ -973,23 +1010,162 @@ function NewClientForm({ onCreated, onCancel }) {
 }
 
 // ── Stable Step Views (defined outside main render to preserve identity) ──
-function StepClientView({ form, setForm, clients, clientSearch, setClientSearch, selectedClient, setSelectedClient, showNewClient, setShowNewClient }) {
+function StepClient({
+  form,
+  setForm,
+  clients,
+  clientSearch,
+  setClientSearch,
+  selectedClient,
+  setSelectedClient,
+  showNewClient,
+  setShowNewClient,
+  engineers,
+  stepErrors,
+}) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
+  const inputStyle = { fontSize: "0.82rem", padding: "8px 10px" };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {!showNewClient ? (
         <>
           <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label required">Search Existing Client</label>
+            <label className="form-label">
+              Search Existing Client <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            </label>
             <input
               className="form-input"
               placeholder="Type name, phone, email..."
               value={clientSearch}
               onChange={(e) => setClientSearch(e.target.value)}
-              style={{ fontSize: "0.82rem", padding: "8px 10px" }}
+              style={inputStyle}
               autoFocus
             />
+            {clients.length > 0 && (
+              <div
+                style={{
+                  border: "1px solid var(--border-default)",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  maxHeight: 160,
+                  overflowY: "auto",
+                  marginTop: 4,
+                  background: "var(--bg-card)",
+                }}
+              >
+                {clients.map((cl) => (
+                  <div
+                    key={cl.id}
+                    onClick={() => {
+                      setSelectedClient(cl);
+                      setForm((f) => ({ ...f, client_id: cl.id }));
+                      setClientSearch(
+                        `${cl.first_name} ${cl.last_name} — ${cl.phone}`
+                      );
+                      setClients([]);
+                    }}
+                    style={{
+                      padding: "9px 14px",
+                      cursor: "pointer",
+                      borderBottom: "1px solid var(--border-subtle)",
+                      fontSize: "0.8rem",
+                      background:
+                        form.client_id === cl.id
+                          ? "var(--accent-glow)"
+                          : "transparent",
+                    }}
+                  >
+                    <strong style={{ color: "var(--text-primary)" }}>
+                      {cl.first_name} {cl.last_name}
+                    </strong>
+                    <span
+                      style={{
+                        color: "var(--text-muted)",
+                        marginLeft: 8,
+                        fontSize: "0.72rem",
+                      }}
+                    >
+                      {cl.phone}
+                    </span>
+                    {cl.company && (
+                      <span
+                        style={{
+                          color: "var(--text-muted)",
+                          marginLeft: 6,
+                          fontSize: "0.7rem",
+                        }}
+                      >
+                        · {cl.company}
+                      </span>
+                    )}
+                    {form.client_id === cl.id && (
+                      <span
+                        style={{
+                          color: "var(--accent-primary)",
+                          marginLeft: 8,
+                        }}
+                      >
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {stepErrors.client && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.client}
+              </div>
+            )}
           </div>
+          {selectedClient && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: "var(--accent-glow)",
+                border: "1px solid var(--accent-primary)",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span>
+                ✅{" "}
+                <strong>
+                  {selectedClient.first_name} {selectedClient.last_name}
+                </strong>{" "}
+                — {selectedClient.phone}
+              </span>
+              <button
+                type="button"
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                }}
+                onClick={() => {
+                  setSelectedClient(null);
+                  set("client_id", "");
+                  setClientSearch("");
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            style={{ alignSelf: "flex-start" }}
+            onClick={() => setShowNewClient(true)}
+          >
+            ➕ Client not found? Add New
+          </button>
         </>
       ) : (
         <NewClientForm
@@ -1005,58 +1181,119 @@ function StepClientView({ form, setForm, clients, clientSearch, setClientSearch,
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Received At</label>
+          <label className="form-label">
+            Received At <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <input
             type="datetime-local"
             className="form-input"
             value={form.received_at || ""}
             onChange={(e) => set("received_at", e.target.value)}
-            style={{ fontSize: "0.82rem", padding: "8px 10px" }}
+            style={inputStyle}
           />
+          {stepErrors.received_at && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.received_at}
+            </div>
+          )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function StepDeviceView({ form, setForm }) {
-  const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
-  const inputStyle = { fontSize: "0.82rem", padding: "8px 10px" };
-  return (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label required">HDD / Device Type</label>
+          <label className="form-label">
+            Deadline / SLA <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
+          <input
+            type="datetime-local"
+            className="form-input"
+            value={form.deadline_at || ""}
+            onChange={(e) => set("deadline_at", e.target.value)}
+            style={inputStyle}
+          />
+          {stepErrors.deadline_at && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.deadline_at}
+            </div>
+          )}
+          <div
+            style={{
+              fontSize: "0.65rem",
+              color: "var(--text-muted)",
+              marginTop: 3,
+            }}
+          >
+            Default: 4 days from now
+          </div>
+        </div>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label">
+            Priority <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <select
             className="form-select"
-            value={form.hdd_type || ""}
-            onChange={(e) => set("hdd_type", e.target.value)}
+            value={form.priority}
+            onChange={(e) => set("priority", parseInt(e.target.value))}
             style={inputStyle}
           >
-            <option value="">Select HDD Type...</option>
-            {HDD_TYPES.map((h) => (
-              <option key={h.key} value={h.key}>
-                {h.label}
+            {Object.entries(PRIORITIES).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
               </option>
             ))}
           </select>
+          {stepErrors.priority && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.priority}
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Harddisk No. (Manual)</label>
+          <label className="form-label">
+            Stale Reminder (days) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <input
+            type="number"
+            min="1"
+            max="90"
             className="form-input"
-            placeholder="HDD tag or job number"
-            value={form.harddisk_no || ""}
-            onChange={(e) => set("harddisk_no", e.target.value)}
+            value={form.reminder_days}
+            onChange={(e) => set("reminder_days", parseInt(e.target.value))}
             style={inputStyle}
           />
+          {stepErrors.reminder_days && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.reminder_days}
+            </div>
+          )}
+        </div>
+        <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
+          <label className="form-label">
+            Assigned Engineer <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
+          <select
+            className="form-select"
+            value={form.assigned_engineer || ""}
+            onChange={(e) => set("assigned_engineer", e.target.value)}
+            style={inputStyle}
+          >
+            <option value="">Select Engineer...</option>
+            {engineers.map((eng) => (
+              <option key={eng.id} value={eng.id}>
+                {eng.full_name || eng.username} (
+                {(eng.role || "").replace(/_/g, " ")})
+              </option>
+            ))}
+          </select>
+          {stepErrors.assigned_engineer && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.assigned_engineer}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function StepDevice({ form, setForm, capacities }) {
+function StepDevice({ form, setForm, capacities, stepErrors }) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const inputStyle = { fontSize: "0.82rem", padding: "8px 10px" };
 
@@ -1064,7 +1301,9 @@ function StepDevice({ form, setForm, capacities }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label required">HDD / Device Type</label>
+          <label className="form-label required">
+            HDD / Device Type <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <select
             className="form-select"
             value={form.hdd_type || ""}
@@ -1078,19 +1317,33 @@ function StepDevice({ form, setForm, capacities }) {
               </option>
             ))}
           </select>
+          {stepErrors.hdd_type && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.hdd_type}
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Harddisk No. (Manual)</label>
+          <label className="form-label">
+            Case Number (Manual) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <input
             className="form-input"
-            placeholder="HDD tag or job number"
-            value={form.harddisk_no || ""}
-            onChange={(e) => set("harddisk_no", e.target.value)}
+            placeholder="Case number / job tag"
+            value={form.case_number || ""}
+            onChange={(e) => set("case_number", e.target.value)}
             style={inputStyle}
           />
+          {stepErrors.case_number && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.case_number}
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Capacity</label>
+          <label className="form-label">
+            Capacity <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <select
             className="form-select"
             value={form.capacity || ""}
@@ -1113,9 +1366,16 @@ function StepDevice({ form, setForm, capacities }) {
           {form.capacity === "__others__" && (
             <StepDeviceCustomInput form={form} setForm={set} inputStyle={inputStyle} />
           )}
+          {stepErrors.capacity && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.capacity}
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Interface</label>
+          <label className="form-label">
+            Interface <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <select
             className="form-select"
             value={form.interface || ""}
@@ -1125,10 +1385,15 @@ function StepDevice({ form, setForm, capacities }) {
             <option value="">Select...</option>
             {["SATA", "NVMe", "SAS", "IDE", "USB", "PCIe", "M.2", "eSATA"].map(
               (i) => (
-                <option key={i}>{i}</option>
-              ),
+                <option key={i} value={i}>{i}</option>
+              )
             )}
           </select>
+          {stepErrors.interface && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.interface}
+            </div>
+          )}
         </div>
       </div>
       {!form.hdd_type && (
@@ -1142,8 +1407,7 @@ function StepDevice({ form, setForm, capacities }) {
             color: "var(--text-muted)",
           }}
         >
-          💡 Select an HDD Type above to load dynamic fields (WD, Seagate, or
-          Others)
+          💡 Select an HDD Type above to load dynamic fields (WD, Seagate, or Others)
         </div>
       )}
     </div>
@@ -1162,7 +1426,6 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
     if (!v) return;
     const list = Array.isArray(form.custom_hdds) ? form.custom_hdds : [];
     if (!list.includes(v)) setForm("custom_hdds", [...list, v]);
-    // store selected custom and set capacity so select shows the value
     setForm("selected_custom_capacity", v);
     setForm("capacity", v);
     setForm("_custom_hdd_input", "");
@@ -1214,7 +1477,7 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
   );
 }
 
-function StepHddFieldsView({ form, setForm }) {
+function StepHddFieldsView({ form, setForm, stepErrors }) {
   return (
     <div>
       {form.hdd_type ? (
@@ -1222,7 +1485,7 @@ function StepHddFieldsView({ form, setForm }) {
           <div style={{ marginBottom: 12, padding: "8px 12px", background: "var(--accent-glow)", borderRadius: 6, fontSize: "0.8rem", color: "var(--accent-primary)", fontWeight: 600 }}>
             🔧 Fields for: {HDD_TYPES.find((h) => h.key === form.hdd_type)?.label}
           </div>
-          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} />
+          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} stepErrors={stepErrors} />
         </>
       ) : (
         <div style={{ padding: "30px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
@@ -1233,26 +1496,38 @@ function StepHddFieldsView({ form, setForm }) {
   );
 }
 
-function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST }) {
+function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, stepErrors }) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const showDiagnosis = sectionEnabled(getFieldConfig(), "diagnosis");
   const showImages = sectionEnabled(getFieldConfig(), "image_upload");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        {FAILURE_TYPES_LIST.map((ft) => {
-          const on = (form.failure_types || []).includes(ft);
-          return (
-            <label key={ft} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`, borderRadius: 8, cursor: "pointer", background: on ? "var(--accent-glow)" : "transparent", fontSize: "0.78rem", fontWeight: on ? 700 : 400, color: on ? "var(--accent-primary)" : "var(--text-secondary)", userSelect: "none" }}>
-              <input type="checkbox" style={{ display: "none" }} checked={on} onChange={() => toggle("failure_types", ft)} />
-              {on ? "✓ " : ""}
-              {ft.replace(/_/g, " ")}
-            </label>
-          );
-        })}
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label">
+          Failure Types <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+        </label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {FAILURE_TYPES_LIST.map((ft) => {
+            const on = (form.failure_types || []).includes(ft);
+            return (
+              <label key={ft} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`, borderRadius: 8, cursor: "pointer", background: on ? "var(--accent-glow)" : "transparent", fontSize: "0.78rem", fontWeight: on ? 700 : 400, color: on ? "var(--accent-primary)" : "var(--text-secondary)", userSelect: "none" }}>
+                <input type="checkbox" style={{ display: "none" }} checked={on} onChange={() => toggle("failure_types", ft)} />
+                {on ? "✓ " : ""}
+                {ft.replace(/_/g, " ")}
+              </label>
+            );
+          })}
+        </div>
+        {stepErrors.failure_types && (
+          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+            {stepErrors.failure_types}
+          </div>
+        )}
       </div>
       <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">Symptoms</label>
+        <label className="form-label">
+          Symptoms <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+        </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {SYMPTOMS.map((s) => {
             const on = (form.symptoms || []).includes(s);
@@ -1263,10 +1538,22 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST }
             );
           })}
         </div>
+        {stepErrors.symptoms && (
+          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+            {stepErrors.symptoms}
+          </div>
+        )}
       </div>
       <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">Problem Description</label>
+        <label className="form-label">
+          Problem Description <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+        </label>
         <textarea className="form-textarea" placeholder="Client's description of the problem..." value={form.problem_description || ""} onChange={(e) => set("problem_description", e.target.value)} style={{ minHeight: 70, fontSize: "0.82rem" }} />
+        {stepErrors.problem_description && (
+          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+            {stepErrors.problem_description}
+          </div>
+        )}
       </div>
       {showDiagnosis && (
         <div className="form-group" style={{ margin: 0 }}>
@@ -1288,18 +1575,32 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST }
   );
 }
 
-function StepCommercialView({ form, setForm, printTemplate, setPrintTemplate, remaining }) {
+function StepCommercialView({ form, setForm, printTemplate, setPrintTemplate, remaining, stepErrors }) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Quotation Amount (₹)</label>
+          <label className="form-label">
+            Quotation Amount (₹) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <input type="number" className="form-input" placeholder="0" value={form.quotation_amount || ""} onChange={(e) => set("quotation_amount", e.target.value)} style={{ fontSize: "0.82rem", padding: "8px 10px" }} />
+          {stepErrors.quotation_amount && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.quotation_amount}
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Advance Received (₹)</label>
+          <label className="form-label">
+            Advance Received (₹) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
           <input type="number" className="form-input" placeholder="0" value={form.advance_amount || ""} onChange={(e) => set("advance_amount", e.target.value)} style={{ fontSize: "0.82rem", padding: "8px 10px" }} />
+          {stepErrors.advance_amount && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.advance_amount}
+            </div>
+          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">Balance Remaining</label>
@@ -1309,8 +1610,15 @@ function StepCommercialView({ form, setForm, printTemplate, setPrintTemplate, re
         </div>
       </div>
       <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">Reference / Notes</label>
+        <label className="form-label">
+          Reference / Notes <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+        </label>
         <input className="form-input" placeholder="Reference number, courier, etc." value={form.reference || ""} onChange={(e) => set("reference", e.target.value)} style={{ fontSize: "0.82rem", padding: "8px 10px" }} />
+        {stepErrors.reference && (
+          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+            {stepErrors.reference}
+          </div>
+        )}
       </div>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">🖨️ Inward Form Print Template</label>
@@ -1343,7 +1651,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
     symptoms: [],
     reminder_days: 4,
     hdd_type: "",
-    harddisk_no: "",
+    case_number: "",
     capacity: "",
     images: [],
     attachments: [],
@@ -1351,6 +1659,64 @@ export default function NewCaseModal({ onClose, onCreated }) {
     advance_amount: "",
     reference: "",
   });
+  const [stepErrors, setStepErrors] = useState({});
+  const [stepValid, setStepValid] = useState(false);
+
+  const validateStepIndex = (idx) => {
+    const errs = {};
+    // Step 0: Client
+    if (idx === 0) {
+      if (!form.client_id) errs.client = "Please select or create a client";
+      if (!form.received_at) errs.received_at = "Received At is required";
+      if (!form.deadline_at) errs.deadline_at = "Deadline / SLA is required";
+      if (!form.priority) errs.priority = "Priority is required";
+      if (!form.reminder_days && form.reminder_days !== 0) errs.reminder_days = "Reminder days required";
+    }
+
+    // Step 1: Device
+    if (idx === 1) {
+      if (!form.hdd_type) errs.hdd_type = "HDD / Device Type is required";
+      if (!form.case_number) errs.case_number = "Case number is required";
+      if (!form.capacity) errs.capacity = "Capacity is required";
+      if (form.capacity === "__others__" && !form.selected_custom_capacity) errs.selected_custom_capacity = "Please add a custom capacity";
+      if (!form.interface) errs.interface = "Interface is required";
+    }
+
+    // Step 2: HDD fields (require all defined fields for the selected type)
+    if (idx === 2) {
+      if (!form.hdd_type) {
+        errs.hdd_type = "Select HDD Type in Device step";
+      } else {
+        const normKey = (form.hdd_type || "").replace(/\./g, "_").replace(/-/g, "_");
+        const fields = HDD_FIELDS[normKey] || [];
+        fields.forEach((f) => {
+          if (!form[f] && form[f] !== 0) errs[f] = `${FIELD_LABELS[f] || f} is required`;
+        });
+      }
+    }
+
+    // Step 3: Problem
+    if (idx === 3) {
+      if (!(form.failure_types || []).length) errs.failure_types = "Select at least one failure type";
+      if (!(form.symptoms || []).length) errs.symptoms = "Select at least one symptom";
+      if (!form.problem_description) errs.problem_description = "Problem description is required";
+    }
+
+    // Step 4: Commercial
+    if (idx === 4) {
+      if (form.quotation_amount === "" || form.quotation_amount === null || form.quotation_amount === undefined) errs.quotation_amount = "Quotation amount is required";
+      if (form.advance_amount === "" || form.advance_amount === null || form.advance_amount === undefined) errs.advance_amount = "Advance amount is required (0 if none)";
+      if (!form.reference) errs.reference = "Reference / Notes is required";
+    }
+
+    return errs;
+  };
+
+  useEffect(() => {
+  const errs = validateStepIndex(step);
+  setStepErrors(errs);
+  setStepValid(Object.keys(errs).length === 0);
+}, [form, step]);
   const [engineers, setEngineers] = useState([]);
   const [clients, setClients] = useState([]);
   const [clientSearch, setClientSearch] = useState("");
@@ -1662,7 +2028,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Received At</label>
+          <label className="form-label">Received At <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
           <input
             type="datetime-local"
             className="form-input"
@@ -1670,9 +2036,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
             onChange={(e) => set("received_at", e.target.value)}
             style={inputStyle}
           />
+          {stepErrors.received_at && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.received_at}</div>}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Deadline / SLA</label>
+          <label className="form-label">Deadline / SLA <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
           <input
             type="datetime-local"
             className="form-input"
@@ -1680,6 +2047,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
             onChange={(e) => set("deadline_at", e.target.value)}
             style={inputStyle}
           />
+          {stepErrors.deadline_at && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.deadline_at}</div>}
           <div
             style={{
               fontSize: "0.65rem",
@@ -1691,7 +2059,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
           </div>
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Priority</label>
+          <label className="form-label">Priority <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
           <select
             className="form-select"
             value={form.priority}
@@ -1704,9 +2072,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
               </option>
             ))}
           </select>
+          {stepErrors.priority && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.priority}</div>}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Stale Reminder (days)</label>
+          <label className="form-label">Stale Reminder (days) <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
           <input
             type="number"
             min="1"
@@ -1716,6 +2085,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
             onChange={(e) => set("reminder_days", parseInt(e.target.value))}
             style={inputStyle}
           />
+          {stepErrors.reminder_days && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.reminder_days}</div>}
         </div>
         <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
           <label className="form-label">Assigned Engineer</label>
@@ -1739,9 +2109,94 @@ export default function NewCaseModal({ onClose, onCreated }) {
   );
 
   // ── Step 1: Device ────────────────────────────────────────────────────────
-  // StepDevice is defined outside the main component to preserve input focus
-  // and avoid remounting while the form updates.
-
+    // ── Step 1: Device ────────────────────────────────────────────────────────
+  const StepDevice = ({ form, setForm, capacities, stepErrors }) => {
+    const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+    return (
+      <div>
+        {/* HDD / Device Type */}
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
+          <select
+            className="form-select"
+            value={form.hdd_type || ""}
+            onChange={e => set("hdd_type", e.target.value)}
+            style={inputStyle}
+          >
+            <option value="">Select Device Type</option>
+            {ALL_HDD_TYPES.map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          {stepErrors.hdd_type && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.hdd_type}</div>
+          )}
+        </div>
+        {/* Case Number */}
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
+          <input
+            className="form-input"
+            placeholder="Case number"
+            value={form.case_number || ""}
+            onChange={e => set("case_number", e.target.value)}
+            style={inputStyle}
+          />
+          {stepErrors.case_number && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.case_number}</div>
+          )}
+        </div>
+        {/* Capacity */}
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
+          <select
+            className="form-select"
+            value={form.capacity || ""}
+            onChange={e => set("capacity", e.target.value)}
+            style={inputStyle}
+          >
+            <option value="">Select Capacity</option>
+            {capacities.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          {stepErrors.capacity && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.capacity}</div>
+          )}
+        </div>
+        {/* Custom Capacity when "__others__" selected */}
+        {form.capacity === "__others__" && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
+            <input
+              className="form-input"
+              placeholder="Custom capacity"
+              value={form.selected_custom_capacity || ""}
+              onChange={e => set("selected_custom_capacity", e.target.value)}
+              style={inputStyle}
+            />
+            {stepErrors.selected_custom_capacity && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.selected_custom_capacity}</div>
+            )}
+          </div>
+        )}
+        {/* Interface */}
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
+          <input
+            className="form-input"
+            placeholder="Interface"
+            value={form.interface || ""}
+            onChange={e => set("interface", e.target.value)}
+            style={inputStyle}
+          />
+          {stepErrors.interface && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.interface}</div>
+          )}
+        </div>
+      </div>
+    );
+  };
   // ── Step 2: HDD Fields ────────────────────────────────────────────────────
   const StepHddFields = () => (
     <div>
@@ -1761,7 +2216,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
             🔧 Fields for:{" "}
             {HDD_TYPES.find((h) => h.key === form.hdd_type)?.label}
           </div>
-          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} />
+          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} stepErrors={stepErrors} />
         </>
       ) : (
         <div
@@ -1907,7 +2362,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
             }}
           >
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Quotation Amount (₹)</label>
+              <label className="form-label">Quotation Amount (₹) <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
               <input
                 type="number"
                 className="form-input"
@@ -1916,9 +2371,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
                 onChange={(e) => set("quotation_amount", e.target.value)}
                 style={inputStyle}
               />
+              {stepErrors.quotation_amount && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.quotation_amount}</div>}
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Advance Received (₹)</label>
+              <label className="form-label">Advance Received (₹) <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
               <input
                 type="number"
                 className="form-input"
@@ -1927,6 +2383,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
                 onChange={(e) => set("advance_amount", e.target.value)}
                 style={inputStyle}
               />
+              {stepErrors.advance_amount && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.advance_amount}</div>}
             </div>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">Balance Remaining</label>
@@ -1962,7 +2419,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
           </div>
         )}
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Reference / Notes</label>
+          <label className="form-label">Reference / Notes <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
           <input
             className="form-input"
             placeholder="Reference number, courier, etc."
@@ -1970,6 +2427,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
             onChange={(e) => set("reference", e.target.value)}
             style={inputStyle}
           />
+          {stepErrors.reference && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.reference}</div>}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">🖨️ Inward Form Print Template</label>
@@ -2032,15 +2490,37 @@ export default function NewCaseModal({ onClose, onCreated }) {
   };
 
   const STEP_COMPONENTS = [
-    <StepClient />,
-    <StepDevice form={form} setForm={setForm} capacities={CAPACITIES} />,
-    <StepHddFieldsView form={form} setForm={setForm} />,
+    <StepClient
+      form={form}
+      setForm={setForm}
+      clients={clients}
+      clientSearch={clientSearch}
+      setClientSearch={setClientSearch}
+      selectedClient={selectedClient}
+      setSelectedClient={setSelectedClient}
+      showNewClient={showNewClient}
+      setShowNewClient={setShowNewClient}
+      engineers={engineers}
+      stepErrors={stepErrors}
+    />,
+    <StepDevice
+      form={form}
+      setForm={setForm}
+      capacities={CAPACITIES}
+      stepErrors={stepErrors}
+    />,
+    <StepHddFieldsView
+      form={form}
+      setForm={setForm}
+      stepErrors={stepErrors}
+    />,
     <StepProblemView
       form={form}
       setForm={setForm}
       toggle={toggle}
       SYMPTOMS={SYMPTOMS}
       FAILURE_TYPES_LIST={FAILURE_TYPES_LIST}
+      stepErrors={stepErrors}
     />,
     <StepCommercialView
       form={form}
@@ -2048,98 +2528,99 @@ export default function NewCaseModal({ onClose, onCreated }) {
       printTemplate={printTemplate}
       setPrintTemplate={setPrintTemplate}
       remaining={remaining}
+      stepErrors={stepErrors}
     />,
   ];
-  const canNext =
-    [
-      step === 0 && !!(form.client_id || selectedClient),
-      step === 1 && !!form.hdd_type,
-      true,
-      true,
-      true,
-    ][step] !== false;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div
-        className="modal modal-xl"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          maxWidth: 760,
-          maxHeight: "90vh",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div className="modal-header">
-          <h3 className="modal-title">📂 Create New Case</h3>
-          <button className="btn btn-ghost btn-icon" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-
-        <div style={{ padding: "16px 24px 0" }}>
-          <Steps current={step} steps={STEPS} />
-          {error && (
-            <div className="alert alert-danger" style={{ marginBottom: 12 }}>
-              <span className="alert-icon">⚠</span>
-              {error}
-            </div>
-          )}
-        </div>
-
+    <div className="modal-overlay" style={{ zIndex: 10000, backgroundColor: 'rgba(15,23,42,0.6)' }}>
+      <ModalErrorBoundary onClose={onClose}>
         <div
-          className="modal-body"
-          style={{ flex: 1, overflowY: "auto", padding: "0 24px 16px" }}
+          className="modal modal-xl"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            zIndex: 10001,
+            maxWidth: 760,
+            maxHeight: "90vh",
+            display: "flex",
+            flexDirection: "column",
+          }}
         >
-          {STEP_COMPONENTS[step]}
-        </div>
+          <div className="modal-header">
+            <h3 className="modal-title">📂 Create New Case</h3>
+            <button className="btn btn-ghost btn-icon" onClick={onClose}>
+              ✕
+            </button>
+          </div>
 
-        <div
-          className="modal-footer"
-          style={{ justifyContent: "space-between" }}
-        >
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <div style={{ display: "flex", gap: 10 }}>
-            {step > 0 && (
-              <button
-                className="btn btn-secondary"
-                onClick={() => setStep((s) => s - 1)}
-              >
-                ← Back
-              </button>
-            )}
-            {step < STEPS.length - 1 ? (
-              <button
-                className="btn btn-primary"
-                onClick={() => setStep((s) => s + 1)}
-              >
-                Next → {STEPS[step + 1]}
-              </button>
-            ) : (
-              <button
-                className="btn btn-primary"
-                onClick={handleSubmit}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <div
-                      className="spinner"
-                      style={{ width: 14, height: 14 }}
-                    />{" "}
-                    Creating...
-                  </>
-                ) : (
-                  "🖨️ Create & Print Inward"
-                )}
-              </button>
+          <div style={{ padding: "16px 24px 0" }}>
+            <Steps current={step} steps={STEPS} />
+            {error && (
+              <div className="alert alert-danger" style={{ marginBottom: 12 }}>
+                <span className="alert-icon">⚠</span>
+                {error}
+              </div>
             )}
           </div>
+
+          <div
+            className="modal-body"
+            style={{ flex: 1, overflowY: "auto", padding: "0 24px 16px" }}
+          >
+            {STEP_COMPONENTS[step]}
+          </div>
+
+          <div
+            className="modal-footer"
+            style={{ justifyContent: "space-between" }}
+          >
+            <button className="btn btn-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <div style={{ display: "flex", gap: 10 }}>
+              {step > 0 && (
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setStep((s) => s - 1)}
+                >
+                  ← Back
+                </button>
+              )}
+              {step < STEPS.length - 1 ? (
+                <button
+                  className="btn btn-primary"
+                  disabled={!stepValid}
+                  onClick={() => {
+                    const errs = validateStepIndex(step);
+                    setStepErrors(errs);
+                    if (Object.keys(errs).length === 0) setStep((s) => s + 1);
+                  }}
+                >
+                  Next → {STEPS[step + 1]}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSubmit}
+                  disabled={loading || !stepValid}
+                >
+                  {loading ? (
+                    <>
+                      <div
+                        className="spinner"
+                        style={{ width: 14, height: 14 }}
+                      />{" "}
+                      Creating...
+                    </>
+                  ) : (
+                    "🖨️ Create & Print Inward"
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      </ModalErrorBoundary>
     </div>
   );
 }

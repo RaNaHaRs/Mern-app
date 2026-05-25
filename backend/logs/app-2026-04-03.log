@@ -1,6 +1,0 @@
-{"error":"","level":"error","message":"Failed to start server","timestamp":"2026-04-03 11:08:22"}
-{"error":"","level":"error","message":"Failed to start server","timestamp":"2026-04-03 11:24:48"}
-{"error":"","level":"error","message":"Failed to start server","timestamp":"2026-04-03 11:26:17"}
-{"error":"password authentication failed for user \"postgres\"","level":"error","message":"Failed to start server","timestamp":"2026-04-03 15:00:33"}
-{"error":"password authentication failed for user \"postgres\"","level":"error","message":"Failed to start server","timestamp":"2026-04-03 15:01:03"}
-{"error":"password authentication failed for user \"postgres\"","level":"error","message":"Failed to start server","timestamp":"2026-04-03 15:03:58"}

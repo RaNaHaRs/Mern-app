@@ -63,7 +63,7 @@ export default function MathCaptcha({ onVerify, resetKey }) {
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '8px 16px', borderRadius: 'var(--radius-md)',
-        background: 'var(--bg-elevated)', border: '1px solid var(--border-default)',
+        border: '1px solid var(--border-default)',
         fontFamily: 'var(--font-mono)', fontSize: '1.05rem', fontWeight: 800,
         color: 'var(--text-primary)', letterSpacing: '0.08em', flexShrink: 0,
         minWidth: 110, userSelect: 'none',

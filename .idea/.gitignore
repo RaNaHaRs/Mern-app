@@ -12,6 +12,11 @@
 #logs
 /logs
 
+backend/logs/
+*.log
+*.json
+frontend/node_modules/
+
 # env
 .env
 backend/.env
