@@ -5,21 +5,27 @@ const { query, transaction } = require('../config/database');
  * Enforces valid stage transitions and logs every action
  */
 
-// Valid stage transitions
+const ALL_STAGES = [
+  'received', 'inspection', 'diagnosis', 'quotation',
+  'approved', 'rejected', 'recovery_in_progress', 'imaging',
+  'data_extraction', 'verification', 'completed', 'delivered', 'failed'
+];
+
+// Valid stage transitions (any stage can go to any stage now)
 const STAGE_TRANSITIONS = {
-  received: ['inspection', 'failed'],
-  inspection: ['diagnosis', 'received', 'failed'],
-  diagnosis: ['quotation', 'inspection', 'failed'],
-  quotation: ['approved', 'rejected', 'diagnosis'],
-  approved: ['recovery_in_progress', 'quotation'],
-  rejected: ['quotation'],
-  recovery_in_progress: ['imaging', 'data_extraction', 'failed', 'approved'],
-  imaging: ['data_extraction', 'recovery_in_progress', 'failed'],
-  data_extraction: ['verification', 'imaging', 'failed'],
-  verification: ['completed', 'data_extraction', 'failed'],
-  completed: ['delivered'],
-  delivered: [],
-  failed: ['received'],  // Allow re-opening
+  received: ALL_STAGES,
+  inspection: ALL_STAGES,
+  diagnosis: ALL_STAGES,
+  quotation: ALL_STAGES,
+  approved: ALL_STAGES,
+  rejected: ALL_STAGES,
+  recovery_in_progress: ALL_STAGES,
+  imaging: ALL_STAGES,
+  data_extraction: ALL_STAGES,
+  verification: ALL_STAGES,
+  completed: ALL_STAGES,
+  delivered: ALL_STAGES,
+  failed: ALL_STAGES,
 };
 
 // Roles required for each transition

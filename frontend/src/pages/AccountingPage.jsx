@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { accountingApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
+import { openPrintPreviewWindow } from '../utils/printPreview';
 
 const fmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -76,7 +77,7 @@ function printCourierSlip(inv) {
       <button onclick="updCustom()" style="background:#00d4ff;color:#0f172a;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer">Apply</button>
     </div>
     <button class="btn-close" onclick="window.close()">✕ Close</button>
-    <button class="btn-print" onclick="window.print()">🖨 Print</button>
+    <button type="button" class="btn-print">🖨 Print</button>
   </div>
   <div class="slip-wrap"><div class="slip">
     <div class="slip-header">
@@ -119,9 +120,7 @@ function printCourierSlip(inv) {
     }
   </script>
   </body></html>`;
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
+  openPrintPreviewWindow(html);
 }
 
 function StatusBadge({ status, map }) {

@@ -47,8 +47,13 @@ function CourierSlip({ client, company, onClose }) {
       <div style="font-size:7pt;color:#94a3b8;text-align:center;margin-top:2mm">Generated: ${new Date().toLocaleString('en-IN')} | RecoverLab CRM</div>
     </div></body></html>`;
     const w = window.open('','_blank','width=420,height=600');
+    if (!w) {
+      alert('Please allow popups to print');
+      return;
+    }
     w.document.write(html);
     w.document.close();
+    w.focus();
     setTimeout(() => w.print(), 400);
   };
 

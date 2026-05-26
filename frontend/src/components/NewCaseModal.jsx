@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useCallback,
 } from "react";
+import { openPrintPreviewWindow } from "../utils/printPreview";
 
 // Simple ErrorBoundary to avoid leaving a blank/black overlay if a render
 // error occurs inside the modal. Shows a friendly message and Close button.
@@ -439,7 +440,7 @@ export function printInwardForm(caseData, template = "standard") {
   <span class="tnc-badge" id="tncBadge" style="display:${savedTnc ? "inline" : "none"}">✓ T&amp;C loaded</span>
   <button class="btn-clear" id="tncClearBtn" style="display:${savedTnc ? "inline" : "none"}" onclick="clearTnc()">✕ Clear</button>
   <button class="btn-close" onclick="window.close()">✕ Close</button>
-  <button class="btn-print" onclick="window.print()">🖨 Print</button>
+  <button type="button" class="btn-print">🖨 Print</button>
 </div>
 <div class="page-wrap">
 <div class="page1"><div class="wrap">
@@ -550,14 +551,7 @@ export function printInwardForm(caseData, template = "standard") {
 </script>
 </body></html>`;
 
-  const w = window.open("", "_blank", "width=960,height=800");
-  if (!w) {
-    alert("Please allow popups to print");
-    return;
-  }
-  w.document.write(html);
-  w.document.close();
-  w.focus();
+  openPrintPreviewWindow(html);
 }
 
 // ── Step indicator ─────────────────────────────────────────────────────────

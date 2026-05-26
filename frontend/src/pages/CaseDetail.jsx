@@ -4,6 +4,9 @@ import { casesApi, paymentsApi, accountingApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
 import { printInwardForm } from '../components/NewCaseModal';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
+import { openPrintPreviewWindow } from '../utils/printPreview';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 
 const BASE_URL = '/api';
@@ -15,15 +18,19 @@ const STAGE_ICONS = {
   data_extraction:'📤', verification:'🔬', completed:'🏆', delivered:'📦', failed:'💔',
 };
 
+const ALL_STAGES = [
+  'received', 'inspection', 'diagnosis', 'quotation',
+  'approved', 'rejected', 'recovery_in_progress', 'imaging',
+  'data_extraction', 'verification', 'completed', 'delivered', 'failed'
+];
+
 const VALID_NEXT = {
-  received:['inspection','failed'], inspection:['diagnosis','received','failed'],
-  diagnosis:['quotation','inspection','failed'], quotation:['approved','rejected','diagnosis'],
-  approved:['recovery_in_progress','quotation'], rejected:['quotation'],
-  recovery_in_progress:['imaging','data_extraction','failed'],
-  imaging:['data_extraction','recovery_in_progress','failed'],
-  data_extraction:['verification','imaging','failed'],
-  verification:['completed','data_extraction','failed'],
-  completed:['delivered'], delivered:[], failed:['received'],
+  received: ALL_STAGES, inspection: ALL_STAGES,
+  diagnosis: ALL_STAGES, quotation: ALL_STAGES,
+  approved: ALL_STAGES, rejected: ALL_STAGES,
+  recovery_in_progress: ALL_STAGES, imaging: ALL_STAGES,
+  data_extraction: ALL_STAGES, verification: ALL_STAGES,
+  completed: ALL_STAGES, delivered: ALL_STAGES, failed: ALL_STAGES,
 };
 
 function formatSize(bytes) {
@@ -909,6 +916,7 @@ export default function CaseDetail() {
   const [editForm, setEditForm] = useState({});
   const [editingLogId, setEditingLogId] = useState(null);
   const [editLogText, setEditLogText] = useState('');
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
   const companyData = (() => { try { return JSON.parse(localStorage.getItem('crm_company')) || {}; } catch { return {}; }})();
 
@@ -1151,7 +1159,7 @@ export default function CaseDetail() {
       <span class="tnc-badge" id="tncBadge" style="display:${savedTnc ? 'inline' : 'none'}">✓ T&amp;C loaded</span>
       <button class="btn-clear" id="tncClearBtn" style="display:${savedTnc ? 'inline' : 'none'}" onclick="clearTnc()">✕ Clear T&amp;C</button>
       <button class="btn-close" onclick="window.close()">✕ Close</button>
-      <button class="btn-print" onclick="window.print()">🖨 Print</button>
+      <button type="button" class="btn-print">🖨 Print</button>
     </div>
     <div class="page-wrap">
       <div class="page1">
@@ -1231,9 +1239,7 @@ export default function CaseDetail() {
       }
     </script>
     </body></html>`;
-    const w = window.open('', '_blank');
-    w.document.write(html);
-    w.document.close();
+    openPrintPreviewWindow(html);
   };
 
   const printCourierSlip = () => {
@@ -1305,7 +1311,7 @@ export default function CaseDetail() {
         <button onclick="updCustom()" style="background:#00d4ff;color:#0f172a;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer">Apply</button>
       </div>
       <button class="btn-close" onclick="window.close()">✕ Close</button>
-      <button class="btn-print" onclick="window.print()">🖨 Print</button>
+      <button type="button" class="btn-print">🖨 Print</button>
     </div>
     <div class="slip-wrap"><div class="slip">
       <div class="slip-header">
@@ -1352,9 +1358,7 @@ export default function CaseDetail() {
       }
     </script>
     </body></html>`;
-    const w = window.open('', '_blank');
-    w.document.write(html);
-    w.document.close();
+    openPrintPreviewWindow(html);
   };
 
   const handleTransition = async () => {
@@ -1419,7 +1423,10 @@ export default function CaseDetail() {
             <button className={`btn btn-sm ${caseData.transfer_to_client ? 'btn-success' : 'btn-secondary'}`} onClick={handleTransferToClient}>
               {caseData.transfer_to_client ? '✓ Transferred to Client' : '🤝 Transfer to Client'}
             </button>
-            <button className="btn btn-primary btn-sm" onClick={() => setShowTransition(true)}>⚡ Advance Stage</button>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowTransition(true)}>Stages</button>
+            {caseData.stage === 'delivered' && (
+              <button className="btn btn-primary btn-sm" onClick={() => setShowInvoiceModal(true)}>🖨 Print Invoice</button>
+            )}
           </div>
         )}
         {!allowedNext.length && canAccess('junior_engineer') && (
@@ -1731,7 +1738,7 @@ export default function CaseDetail() {
         <div className="modal-overlay" onClick={() => setShowTransition(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">⚡ Advance Stage</h3>
+              <h3 className="modal-title">Stages</h3>
               <button className="btn btn-ghost btn-icon" onClick={() => setShowTransition(false)}>✕</button>
             </div>
             <div className="modal-body">
@@ -1754,12 +1761,6 @@ export default function CaseDetail() {
                   onChange={e => setTransitionForm({...transitionForm, notes: e.target.value})} />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Time Spent (minutes)</label>
-                <input type="number" className="form-input" min="0" value={transitionForm.timeSpentMinutes}
-                  onChange={e => setTransitionForm({...transitionForm, timeSpentMinutes: parseInt(e.target.value)||0})} />
-              </div>
-
               {transitionForm.stage === 'completed' && (
                 <div className="alert alert-success" style={{marginTop:8}}>
                   <span className="alert-icon">🏆</span>
@@ -1770,11 +1771,15 @@ export default function CaseDetail() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowTransition(false)}>Cancel</button>
               <button className="btn btn-primary" disabled={!transitionForm.stage || transitioning} onClick={handleTransition}>
-                {transitioning ? <><div className="spinner" style={{width:14,height:14}}/> Updating…</> : '→ Advance Stage'}
+                {transitioning ? <><div className="spinner" style={{width:14,height:14}}/> Updating…</> : 'Update Stage'}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {showInvoiceModal && (
+        <InvoiceModal caseData={caseData} companyData={companyData} caseInvoices={caseInvoices} onClose={() => setShowInvoiceModal(false)} />
       )}
 
       {/* Collect Payment Modal */}
@@ -2127,6 +2132,228 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
       <div style={{ display:'flex',gap:10,justifyContent:'flex-end',marginTop:20 }}>
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" disabled={loading||!form.amount} onClick={handle}>{loading?<><div className="spinner" style={{width:14,height:14}}/> Recording…</>:'✅ Record Payment'}</button>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceModal({ caseData, companyData, caseInvoices, onClose }) {
+  const [invoiceNumber, setInvoiceNumber] = useState(`INV-${caseData.case_number.replace('DR-', '')}-${new Date().getFullYear()}`);
+  const [customerName, setCustomerName] = useState(`${caseData.first_name || ''} ${caseData.last_name || ''}`.trim());
+  const [deviceDetails, setDeviceDetails] = useState(`${caseData.device_brand || ''} ${caseData.device_model || ''}${caseData.serial_number ? ' (S/N: ' + caseData.serial_number + ')' : ''}`.trim());
+  const [serviceType, setServiceType] = useState(caseData.failure_type ? caseData.failure_type.toUpperCase() : 'DATA RECOVERY');
+  const [diagnosisSummary, setDiagnosisSummary] = useState(caseData.final_diagnosis || caseData.initial_diagnosis || 'Successful recovery');
+  
+  const initialRecoveryCharges = caseData.quotations?.[0]?.estimated_cost || caseData.quotations?.[0]?.total_amount || 0;
+  const [recoveryCharges, setRecoveryCharges] = useState(initialRecoveryCharges);
+  const [additionalCharges, setAdditionalCharges] = useState(0);
+  const [taxGst, setTaxGst] = useState(companyData?.gst_rate || 18);
+  
+  const initialPaid = caseInvoices?.reduce((acc, inv) => acc + (parseFloat(inv.amount_paid) || 0), 0) || caseData.total_paid || 0;
+  const [paidAmount, setPaidAmount] = useState(initialPaid);
+  const [paymentMethod, setPaymentMethod] = useState('UPI');
+  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
+  
+  const defaultCompanyDetails = `${companyData.name || 'RecoverLab'}\n${companyData.address || 'Address Not Set'}\nPhone: ${companyData.phone || ''} | Email: ${companyData.email || ''}\nGSTIN: ${companyData.gstin || ''}`;
+  const [companyDetails, setCompanyDetails] = useState(defaultCompanyDetails);
+  const [authorizedSignature, setAuthorizedSignature] = useState(companyData.name || 'RecoverLab');
+  
+  const defaultNotes = `1. Payment is due upon receipt of this invoice.\n2. Verify all recovered data within 7 days.\n3. All disputes are subject to local jurisdiction.`;
+  const [notesTerms, setNotesTerms] = useState(defaultNotes);
+
+  const subtotal = parseFloat(recoveryCharges || 0) + parseFloat(additionalCharges || 0);
+  const taxAmount = (subtotal * parseFloat(taxGst || 0)) / 100;
+  const totalAmount = subtotal + taxAmount;
+  const pendingAmount = Math.max(0, totalAmount - parseFloat(paidAmount || 0));
+
+  const handleGeneratePdf = () => {
+    const co = companyData;
+    const clientName = customerName;
+    const caseDate = new Date().toLocaleString('en-IN');
+    
+    const subtotalVal = parseFloat(recoveryCharges || 0) + parseFloat(additionalCharges || 0);
+    const taxAmountVal = (subtotalVal * parseFloat(taxGst || 0)) / 100;
+    const totalAmountVal = subtotalVal + taxAmountVal;
+    const pendingAmountVal = Math.max(0, totalAmountVal - parseFloat(paidAmount || 0));
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice - ${caseData.case_number}</title>
+    <style id="pageStyle">@page{size:A4 portrait;margin:15mm}</style>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      @media print{
+        .controls{display:none!important}
+        body{background:#fff;padding:0}
+        .page-wrap{padding:0;box-shadow:none}
+        body{print-color-adjust:exact;-webkit-print-color-adjust:exact}
+      }
+      body{font-family:Arial,sans-serif;background:#e2e8f0;min-height:100vh;padding:20px}
+      .controls{background:#1e293b;color:#f8fafc;padding:10px 18px;display:flex;align-items:center;gap:12px;width:794px;margin:0 auto 10px;border-radius:6px;font-size:12px}
+      .btn-print{background:#0284c7;color:#fff;border:none;padding:7px 18px;border-radius:5px;font-weight:800;font-size:12px;cursor:pointer;margin-left:auto}
+      .btn-close{background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid #475569;padding:6px 12px;border-radius:5px;font-size:11px;cursor:pointer}
+      .page-wrap{background:#fff;width:794px;margin:0 auto;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:36px 44px;min-height:1123px;position:relative}
+      .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0284c7;padding-bottom:14px;margin-bottom:20px}
+      .co-name{font-size:24px;font-weight:900;color:#0284c7}
+      .co-meta{font-size:10px;color:#64748b;margin-top:3px;line-height:1.5}
+      .form-title{font-size:18px;font-weight:900;text-transform:uppercase;text-align:right;color:#111;letter-spacing:0.04em}
+      .case-ref{font-size:13px;font-weight:800;text-align:right;margin-top:5px;font-family:'Courier New',monospace;color:#0284c7}
+      .form-date{font-size:10px;color:#64748b;text-align:right;margin-top:3px}
+      .sec-title{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;background:#0f172a;color:#00d4ff;padding:4px 10px;display:inline-block;border-radius:3px;margin:14px 0 6px}
+      table{width:100%;border-collapse:collapse;margin-bottom:8px}
+      th,td{border:1px solid #ddd;padding:7px 11px;font-size:11px;text-align:left}
+      th{background:#f1f5f9;font-weight:700;width:25%;color:#334155;font-size:10px;text-transform:uppercase;letter-spacing:0.04em}
+      .disclaimer{font-size:9px;color:#64748b;line-height:1.5;margin-top:16px;padding:8px 10px;background:#f8fafc;border-left:3px solid #0284c7;border-radius:3px}
+      .sig-row{display:flex;gap:40px;margin-top:40px;position:absolute;bottom:44px;left:44px;right:44px}
+      .sig-box{flex:1;text-align:center;font-size:10px;font-weight:700;color:#334155}
+      .sig-line{border-top:1.5px solid #334155;margin-top:35px;padding-top:6px}
+    </style></head>
+    <body>
+    <div class="controls">
+      <strong>🖨 Printable Invoice / Receipt</strong>
+      <button class="btn-close" onclick="window.close()">✕ Close</button>
+      <button type="button" class="btn-print">🖨 Print / PDF</button>
+    </div>
+    <div class="page-wrap">
+      <div class="hdr">
+        <div>
+          <div class="co-name">${co.name || 'RecoverLab CRM'}</div>
+          <div class="co-meta">${companyDetails.replace(/\n/g, '<br/>')}</div>
+        </div>
+        <div>
+          <div class="form-title">INVOICE / RECEIPT</div>
+          <div class="case-ref">Case # ${caseData.case_number}</div>
+          <div class="form-date">Invoice No: ${invoiceNumber}<br/>Date: ${caseDate}</div>
+        </div>
+      </div>
+
+      <div class="sec-title">Client Information</div>
+      <table><tbody>
+        <tr><th>Name</th><td>${clientName}</td><th>Phone</th><td>${caseData.phone || '—'}</td></tr>
+        <tr><th>Email</th><td>${caseData.email || '—'}</td><th>Company</th><td>${caseData.company || '—'}</td></tr>
+      </tbody></table>
+
+      <div class="sec-title">Device Details</div>
+      <table><tbody>
+        <tr><th>Brand</th><td>${caseData.device_brand || '—'}</td><th>Model</th><td>${caseData.device_model || '—'}</td><th>Serial Number</th><td>${caseData.serial_number || '—'}</td></tr>
+        <tr><th>Capacity</th><td>${caseData.capacity_gb ? caseData.capacity_gb + ' GB' : '—'}</td><th>Interface</th><td>${caseData.interface || '—'}</td><th>Form Factor</th><td>${caseData.form_factor || '—'}</td></tr>
+      </tbody></table>
+
+      <div class="sec-title">Problem Description</div>
+      <table><tbody>
+        <tr><th>Failure Type(s)</th><td>${serviceType}</td></tr>
+        <tr><th>Symptoms</th><td>${(caseData.symptoms || []).join(', ') || '—'}</td></tr>
+        <tr><th>Initial Assessment</th><td>${diagnosisSummary}</td></tr>
+      </tbody></table>
+
+      <div class="sec-title">Payment Details</div>
+      <table><tbody>
+        <tr><th>Recovery Charges</th><td>₹${parseFloat(recoveryCharges || 0).toLocaleString('en-IN')}</td><th>Additional Charges</th><td>₹${parseFloat(additionalCharges || 0).toLocaleString('en-IN')}</td></tr>
+        <tr><th>Tax / GST Rate</th><td>${taxGst}%</td><th>Payment Method</th><td>${paymentMethod}</td></tr>
+        <tr><th>Total Amount</th><td style="font-weight:700">₹${totalAmountVal.toLocaleString('en-IN')}</td><th>Paid Amount</th><td style="color:#16a34a;font-weight:700">₹${parseFloat(paidAmount || 0).toLocaleString('en-IN')}</td></tr>
+        <tr><th>Pending Amount</th><td colspan="3" style="color:#dc2626;font-weight:700;font-size:12px">₹${pendingAmountVal.toLocaleString('en-IN')}</td></tr>
+      </tbody></table>
+
+      <div class="disclaimer"><strong>Disclaimer/Terms:</strong> ${notesTerms.replace(/\n/g, '<br/>')}</div>
+
+      <div class="sig-row">
+        <div class="sig-box"><div class="sig-line">Client Signature</div></div>
+        <div class="sig-box"><div class="sig-line">Authorized Receiver<br/><small style="font-weight:normal;color:#666">${authorizedSignature}</small></div></div>
+      </div>
+    </div>
+    </body></html>`;
+
+    openPrintPreviewWindow(html, { autoPrint: true });
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">🖨 Print Invoice</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label className="form-label required">Invoice Number</label>
+              <input className="form-input font-mono" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Case Number</label>
+              <input className="form-input font-mono" value={caseData.case_number} disabled style={{ background: 'var(--bg-disabled)' }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Customer Name</label>
+              <input className="form-input" value={customerName} onChange={e => setCustomerName(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Device Details</label>
+              <input className="form-input" value={deviceDetails} onChange={e => setDeviceDetails(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Service Type</label>
+              <input className="form-input" value={serviceType} onChange={e => setServiceType(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Diagnosis Summary</label>
+              <input className="form-input" value={diagnosisSummary} onChange={e => setDiagnosisSummary(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Recovery Charges (₹)</label>
+              <input type="number" className="form-input" value={recoveryCharges} onChange={e => setRecoveryCharges(parseFloat(e.target.value) || 0)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Additional Charges (₹)</label>
+              <input type="number" className="form-input" value={additionalCharges} onChange={e => setAdditionalCharges(parseFloat(e.target.value) || 0)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Tax / GST (%)</label>
+              <input type="number" className="form-input" value={taxGst} onChange={e => setTaxGst(parseFloat(e.target.value) || 0)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Total Amount (₹)</label>
+              <input className="form-input font-mono" value={`₹ ${totalAmount.toLocaleString('en-IN')}`} disabled style={{ background: 'var(--bg-disabled)', fontWeight: 'bold' }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Paid Amount (₹)</label>
+              <input type="number" className="form-input" value={paidAmount} onChange={e => setPaidAmount(parseFloat(e.target.value) || 0)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Pending Amount (₹)</label>
+              <input className="form-input font-mono" value={`₹ ${pendingAmount.toLocaleString('en-IN')}`} disabled style={{ background: 'var(--bg-disabled)', color: pendingAmount > 0 ? 'var(--status-danger)' : 'var(--status-success)', fontWeight: 'bold' }} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Payment Method</label>
+              <select className="form-select" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+                <option value="UPI">UPI</option>
+                <option value="Cash">Cash</option>
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Card">Card</option>
+                <option value="Cheque">Cheque</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Delivery Date</label>
+              <input type="date" className="form-input" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Company Details</label>
+              <textarea className="form-textarea" rows="3" value={companyDetails} onChange={e => setCompanyDetails(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Authorized Signature (Name)</label>
+              <input className="form-input" value={authorizedSignature} onChange={e => setAuthorizedSignature(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Notes & Terms</label>
+              <textarea className="form-textarea" rows="3" value={notesTerms} onChange={e => setNotesTerms(e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleGeneratePdf}>⚡ Download PDF</button>
+        </div>
       </div>
     </div>
   );
