@@ -60,3 +60,54 @@ HDD Section Improvements:
 Additional Changes:
 * Changed HDD No field to auto-use/improve Case Number handling
 * Overall form flow and usability improved for smoother operations
+
+
+26/05/26
+
+Inventory
+  Inventory view add Transfer to client button
+  Inventory to transfer donor - done
+  Zoom or rotate for images - done
+  upload files dynamically
+  remove the files section and inside media all the types of files must be added . - done
+  In recycle bin add the functionaloty for delete perment - done
+  In HDD add the timeline with notes sections - done
+  Remove the add photos & files from the view - done
+  add the health field below note section
+
+
+clients
+  Pending ammount not working bug
+  add the collect button in pending ammount coloum 
+
+  
+
+
+Donor(Ashmita) - done
+  Hardisk -> matching company name , 
+  PCB -> matching pcb num
+  SSD -> ssd num
+
+Cases
+  remove advanced stage button - done
+  solutions added in case section must appear on the knowladge base with catagories HDD , SSD , PCB , Other according to the type of solution ` - done
+  Show the added solutions as card after the  text area - done
+  quation in inward form download
+  add the notes in overview section
+  add the download invoice button after the case is staged to delivered - done 
+
+
+Knowladge base
+  Show the solutions according the tabs as cards - done
+
+
+Reports
+  Make the reports working
+
+
+Settings 
+  Client portal enable/disable dynamic
+  Clients all fields dynamic add new field remove existing fields
+
+
+chat working fully(Ashmita)

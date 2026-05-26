@@ -5,7 +5,7 @@ import { useAuth } from '../store/AuthContext';
 import { isHddCategoryKey } from '../constants/inventoryConfig';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import InventoryHddFields from '../components/InventoryHddFields';
-import MediaPreviewModal from '../components/MediaPreviewModal';
+import MediaFileGrid from '../components/MediaFileGrid';
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -47,8 +47,6 @@ function StatusBadge({ status }) {
   return <span style={{ fontSize:'0.68rem',fontWeight:700,padding:'3px 8px',borderRadius:999,color:s.color,background:s.bg,fontFamily:'var(--font-mono)',textTransform:'uppercase' }}>{status?.replace(/_/g,' ')}</span>;
 }
 
-<<<<<<< HEAD
-=======
 const HEALTH_OPTIONS = ['Good', 'Fair', 'Damaged', 'Repair Needed', 'Untested', 'For Parts', 'Other'];
 
 function formatNoteDateTime(iso) {
@@ -110,123 +108,6 @@ function InventoryNotesPanel({ notes, canAdd, newNote, onNewNoteChange, onAddNot
   );
 }
 
-function MediaLightbox({ items, startIdx, onClose }) {
-  const [idx, setIdx] = useState(startIdx || 0);
-  const [scale, setScale] = useState(1);
-  const [rotation, setRotation] = useState(0);
-
-  useEffect(() => {
-    setScale(1);
-    setRotation(0);
-  }, [idx]);
-
-  useEffect(() => {
-    const h = (e) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') setIdx((i) => Math.min(i + 1, items.length - 1));
-      if (e.key === 'ArrowLeft') setIdx((i) => Math.max(i - 1, 0));
-      if (e.key === '+' || e.key === '=') setScale((s) => Math.min(4, s + 0.25));
-      if (e.key === '-') setScale((s) => Math.max(0.5, s - 0.25));
-    };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [items, onClose]);
-
-  const item = items[idx];
-  const isVideo = item?.mimeType?.startsWith('video/') || item?.name?.match(/\.(mp4|webm|ogg|mov)$/i);
-  const isImage = !isVideo;
-
-  const toolBtn = {
-    background: 'rgba(255,255,255,0.12)',
-    border: '1px solid rgba(255,255,255,0.25)',
-    color: '#fff',
-    borderRadius: 8,
-    padding: '6px 12px',
-    cursor: 'pointer',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-  };
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.97)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}
-      onClick={onClose}
-      onWheel={(e) => {
-        if (!isImage) return;
-        e.preventDefault();
-        e.stopPropagation();
-        setScale((s) => Math.min(4, Math.max(0.5, s + (e.deltaY < 0 ? 0.1 : -0.1))));
-      }}
-    >
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(rgba(0,0,0,0.8),transparent)' }}>
-        <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem' }}>{item?.name} · {formatSize(item?.size)}</span>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}>{idx + 1}/{items.length}</span>
-          <button type="button" onClick={onClose} style={{ ...toolBtn, fontSize: '1.1rem' }}>✕</button>
-        </div>
-      </div>
-
-      {idx > 0 && (
-        <button type="button" onClick={(e) => { e.stopPropagation(); setIdx((i) => i - 1); }} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', ...toolBtn, width: 48, height: 48, borderRadius: '50%', fontSize: '1.4rem' }}>‹</button>
-      )}
-      {idx < items.length - 1 && (
-        <button type="button" onClick={(e) => { e.stopPropagation(); setIdx((i) => i + 1); }} style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', ...toolBtn, width: 48, height: 48, borderRadius: '50%', fontSize: '1.4rem' }}>›</button>
-      )}
-
-      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '88vw', maxHeight: '78vh', overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {isVideo ? (
-          <video src={item.data} controls style={{ maxWidth: '100%', maxHeight: '78vh', borderRadius: 8 }} />
-        ) : (
-          <img
-            src={item.data}
-            alt={item.name}
-            style={{
-              maxWidth: '88vw',
-              maxHeight: '78vh',
-              objectFit: 'contain',
-              borderRadius: 8,
-              transform: `rotate(${rotation}deg) scale(${scale})`,
-              transition: 'transform 0.15s ease',
-              cursor: scale > 1 ? 'grab' : 'default',
-            }}
-            draggable={false}
-          />
-        )}
-      </div>
-
-      {isImage && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            bottom: 20,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            gap: 8,
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            padding: '10px 14px',
-            background: 'rgba(0,0,0,0.65)',
-            borderRadius: 12,
-            border: '1px solid rgba(255,255,255,0.15)',
-          }}
-        >
-          <button type="button" style={toolBtn} onClick={() => setScale((s) => Math.min(4, s + 0.25))} title="Zoom in">🔍 Zoom in</button>
-          <button type="button" style={toolBtn} onClick={() => setScale((s) => Math.max(0.5, s - 0.25))} title="Zoom out">🔍 Zoom out</button>
-          <button type="button" style={toolBtn} onClick={() => setRotation((r) => r - 90)} title="Rotate left">🔄 Rotate left</button>
-          <button type="button" style={toolBtn} onClick={() => setRotation((r) => r + 90)} title="Rotate right">🔄 Rotate right</button>
-          <button type="button" style={toolBtn} onClick={() => { setScale(1); setRotation(0); }} title="Reset">↺ Reset</button>
-          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.7rem', alignSelf: 'center', padding: '0 6px' }}>
-            {Math.round(scale * 100)}%
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
->>>>>>> b89e0734c85eb57494b90edf32163ed4762a7888
 // ─── Comparison View (shown inline when caseId is in query params) ─────────────
 function DonorPatientComparison({ donor, patientCaseId }) {
   const [patient, setPatient] = useState(null);
@@ -345,7 +226,6 @@ export default function InventoryDetail() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [lightboxIdx, setLightboxIdx] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [activeTab, setActiveTab] = useState('overview');
@@ -754,27 +634,12 @@ export default function InventoryDetail() {
           {images.length === 0 ? (
             <div className="empty-state"><div className="empty-icon">📷</div><div className="empty-title">No photos yet</div><div className="empty-desc">Upload photos of label, PCB, condition, and damage</div></div>
           ) : (
-            <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:12 }}>
-              {images.map((img, idx) => {
-                const isVideo = img.mimeType?.startsWith('video/') || img.name?.match(/\.(mp4|webm|ogg|mov)$/i);
-                return (
-                  <div key={img.id} style={{ position:'relative',borderRadius:'var(--radius-md)',overflow:'hidden',border:'1px solid var(--border-subtle)',background:'var(--bg-elevated)' }}>
-                    {isVideo ? (
-                      <video src={img.data} style={{ width:'100%',height:140,objectFit:'cover',cursor:'pointer' }} onClick={() => setLightboxIdx(idx)} />
-                    ) : (
-                      <img src={img.data} alt={img.name} style={{ width:'100%',height:140,objectFit:'cover',cursor:'pointer' }} onClick={() => setLightboxIdx(idx)} />
-                    )}
-                    <div style={{ position:'absolute',top:4,left:4,background:'rgba(0,0,0,0.6)',borderRadius:4,padding:'2px 5px',fontSize:'0.6rem',color:'#fff' }}>
-                      {isVideo ? '🎬' : '🖼️'} {formatSize(img.size)}
-                    </div>
-                    <div style={{ padding:'6px 8px',fontSize:'0.68rem',color:'var(--text-muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{img.name}</div>
-                    {canAccess('junior_engineer') && (
-                      <button onClick={() => handleDeleteMedia(img.id)} style={{ position:'absolute',top:4,right:4,width:22,height:22,borderRadius:'50%',background:'rgba(239,68,68,0.9)',border:'none',color:'#fff',fontSize:'0.75rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}>✕</button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            <MediaFileGrid
+              items={images}
+              onDelete={handleDeleteMedia}
+              canDelete={canAccess('junior_engineer')}
+              variant="gallery"
+            />
           )}
         </div>
       )}
@@ -807,8 +672,6 @@ export default function InventoryDetail() {
         <DonorPatientComparison donor={item} patientCaseId={compareWithCase} />
       )}
 
-      {/* Lightbox */}
-      {lightboxIdx !== null && <MediaPreviewModal items={images} startIndex={lightboxIdx} onClose={() => setLightboxIdx(null)} />}
     </div>
   );
 }

@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
 import { solutionsApi } from '../services/api';
-import { formatSolutionTime, fileTypeIcon, formatFileSize } from '../utils/solutionMedia';
-import MediaPreviewModal from '../components/MediaPreviewModal';
+import { formatSolutionTime, fileTypeIcon } from '../utils/solutionMedia';
+import MediaFileGrid from '../components/MediaFileGrid';
 
 const DEVICE_TYPES = ['HDD', 'SSD', 'Phone', 'PCB', 'NAS', 'Server', 'Flash Drive', 'RAID', 'Other'];
 const PROB_TAGS = ['Head Crash', 'Firmware Corruption', 'Logical Error', 'PCB Damage', 'BSY Error', 'Bad Sectors', 'Motor Seized', 'Not Detected', 'Water Damage', 'Fire Damage', 'Encrypted', 'RAID Rebuild', 'Deleted Files'];
@@ -150,7 +150,6 @@ function KbNotesTimeline({ noteHistory }) {
 }
 
 function SolutionDetailModal({ sol, onClose, onDelete, onEdit, canDelete, canEdit }) {
-  const [previewIdx, setPreviewIdx] = useState(null);
   const noteHistory = sol.note_history?.length ? sol.note_history : (sol.notes ? [{ id: 'legacy', text: sol.notes, createdAt: sol.created_at }] : []);
   const caseRefs = sol.case_refs || [];
 
@@ -211,19 +210,7 @@ function SolutionDetailModal({ sol, onClose, onDelete, onEdit, canDelete, canEdi
           {sol.files?.length > 0 && (
             <div>
               <div className="card-title" style={{ marginBottom: 12 }}>📎 Attachments ({sol.files.length})</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 10 }}>
-                {sol.files.map((f, i) => (
-                  <div key={f.id || i} className="card" style={{ padding: 8, cursor: 'pointer' }} onClick={() => setPreviewIdx(i)}>
-                    {f.mimeType?.startsWith('image/') && f.data ? (
-                      <img src={f.data} alt={f.name} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
-                    ) : (
-                      <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem' }}>{fileTypeIcon(f)}</div>
-                    )}
-                    <div style={{ fontSize: '0.7rem', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{formatFileSize(f.size)}</div>
-                  </div>
-                ))}
-              </div>
+              <MediaFileGrid items={sol.files} variant="gallery" />
             </div>
           )}
         </div>
@@ -233,9 +220,6 @@ function SolutionDetailModal({ sol, onClose, onDelete, onEdit, canDelete, canEdi
           <button className="btn btn-secondary" onClick={onClose}>Close</button>
         </div>
       </div>
-      {previewIdx !== null && sol.files?.length > 0 && (
-        <MediaPreviewModal items={sol.files} startIndex={previewIdx} onClose={() => setPreviewIdx(null)} />
-      )}
     </div>
   );
 }

@@ -5,8 +5,8 @@ import { useAuth } from '../store/AuthContext';
 import { printInwardForm } from '../components/NewCaseModal';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import { openPrintPreviewWindow } from '../utils/printPreview';
-import { formatSolutionTime, fileTypeIcon, formatFileSize } from '../utils/solutionMedia';
-import MediaPreviewModal from '../components/MediaPreviewModal';
+import { formatSolutionTime } from '../utils/solutionMedia';
+import MediaFileGrid from '../components/MediaFileGrid';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -34,50 +34,6 @@ const VALID_NEXT = {
   data_extraction: ALL_STAGES, verification: ALL_STAGES,
   completed: ALL_STAGES, delivered: ALL_STAGES, failed: ALL_STAGES,
 };
-
-// ─── Image/Video Grid ────────────────────────────────────────────
-function MediaGrid({ items, onDelete, canDelete }) {
-  const [previewIdx, setPreviewIdx] = useState(null);
-
-  if (!items?.length) return null;
-
-  return (
-    <>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginTop:12}}>
-        {items.map((item, idx) => {
-          const isVideo = item.mimeType?.startsWith('video/');
-          return (
-            <div key={item.id} style={{position:'relative',borderRadius:'var(--radius-md)',overflow:'hidden',border:'1px solid var(--border-default)',background:'var(--bg-elevated)',aspectRatio:'1',cursor:'pointer'}}
-              onClick={() => setPreviewIdx(idx)}>
-              {isVideo ? (
-                <div style={{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,background:'rgba(124,58,237,0.1)'}}>
-                  <span style={{fontSize:'2rem'}}>🎬</span>
-                  <span style={{fontSize:'0.65rem',color:'var(--text-muted)',textAlign:'center',padding:'0 6px',wordBreak:'break-all'}}>{item.name}</span>
-                </div>
-              ) : (
-                <img src={item.data} alt={item.name} style={{width:'100%',height:'100%',objectFit:'cover'}} />
-              )}
-              <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0)',transition:'background 0.15s'}}
-                onMouseEnter={e=>e.currentTarget.style.background='rgba(0,0,0,0.3)'}
-                onMouseLeave={e=>e.currentTarget.style.background='rgba(0,0,0,0)'}
-              />
-              <div style={{position:'absolute',bottom:4,left:4,right:4,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{fontSize:'0.6rem',color:'rgba(255,255,255,0.7)',background:'rgba(0,0,0,0.6)',padding:'2px 5px',borderRadius:4,maxWidth:90,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{formatFileSize(item.size)}</span>
-                {canDelete && (
-                  <button onClick={e=>{e.stopPropagation();onDelete(item.id);}}
-                    style={{background:'rgba(239,68,68,0.8)',border:'none',borderRadius:4,color:'#fff',width:20,height:20,fontSize:'0.65rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {previewIdx !== null && (
-        <MediaPreviewModal items={items} startIndex={previewIdx} onClose={() => setPreviewIdx(null)} />
-      )}
-    </>
-  );
-}
 
 // ─── Drop Zone Upload ────────────────────────────────────────────
 function DropZoneUpload({ onUpload, accept = 'image/*,video/*', multiple = true, label = 'Drop images or videos here', uploading }) {
@@ -154,46 +110,6 @@ function SolutionNotesTimeline({ notes }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function SolutionMediaFileList({ items, onDelete, canDelete }) {
-  const [previewIdx, setPreviewIdx] = useState(null);
-  if (!items?.length) return null;
-  return (
-    <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 10, marginTop: 12 }}>
-        {items.map((item, idx) => (
-          <div
-            key={item.id}
-            className="card"
-            style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8, cursor: 'pointer' }}
-            onClick={() => setPreviewIdx(idx)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1.2rem' }}>{fileTypeIcon(item)}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>{item.name}</div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {formatSolutionTime(item.uploadedAt || item.createdAt)} · {formatFileSize(item.size)}
-                </div>
-              </div>
-              {canDelete && (
-                <button type="button" className="btn btn-ghost btn-icon" style={{ width: 24, height: 24, fontSize: '0.7rem' }}
-                  onClick={e => { e.stopPropagation(); onDelete(item.id); }}>✕</button>
-              )}
-            </div>
-            {item.mimeType?.startsWith('image/') && item.data && (
-              <img src={item.data} alt={item.name} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
-            )}
-            <span style={{ fontSize: '0.68rem', color: 'var(--accent-primary)' }}>Click to preview</span>
-          </div>
-        ))}
-      </div>
-      {previewIdx !== null && (
-        <MediaPreviewModal items={items} startIndex={previewIdx} onClose={() => setPreviewIdx(null)} />
-      )}
-    </>
   );
 }
 
@@ -356,7 +272,7 @@ function SolutionPanel({ caseId, caseStage }) {
               />
             )}
             {solution.mediaFiles?.length > 0 ? (
-              <SolutionMediaFileList items={solution.mediaFiles} onDelete={handleDeleteMedia} canDelete={canEdit} />
+              <MediaFileGrid items={solution.mediaFiles} onDelete={handleDeleteMedia} canDelete={canEdit} variant="card" />
             ) : (
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: canEdit ? 12 : 0 }}>
                 {canEdit ? 'No files uploaded yet.' : 'No media attached to this solution.'}
@@ -428,7 +344,7 @@ function CasePhotosPanel({ caseId }) {
       )}
 
       {images.length > 0 ? (
-        <MediaGrid items={images} onDelete={handleDelete} canDelete={canAccess('junior_engineer')} />
+        <MediaFileGrid items={images} onDelete={handleDelete} canDelete={canAccess('junior_engineer')} variant="square" style={{ marginTop: 12 }} />
       ) : (
         !uploading && (
           <div className="empty-state" style={{padding:30}}>
