@@ -223,7 +223,7 @@ CREATE TABLE cases (
   interface device_interface,
   form_factor device_form_factor,
   -- Failure Info
-  failure_type failure_type DEFAULT 'unknown',
+  failure_type VARCHAR(100) DEFAULT 'unknown',
   symptoms TEXT[],
   symptom_notes TEXT,
   initial_diagnosis TEXT,

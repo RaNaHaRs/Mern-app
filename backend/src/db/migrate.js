@@ -141,6 +141,28 @@ async function migrate() {
       console.warn('⚠️  Media recycle bin migration warning (non-fatal):', mediaRbErr.message);
     }
 
+    try {
+      const failureTypeSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '014_failure_type_cases_varchar.sql'),
+        'utf8'
+      );
+      await client.query(failureTypeSchema);
+      console.log('✅ Failure type cases column migration applied');
+    } catch (failureTypeErr) {
+      console.warn('⚠️  Failure type migration warning (non-fatal):', failureTypeErr.message);
+    }
+
+    try {
+      const problemHistorySchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '015_problem_diagnosis_history.sql'),
+        'utf8'
+      );
+      await client.query(problemHistorySchema);
+      console.log('✅ Problem & diagnosis history migration applied');
+    } catch (problemHistoryErr) {
+      console.warn('⚠️  Problem history migration warning (non-fatal):', problemHistoryErr.message);
+    }
+
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");
     if (hasRoleEnum.rows.length) {
       try {

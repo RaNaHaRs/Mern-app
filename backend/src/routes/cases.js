@@ -8,6 +8,7 @@ const { upload } = require('../middleware/upload');
 const { solutionUpload } = require('../middleware/solutionUpload');
 const solutionsRouter = require('./solutions');
 const mediaRecycle = require('../services/mediaRecycle');
+const { normalizeFailureType, isValidFailureType } = require('../utils/failureTypes');
 
 const router = express.Router();
 router.use(authenticate);
@@ -54,6 +55,15 @@ function normalizeCasePayload(body = {}) {
 
   if (!normalized.failure_type && Array.isArray(normalized.failure_types) && normalized.failure_types.length > 0) {
     normalized.failure_type = normalized.failure_types[0];
+  }
+
+  if (normalized.failure_type) {
+    normalized.failure_type = normalizeFailureType(normalized.failure_type);
+  }
+
+  const problemText = normalized.problem_description ?? normalized.problemDescription;
+  if (problemText && !normalized.symptom_notes) {
+    normalized.symptom_notes = String(problemText).trim();
   }
 
   if (normalized.capacity_gb === undefined || normalized.capacity_gb === null || normalized.capacity_gb === '') {
@@ -159,19 +169,7 @@ router.post('/',
     body('device_brand').trim().notEmpty(),
     body('device_model').trim().notEmpty(),
     body('symptoms').isArray().optional(),
-    body('failure_type').optional().isIn([
-      'logical',
-      'firmware',
-      'electrical',
-      'mechanical',
-      'head_crash',
-      'pcb_damage',
-      'motor_failure',
-      'bad_sectors',
-      'water_damage',
-      'fire_damage',
-      'unknown'
-    ]),
+    body('failure_type').optional().custom((val) => isValidFailureType(val)),
     body('priority').optional().isInt({ min: 1, max: 5 }),
   ],
   auditLog('create_case', 'case'),

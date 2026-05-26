@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const { mergeProblemSuggestions } = require('./utils/problemSuggestions');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -290,7 +291,7 @@ const DEMO_CLIENTS = [
 ];
 
 const DEMO_CASES = [
-  { id: 'case1', case_number: 'DR-2025-00001', client_id: 'c1', first_name: 'Rahul', last_name: 'Sharma', company: 'TechCorp', device_brand: 'Western Digital', device_model: 'WD10EZEX', serial_number: 'WD-XYZ123456', capacity_gb: 1000, interface: 'SATA', failure_type: 'mechanical', symptoms: ['clicking', 'not_detected'], stage: 'diagnosis', priority: 1, ai_risk_level: 'high', engineer_name: 'John Engineer', recovery_progress_pct: 0, received_at: '2025-01-10T08:00:00Z', created_at: '2025-01-10T08:00:00Z', initial_diagnosis: 'Drive making clicking noise. Likely head failure or seized spindle motor.' },
+  { id: 'case1', case_number: 'DR-2025-00001', client_id: 'c1', first_name: 'Rahul', last_name: 'Sharma', company: 'TechCorp', device_brand: 'Western Digital', device_model: 'WD10EZEX', serial_number: 'WD-XYZ123456', capacity_gb: 1000, interface: 'SATA', failure_type: 'mechanical', symptoms: ['clicking', 'not_detected'], symptom_notes: 'Clicking and not detecting', stage: 'diagnosis', priority: 1, ai_risk_level: 'high', engineer_name: 'John Engineer', recovery_progress_pct: 0, received_at: '2025-01-10T08:00:00Z', created_at: '2025-01-10T08:00:00Z', initial_diagnosis: 'Drive making clicking noise. Likely head failure or seized spindle motor.' },
   { id: 'case2', case_number: 'DR-2025-00002', client_id: 'c2', first_name: 'Priya', last_name: 'Patel', company: null, device_brand: 'Seagate', device_model: 'ST1000DM010', serial_number: 'Z9ATXXXX', capacity_gb: 1000, interface: 'SATA', failure_type: 'firmware', symptoms: ['slow', 'not_detected'], stage: 'recovery_in_progress', priority: 2, ai_risk_level: 'medium', engineer_name: 'John Engineer', recovery_progress_pct: 45, received_at: '2025-01-12T09:00:00Z', created_at: '2025-01-12T09:00:00Z', initial_diagnosis: 'Drive not detected. Firmware issue suspected - typical Seagate BSY bug variant.' },
   { id: 'case3', case_number: 'DR-2025-00003', client_id: 'c3', first_name: 'Amit', last_name: 'Kumar', company: 'Kumar Enterprises', device_brand: 'Samsung', device_model: '860 EVO 500GB', serial_number: 'S4ESXXXXXX', capacity_gb: 500, interface: 'SATA', failure_type: 'logical', symptoms: ['not_detected'], stage: 'completed', priority: 3, ai_risk_level: 'low', engineer_name: 'John Engineer', recovery_progress_pct: 100, received_at: '2025-01-08T07:00:00Z', created_at: '2025-01-08T07:00:00Z', initial_diagnosis: 'SSD not mounting. Logical issue - partition table corruption.' },
   { id: 'case4', case_number: 'DR-2025-00004', client_id: 'c1', first_name: 'Rahul', last_name: 'Sharma', company: 'TechCorp', device_brand: 'Toshiba', device_model: 'MQ01ABD100', serial_number: 'Y3XXXXXX', capacity_gb: 1000, interface: 'SATA', failure_type: 'electrical', symptoms: ['dead', 'pcb_burnt'], stage: 'inspection', priority: 1, ai_risk_level: 'critical', engineer_name: null, recovery_progress_pct: 0, received_at: '2025-01-15T11:00:00Z', created_at: '2025-01-15T11:00:00Z', initial_diagnosis: 'Visible burn mark on PCB. TVS diode blown. Need PCB donor.' },
@@ -995,9 +996,104 @@ app.post('/api/cases', authenticate, (req, res) => {
     return String(DEMO_CASES.length + 1).padStart(match.length - 2, '0');
   });
 
-  const newCase = { id: `case_${Date.now()}`, case_number: req.body.case_number || generatedId, ...req.body, stage: 'received', recovery_progress_pct: 0, created_at: new Date().toISOString() };
+  const problemText = req.body.problem_description || req.body.symptom_notes;
+  const newCase = {
+    id: `case_${Date.now()}`,
+    case_number: req.body.case_number || generatedId,
+    ...req.body,
+    symptom_notes: problemText || req.body.symptom_notes,
+    stage: 'received',
+    recovery_progress_pct: 0,
+    created_at: new Date().toISOString(),
+  };
   DEMO_CASES.push(newCase);
   res.status(201).json(newCase);
+});
+
+// ─── Problem / diagnosis suggestions (demo) ───────────────────────────────────
+const DEMO_PROBLEM_HISTORY = [];
+const DEMO_DIAGNOSIS_HISTORY = [];
+
+function demoProblemRowsFromCases() {
+  return DEMO_CASES.map((c) => ({
+    text: c.symptom_notes || c.problem_description || '',
+    use_count: 1,
+  })).filter((r) => r.text && String(r.text).trim());
+}
+
+function demoDiagnosisRowsFromCases() {
+  return DEMO_CASES.map((c) => ({
+    text: c.initial_diagnosis || '',
+    use_count: 1,
+  })).filter((r) => r.text && String(r.text).trim());
+}
+
+app.get('/api/suggestions/problems', authenticate, (req, res) => {
+  const term = String(req.query.search || '').trim();
+  if (!term) return res.json([]);
+
+  const max = Math.min(parseInt(req.query.limit, 10) || 10, 20);
+  let extras = [];
+  try {
+    extras = req.query.customProblems ? JSON.parse(req.query.customProblems) : [];
+  } catch {
+    extras = [];
+  }
+
+  const rows = [...DEMO_PROBLEM_HISTORY, ...demoProblemRowsFromCases()];
+  res.json(mergeProblemSuggestions(rows, term, max, extras));
+});
+
+app.post('/api/suggestions/problems', authenticate, (req, res) => {
+  const text = String(req.body.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Problem text is required' });
+
+  const existing = DEMO_PROBLEM_HISTORY.find((p) => p.text.toLowerCase() === text.toLowerCase());
+  if (existing) {
+    existing.use_count = (existing.use_count || 1) + 1;
+    existing.last_used_at = new Date().toISOString();
+    return res.json(existing);
+  }
+
+  const row = { text, use_count: 1, last_used_at: new Date().toISOString() };
+  DEMO_PROBLEM_HISTORY.push(row);
+  res.json(row);
+});
+
+app.get('/api/suggestions/diagnosis', authenticate, (req, res) => {
+  const term = String(req.query.search || '').trim();
+  if (!term) return res.json([]);
+
+  const max = Math.min(parseInt(req.query.limit, 10) || 10, 20);
+  const q = term.toLowerCase();
+  const all = [...DEMO_DIAGNOSIS_HISTORY, ...demoDiagnosisRowsFromCases()];
+  const seen = new Set();
+  const out = [];
+
+  for (const row of all) {
+    const text = String(row.text || '').trim();
+    if (!text || seen.has(text.toLowerCase()) || !text.toLowerCase().includes(q)) continue;
+    seen.add(text.toLowerCase());
+    out.push({ text, use_count: row.use_count || 1 });
+    if (out.length >= max) break;
+  }
+
+  res.json(out);
+});
+
+app.post('/api/suggestions/diagnosis', authenticate, (req, res) => {
+  const text = String(req.body.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Diagnosis text is required' });
+
+  const existing = DEMO_DIAGNOSIS_HISTORY.find((p) => p.text.toLowerCase() === text.toLowerCase());
+  if (existing) {
+    existing.use_count = (existing.use_count || 1) + 1;
+    return res.json(existing);
+  }
+
+  const row = { text, use_count: 1 };
+  DEMO_DIAGNOSIS_HISTORY.push(row);
+  res.json(row);
 });
 
 app.patch('/api/cases/:id/stage', authenticate, (req, res) => {

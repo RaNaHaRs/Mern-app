@@ -232,8 +232,177 @@ export function Autocomplete({
         </div>
       )}
 
-      {isOpen && suggestions.length === 0 && !isLoading && value.length >= minChars && (
+    </div>
+  );
+}
+
+/** Highlight the matched portion of a suggestion label */
+export function highlightMatch(text, query) {
+  if (!query || !text) return text;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx < 0) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <strong style={{ color: 'var(--accent-primary)', fontWeight: 700 }}>
+        {text.slice(idx, idx + query.length)}
+      </strong>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+/**
+ * TextareaAutocomplete — debounced suggestions for multi-line problem descriptions.
+ * Dropdown only appears while typing; click or Enter fills the field; custom text allowed.
+ */
+export function TextareaAutocomplete({
+  value,
+  onChange,
+  placeholder,
+  fetchSuggestions,
+  minChars = 1,
+  debounceMs = 250,
+  maxSuggestions = 8,
+  className = '',
+  inputClassName = 'form-textarea',
+  disabled = false,
+  hasError = false,
+  style = {},
+}) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const containerRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const trimmed = (value || '').trim();
+    if (!trimmed || trimmed.length < minChars) {
+      setSuggestions([]);
+      setIsOpen(false);
+      setIsLoading(false);
+      return undefined;
+    }
+
+    setIsLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const results = await fetchSuggestions(trimmed, maxSuggestions);
+        const list = (results || [])
+          .map((item) => (typeof item === 'string' ? { text: item } : item))
+          .filter((item) => item?.text);
+        setSuggestions(list);
+        setIsOpen(list.length > 0);
+        setActiveIndex(-1);
+      } catch (err) {
+        console.error('TextareaAutocomplete fetch error:', err);
+        setSuggestions([]);
+        setIsOpen(false);
+      } finally {
+        setIsLoading(false);
+      }
+    }, debounceMs);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [value, minChars, debounceMs, fetchSuggestions, maxSuggestions]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const selectSuggestion = (item) => {
+    onChange(item.text || item);
+    setIsOpen(false);
+    setSuggestions([]);
+    setActiveIndex(-1);
+  };
+
+  const handleKeyDown = (e) => {
+    if (!isOpen || suggestions.length === 0) return;
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setActiveIndex((prev) => (prev + 1) % suggestions.length);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActiveIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+        break;
+      case 'Enter':
+        if (activeIndex >= 0) {
+          e.preventDefault();
+          selectSuggestion(suggestions[activeIndex]);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setIsOpen(false);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const inputStyle = hasError
+    ? {
+        borderColor: 'var(--danger)',
+        boxShadow: '0 0 0 2px rgba(239, 68, 68, 0.12)',
+        ...style,
+      }
+    : style;
+
+  return (
+    <div ref={containerRef} className={className} style={{ position: 'relative' }}>
+      <textarea
+        className={inputClassName}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onFocus={() => {
+          if (suggestions.length > 0) setIsOpen(true);
+        }}
+        placeholder={placeholder}
+        disabled={disabled}
+        style={{
+          minHeight: 70,
+          fontSize: '0.82rem',
+          width: '100%',
+          ...inputStyle,
+        }}
+        aria-autocomplete="list"
+        aria-expanded={isOpen}
+      />
+      {isLoading && (
         <div
+          style={{
+            position: 'absolute',
+            right: 14,
+            top: 14,
+            color: 'var(--text-muted)',
+            fontSize: '12px',
+            pointerEvents: 'none',
+          }}
+        >
+          ⟳
+        </div>
+      )}
+      {isOpen && suggestions.length > 0 && (
+        <div
+          role="listbox"
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
@@ -242,14 +411,38 @@ export function Autocomplete({
             background: 'var(--bg-card)',
             border: '1px solid var(--border-default)',
             borderRadius: 8,
-            padding: '12px',
-            fontSize: '0.8rem',
-            color: 'var(--text-muted)',
-            textAlign: 'center',
-            zIndex: 1000
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+            maxHeight: 240,
+            overflowY: 'auto',
+            zIndex: 1000,
+            padding: 4,
           }}
         >
-          No suggestions found
+          {suggestions.map((item, index) => (
+            <div
+              key={`${item.text}-${index}`}
+              role="option"
+              aria-selected={index === activeIndex}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => selectSuggestion(item)}
+              onMouseEnter={() => setActiveIndex(index)}
+              style={{
+                padding: '9px 12px',
+                cursor: 'pointer',
+                borderRadius: 6,
+                fontSize: '0.82rem',
+                color: 'var(--text-primary)',
+                background:
+                  index === activeIndex ? 'var(--accent-glow)' : 'transparent',
+                border:
+                  index === activeIndex
+                    ? '1px solid var(--accent-primary)'
+                    : '1px solid transparent',
+              }}
+            >
+              {highlightMatch(item.text, (value || '').trim())}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -346,6 +539,8 @@ export const validators = {
 export default {
   FormField,
   Autocomplete,
+  TextareaAutocomplete,
+  highlightMatch,
   useFormField,
-  validators
+  validators,
 };

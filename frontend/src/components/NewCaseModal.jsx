@@ -37,112 +37,35 @@ class ModalErrorBoundary extends React.Component {
   }
 }
 import { casesApi, clientsApi, usersApi, suggestionsApi } from "../services/api";
+import { TextareaAutocomplete } from "./FormComponents";
 
-// ── Autocomplete Field Component (Problem/Diagnosis suggestions) ───────────────
-function AutocompleteField({ value, onChange, placeholder, fieldType, stepErrors, showStepErrors, isRequired }) {
-  const [suggestions, setSuggestions] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!value || value.trim().length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
-    setLoading(true);
-    const params = { search: value.trim(), limit: 8 };
-    const fetcher = fieldType === 'initial_diagnosis'
-      ? suggestionsApi.searchDiagnosis
-      : suggestionsApi.searchProblems;
-
-    fetcher(params)
-      .then((res) => {
-        const items = Array.isArray(res) ? res : [];
-        setSuggestions(items.map((item) => (typeof item === 'string' ? item : item.text || '')));
-      })
-      .catch((err) => {
-        console.error('Error fetching suggestions:', err);
-        setSuggestions([]);
-      })
-      .finally(() => setLoading(false));
-  }, [value, fieldType]);
-
-  const hasError = showStepErrors && stepErrors && stepErrors[fieldType];
-  const inputStyle = hasError
-    ? {
-        borderColor: 'var(--danger)',
-        boxShadow: '0 0 0 2px rgba(239,68,68,0.12)',
-      }
-    : {};
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <textarea
-        className="form-textarea"
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          minHeight: 70,
-          fontSize: '0.82rem',
-          ...inputStyle,
-        }}
-        aria-invalid={!!hasError}
-      />
-      {loading && (
-        <div style={{ position: 'absolute', right: 14, top: 14, color: 'var(--text-muted)', fontSize: '12px' }}>
-          ⟳
-        </div>
-      )}
-      {suggestions.length > 0 && (
-        <div
-          style={{
-            border: '1px solid var(--border-default)',
-            borderRadius: 6,
-            overflow: 'hidden',
-            maxHeight: 240,
-            overflowY: 'auto',
-            marginTop: 4,
-            background: 'var(--bg-card)',
-            position: 'relative',
-            zIndex: 1000,
-          }}
-        >
-          {suggestions.map((suggestion, idx) => (
-            <div
-              key={idx}
-              onClick={() => {
-                onChange(suggestion);
-                setSuggestions([]);
-              }}
-              style={{
-                padding: '10px 14px',
-                cursor: 'pointer',
-                borderBottom: '1px solid var(--border-subtle)',
-                fontSize: '0.82rem',
-                background: 'transparent',
-                color: 'var(--text-primary)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'var(--accent-glow)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              {suggestion}
-            </div>
-          ))}
-        </div>
-      )}
-      {hasError && (
-        <div style={{ color: 'var(--danger)', fontSize: '0.78rem', marginTop: 6 }}>
-          {stepErrors[fieldType]}
-        </div>
-      )}
-    </div>
-  );
+function getCustomProblemDescriptions() {
+  try {
+    const raw = localStorage.getItem("custom_problem_descriptions");
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }
+
+const fetchProblemSuggestions = async (searchText, limit = 8) => {
+  const custom = getCustomProblemDescriptions();
+  const params = {
+    search: searchText,
+    limit,
+    ...(custom.length ? { customProblems: JSON.stringify(custom) } : {}),
+  };
+  return suggestionsApi.searchProblems(params);
+};
+
+const fetchDiagnosisSuggestions = async (searchText, limit = 8, problemCategory = "") => {
+  return suggestionsApi.searchDiagnosis({
+    search: searchText,
+    limit,
+    problemCategory,
+  });
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function gs(key, def) {
@@ -267,6 +190,19 @@ const HDD_FIELDS = {
   ],
 };
 
+/** HDD fields optional in Add Case (no step/submit blocking) */
+const OPTIONAL_HDD_FIELD_KEYS = new Set([
+  "model",
+  "pn_number",
+  "dcm",
+  "dcx",
+  "date_code",
+]);
+
+function isHddFieldRequired(fieldKey) {
+  return !OPTIONAL_HDD_FIELD_KEYS.has(fieldKey);
+}
+
 const FIELD_LABELS = {
   serial_number: "Serial Number",
   model: "Model",
@@ -323,6 +259,10 @@ const FAILURE_TYPES = [
   "bad_sectors",
   "water_damage",
   "fire_damage",
+  "clicking",
+  "not_detecting",
+  "burnt_pcb",
+  "motor_issue",
   "unknown",
 ];
 
@@ -920,7 +860,7 @@ function HddFields({ hddKey, form, setForm, stepErrors, showStepErrors }) {
         }}
       >
         {visibleFields.map((field) => {
-          const isMandatory = true; // all visible HDD fields are required for the modal
+          const isMandatory = isHddFieldRequired(field);
 
           return (
             <div
@@ -1473,10 +1413,7 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label required">
-            Capacity
-            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
-          </label>
+          <label className="form-label">Capacity</label>
           <select
             className="form-select"
             value={form.capacity || ""}
@@ -1487,8 +1424,7 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
                 set("selected_custom_capacity", "");
               }
             }}
-            style={{ ...inputStyle, ...invalidStyle("capacity") }}
-            aria-invalid={!!stepErrors.capacity}
+            style={inputStyle}
           >
             <option value="">Select Capacity...</option>
             {capacities
@@ -1510,13 +1446,8 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
               form={form}
               setForm={set}
               inputStyle={inputStyle}
-              stepErrors={stepErrors}
+              stepErrors={{}}
             />
-          )}
-          {stepErrors.capacity && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.capacity}
-            </div>
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
@@ -1719,29 +1650,31 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, 
         <label className="form-label">
           Problem Description <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
         </label>
-        <AutocompleteField
+        <TextareaAutocomplete
           value={form.problem_description || ""}
           onChange={(val) => set("problem_description", val)}
           placeholder="Client's description of the problem..."
-          fieldType="problem_description"
-          stepErrors={stepErrors}
-          showStepErrors={showStepErrors}
-          isRequired
+          fetchSuggestions={fetchProblemSuggestions}
+          hasError={showStepErrors && !!stepErrors.problem_description}
         />
+        {showStepErrors && stepErrors.problem_description && (
+          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+            {stepErrors.problem_description}
+          </div>
+        )}
       </div>
       {showDiagnosis && (
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">
-            Initial Diagnosis / Observation <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            Initial Diagnosis / Observation
           </label>
-          <AutocompleteField
+          <TextareaAutocomplete
             value={form.initial_diagnosis || ""}
             onChange={(val) => set("initial_diagnosis", val)}
             placeholder="Engineer's initial observations..."
-            fieldType="initial_diagnosis"
-            stepErrors={stepErrors}
-            showStepErrors={showStepErrors}
-            isRequired
+            fetchSuggestions={(text, limit) =>
+              fetchDiagnosisSuggestions(text, limit, form.failure_types?.[0] || "")
+            }
           />
         </div>
       )}
@@ -1765,26 +1698,12 @@ function StepCommercialView({ form, setForm, printTemplate, setPrintTemplate, re
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Quotation Amount (₹) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
-          </label>
+          <label className="form-label">Quotation Amount (₹)</label>
           <input type="number" className="form-input" placeholder="0" value={form.quotation_amount || ""} onChange={(e) => set("quotation_amount", e.target.value)} style={{ fontSize: "0.82rem", padding: "8px 10px" }} />
-          {stepErrors.quotation_amount && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.quotation_amount}
-            </div>
-          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Advance Received (₹) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
-          </label>
+          <label className="form-label">Advance Received (₹)</label>
           <input type="number" className="form-input" placeholder="0" value={form.advance_amount || ""} onChange={(e) => set("advance_amount", e.target.value)} style={{ fontSize: "0.82rem", padding: "8px 10px" }} />
-          {stepErrors.advance_amount && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.advance_amount}
-            </div>
-          )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">Balance Remaining</label>
@@ -1794,15 +1713,8 @@ function StepCommercialView({ form, setForm, printTemplate, setPrintTemplate, re
         </div>
       </div>
       <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">
-          Reference / Notes <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
-        </label>
+        <label className="form-label">Reference / Notes</label>
         <input className="form-input" placeholder="Reference number, courier, etc." value={form.reference || ""} onChange={(e) => set("reference", e.target.value)} style={{ fontSize: "0.82rem", padding: "8px 10px" }} />
-        {stepErrors.reference && (
-          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-            {stepErrors.reference}
-          </div>
-        )}
       </div>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">🖨️ Inward Form Print Template</label>
@@ -1862,8 +1774,6 @@ export default function NewCaseModal({ onClose, onCreated }) {
     if (idx === 1) {
       if (!form.hdd_type) errs.hdd_type = "HDD / Device Type is required";
       if (!form.case_number) errs.case_number = "Case number is required";
-      if (!form.capacity) errs.capacity = "Capacity is required";
-      if (form.capacity === "__others__" && !form.selected_custom_capacity) errs.selected_custom_capacity = "Please add a custom capacity";
       if (!form.interface) errs.interface = "Interface is required";
     }
 
@@ -1875,6 +1785,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
         const normKey = (form.hdd_type || "").replace(/\./g, "_").replace(/-/g, "_");
         const fields = HDD_FIELDS[normKey] || [];
         fields.forEach((f) => {
+          if (!isHddFieldRequired(f)) return;
           if (!form[f] && form[f] !== 0) errs[f] = `${FIELD_LABELS[f] || f} is required`;
         });
       }
@@ -1887,16 +1798,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
       
       if (!(form.failure_types || []).length) errs.failure_types = "Select at least one failure type";
       if (!(form.symptoms || []).length) errs.symptoms = "Select at least one symptom";
-      if (!form.problem_description) errs.problem_description = "Problem description is required";
-      if (showDiagnosis && !form.initial_diagnosis) errs.initial_diagnosis = "Initial diagnosis is required";
+      if (!form.problem_description?.trim()) errs.problem_description = "Problem description is required";
     }
 
-    // Step 4: Commercial
-    if (idx === 4) {
-      if (form.quotation_amount === "" || form.quotation_amount === null || form.quotation_amount === undefined) errs.quotation_amount = "Quotation amount is required";
-      if (form.advance_amount === "" || form.advance_amount === null || form.advance_amount === undefined) errs.advance_amount = "Advance amount is required (0 if none)";
-      if (!form.reference) errs.reference = "Reference / Notes is required";
-    }
+    // Step 4: Commercial — all fields optional
 
     return errs;
   };
@@ -1990,7 +1895,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
       const normKey = form.hdd_type.replace(/\./g, "_").replace(/-/g, "_");
       const fields = HDD_FIELDS[normKey] || [];
       const missingMandatory = fields.filter(
-        (f) => fieldStatus(fCfg, normKey, f) === "mandatory" && !form[f],
+        (f) =>
+          isHddFieldRequired(f) &&
+          fieldStatus(fCfg, normKey, f) === "mandatory" &&
+          !form[f],
       );
       if (missingMandatory.length > 0) {
         const labels = missingMandatory
@@ -2020,6 +1928,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
           : form.device_brand,
         capacity_gb: parseCapacityGb(form.capacity_gb ?? form.capacity),
         failure_type: form.failure_type || (form.failure_types?.[0] ?? "unknown"),
+        symptom_notes: form.problem_description?.trim() || undefined,
       };
       if (payload.capacity === "__others__" && form.selected_custom_capacity) {
         payload.capacity = form.selected_custom_capacity;
@@ -2037,8 +1946,12 @@ export default function NewCaseModal({ onClose, onCreated }) {
 
       // Persist the problem and diagnosis into suggestion history for future autocomplete
       try {
-        if (payload.problem_description) {
-          await suggestionsApi.saveProblem({ text: payload.problem_description });
+        const problemText = form.problem_description?.trim();
+        if (problemText) {
+          await suggestionsApi.saveProblem({
+            text: problemText,
+            category: form.failure_types?.[0] || null,
+          });
         }
         if (payload.initial_diagnosis) {
           await suggestionsApi.saveDiagnosis({ text: payload.initial_diagnosis });

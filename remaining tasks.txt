@@ -68,7 +68,7 @@ Inventory
   Inventory view add Transfer to client button
   Inventory to transfer donor - done
   Zoom or rotate for images - done
-  upload files dynamically
+  upload files dynamically - done
   remove the files section and inside media all the types of files must be added . - done
   In recycle bin add the functionaloty for delete perment - done
   In HDD add the timeline with notes sections - done
@@ -93,7 +93,7 @@ Cases
   solutions added in case section must appear on the knowladge base with catagories HDD , SSD , PCB , Other according to the type of solution ` - done
   Show the added solutions as card after the  text area - done
   quation in inward form download
-  add the notes in overview section
+  add the notes in overview section - done
   add the download invoice button after the case is staged to delivered - done 
 
 
@@ -102,7 +102,7 @@ Knowladge base
 
 
 Reports
-  Make the reports working
+  Make the reports working - done
 
 
 Settings 
