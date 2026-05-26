@@ -29,9 +29,12 @@ const accountingRoutes = require('./routes/accounting');
 const superAdminRoutes = require('./routes/super-admin');
 const marketingRoutes  = require('./routes/marketing');
 const suggestionsRoutes = require('./routes/suggestions');
+// New Chat routes
+const chatRoutes = require('./routes/chat');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+app.use('/uploads/chat', express.static(path.join(__dirname, '..', 'uploads', 'chat')));
 
 // ─── Security Middleware ────────────────────────────────────────
 app.use(helmet({
@@ -109,6 +112,7 @@ app.use('/api/accounting', accountingRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/marketing',   marketingRoutes);
 app.use('/api/suggestions', suggestionsRoutes);
+app.use('/api/chat',        chatRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -194,7 +198,75 @@ async function start() {
     await migrate();
     logger.info('✅ Database schema migration completed');
     await runInventoryMigration();
-    app.listen(PORT, () => {
+
+    const http = require('http');
+    const server = http.createServer(app);
+    const { Server } = require('socket.io');
+    const io = new Server(server, {
+      cors: {
+        origin: process.env.FRONTEND_URL || 'http://localhost:5175',
+        methods: ['GET', 'POST'],
+        credentials: true,
+      },
+    });
+
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_THIS_SECRET_IN_PRODUCTION';
+    const onlineUsers = new Map();
+
+    io.use((socket, next) => {
+      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      if (!token) return next(new Error('Authentication error'));
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        socket.userId = payload.userId;
+        return next();
+      } catch (err) {
+        return next(new Error('Invalid token'));
+      }
+    });
+
+    io.on('connection', (socket) => {
+      logger.info(`⚡ Socket connected: ${socket.id} (user ${socket.userId})`);
+      onlineUsers.set(socket.id, socket.userId);
+      io.emit('onlineUsers', Array.from(new Set(onlineUsers.values())));
+
+      socket.on('joinRoom', (room) => {
+        socket.join(room);
+        logger.info(`User ${socket.userId} joined room ${room}`);
+      });
+
+      socket.on('sendMessage', async (msg) => {
+        const chatService = require('./services/chatService');
+        try {
+          const saved = await chatService.createMessage({
+            room: msg.room,
+            senderId: socket.userId,
+            text: msg.text,
+            filePath: msg.filePath,
+            mimeType: msg.mimeType,
+          });
+          io.to(msg.room).emit('newMessage', saved);
+        } catch (e) {
+          logger.error('Error saving message', { error: e.message });
+        }
+      });
+
+      socket.on('typing', (data) => {
+        socket.to(data.room).emit('typing', data.userName);
+      });
+
+      socket.on('disconnect', () => {
+        onlineUsers.delete(socket.id);
+        io.emit('onlineUsers', Array.from(new Set(onlineUsers.values())));
+        logger.info(`⚡ Socket disconnected: ${socket.id}`);
+      });
+    });
+
+    const path = require('path');
+    // Moved static chat uploads route after app initialization
+
+    server.listen(PORT, () => {
       logger.info(`🚀 Data Recovery CRM API running on port ${PORT}`);
       logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     });

@@ -652,7 +652,7 @@ export default function InventoryPage() {
   const TABS = [
     { key: 'all', label: '📦 All', icon: '' },
     ...INV_CATEGORIES.map(c => ({ key: c.key, label: `${c.icon} ${c.label}`, icon: c.icon, color: c.color })),
-    { key: 'low_stock', label: `⚠️ Low Stock${lowStockAlerts > 0 ? ` (${lowStockAlerts})` : ''}` },
+    { key: 'low_stock', label: `⚠️ Donor Drive${lowStockAlerts > 0 ? ` (${lowStockAlerts})` : ''}` },
   ];
 
   const catForExport = activeTab !== 'all' && activeTab !== 'low_stock' ? INV_CATEGORIES.find(c => c.key === activeTab)?.label : '';

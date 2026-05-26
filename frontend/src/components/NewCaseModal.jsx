@@ -3,6 +3,7 @@ import React, {
   useRef,
   useState,
   useMemo,
+  useCallback,
 } from "react";
 
 // Simple ErrorBoundary to avoid leaving a blank/black overlay if a render
@@ -34,7 +35,113 @@ class ModalErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
-import { casesApi, clientsApi, usersApi } from "../services/api";
+import { casesApi, clientsApi, usersApi, suggestionsApi } from "../services/api";
+
+// ── Autocomplete Field Component (Problem/Diagnosis suggestions) ───────────────
+function AutocompleteField({ value, onChange, placeholder, fieldType, stepErrors, showStepErrors, isRequired }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!value || value.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    setLoading(true);
+    const params = { search: value.trim(), limit: 8 };
+    const fetcher = fieldType === 'initial_diagnosis'
+      ? suggestionsApi.searchDiagnosis
+      : suggestionsApi.searchProblems;
+
+    fetcher(params)
+      .then((res) => {
+        const items = Array.isArray(res) ? res : [];
+        setSuggestions(items.map((item) => (typeof item === 'string' ? item : item.text || '')));
+      })
+      .catch((err) => {
+        console.error('Error fetching suggestions:', err);
+        setSuggestions([]);
+      })
+      .finally(() => setLoading(false));
+  }, [value, fieldType]);
+
+  const hasError = showStepErrors && stepErrors && stepErrors[fieldType];
+  const inputStyle = hasError
+    ? {
+        borderColor: 'var(--danger)',
+        boxShadow: '0 0 0 2px rgba(239,68,68,0.12)',
+      }
+    : {};
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <textarea
+        className="form-textarea"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          minHeight: 70,
+          fontSize: '0.82rem',
+          ...inputStyle,
+        }}
+        aria-invalid={!!hasError}
+      />
+      {loading && (
+        <div style={{ position: 'absolute', right: 14, top: 14, color: 'var(--text-muted)', fontSize: '12px' }}>
+          ⟳
+        </div>
+      )}
+      {suggestions.length > 0 && (
+        <div
+          style={{
+            border: '1px solid var(--border-default)',
+            borderRadius: 6,
+            overflow: 'hidden',
+            maxHeight: 240,
+            overflowY: 'auto',
+            marginTop: 4,
+            background: 'var(--bg-card)',
+            position: 'relative',
+            zIndex: 1000,
+          }}
+        >
+          {suggestions.map((suggestion, idx) => (
+            <div
+              key={idx}
+              onClick={() => {
+                onChange(suggestion);
+                setSuggestions([]);
+              }}
+              style={{
+                padding: '10px 14px',
+                cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                fontSize: '0.82rem',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--accent-glow)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              {suggestion}
+            </div>
+          ))}
+        </div>
+      )}
+      {hasError && (
+        <div style={{ color: 'var(--danger)', fontSize: '0.78rem', marginTop: 6 }}>
+          {stepErrors[fieldType]}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function gs(key, def) {
@@ -733,7 +840,7 @@ function FileUploadArea({ files, onChange }) {
 
 // ── HDD Dynamic Fields ─────────────────────────────────────────────────────
 // ── HDD Dynamic Fields ─────────────────────────────────────────────────────
-function HddFields({ hddKey, form, setForm, stepErrors }) {
+function HddFields({ hddKey, form, setForm, stepErrors, showStepErrors }) {
   const normKey = hddKey.replace(/\./g, "_").replace(/-/g, "_");
 
   const fields = useMemo(() => {
@@ -783,6 +890,14 @@ function HddFields({ hddKey, form, setForm, stepErrors }) {
       }));
     }
   };
+
+  const invalidFieldStyle = (field) =>
+    stepErrors?.[field]
+      ? {
+          borderColor: "var(--danger)",
+          boxShadow: "0 0 0 2px rgba(239,68,68,0.12)",
+        }
+      : {};
 
   if (!visibleFields.length && !customs.length) {
     return (
@@ -858,9 +973,17 @@ function HddFields({ hddKey, form, setForm, stepErrors }) {
                   onChange={(e) =>
                     handleFieldChange(field, e.target.value)
                   }
+                  style={{ ...invalidFieldStyle(field) }}
+                  aria-invalid={!!stepErrors?.[field]}
                 />
               ) : field === "manufacture_country" ? (
-                <select className="form-select" value={form[field] || ""} onChange={(e)=>handleFieldChange(field, e.target.value)}>
+                <select
+                  className="form-select"
+                  value={form[field] || ""}
+                  onChange={(e) => handleFieldChange(field, e.target.value)}
+                  style={{ ...invalidFieldStyle(field) }}
+                  aria-invalid={!!stepErrors?.[field]}
+                >
                   <option value="">Select Manufacturing Country...</option>
                   { ["Thailand","China","Malaysia","Philippines"].map(c => <option key={c} value={c}>{c}</option>) }
                 </select>
@@ -872,12 +995,16 @@ function HddFields({ hddKey, form, setForm, stepErrors }) {
                   onChange={(e) =>
                     handleFieldChange(field, e.target.value)
                   }
+                  style={{ ...invalidFieldStyle(field) }}
                   autoComplete="off"
                   spellCheck={false}
+                  aria-invalid={!!stepErrors?.[field]}
                 />
               )}
-              {stepErrors && stepErrors[field] && (
-                <div style={{ color: 'var(--danger)', fontSize: '0.78rem', marginTop: 6 }}>{stepErrors[field]}</div>
+              {showStepErrors && stepErrors && stepErrors[field] && (
+                <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                  {stepErrors[field]}
+                </div>
               )}
             </div>
           );
@@ -1295,20 +1422,29 @@ function StepClient({
 
 function StepDevice({ form, setForm, capacities, stepErrors }) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
-  const inputStyle = { fontSize: "0.82rem", padding: "8px 10px" };
+  const inputStyle = { fontSize: "0.82rem", padding: "8px 10px", minHeight: 44 };
+  const invalidStyle = (field) =>
+    stepErrors[field]
+      ? {
+          borderColor: "var(--danger)",
+          boxShadow: "0 0 0 2px rgba(239,68,68,0.12)",
+        }
+      : {};
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label required">
-            HDD / Device Type <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            HDD / Device Type
+            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
           </label>
           <select
             className="form-select"
             value={form.hdd_type || ""}
             onChange={(e) => set("hdd_type", e.target.value)}
-            style={inputStyle}
+            style={{ ...inputStyle, ...invalidStyle("hdd_type") }}
+            aria-invalid={!!stepErrors.hdd_type}
           >
             <option value="">Select HDD Type...</option>
             {HDD_TYPES.map((h) => (
@@ -1324,15 +1460,17 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Case Number (Manual) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          <label className="form-label required">
+            Case Number (Manual)
+            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
           </label>
           <input
             className="form-input"
             placeholder="Case number / job tag"
             value={form.case_number || ""}
             onChange={(e) => set("case_number", e.target.value)}
-            style={inputStyle}
+            style={{ ...inputStyle, ...invalidStyle("case_number") }}
+            aria-invalid={!!stepErrors.case_number}
           />
           {stepErrors.case_number && (
             <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
@@ -1341,21 +1479,31 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Capacity <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          <label className="form-label required">
+            Capacity
+            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
           </label>
           <select
             className="form-select"
             value={form.capacity || ""}
-            onChange={(e) => set("capacity", e.target.value)}
-            style={inputStyle}
+            onChange={(e) => {
+              const value = e.target.value;
+              set("capacity", value);
+              if (value !== "__others__") {
+                set("selected_custom_capacity", "");
+              }
+            }}
+            style={{ ...inputStyle, ...invalidStyle("capacity") }}
+            aria-invalid={!!stepErrors.capacity}
           >
             <option value="">Select Capacity...</option>
-            {capacities.filter((c) => c !== "1.5TB").map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
+            {capacities
+              .filter((c) => c !== "1.5TB")
+              .map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             {form.selected_custom_capacity && !capacities.includes(form.selected_custom_capacity) && (
               <option key={form.selected_custom_capacity} value={form.selected_custom_capacity}>
                 {form.selected_custom_capacity}
@@ -1364,7 +1512,12 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
             <option value="__others__">Others (add custom)</option>
           </select>
           {form.capacity === "__others__" && (
-            <StepDeviceCustomInput form={form} setForm={set} inputStyle={inputStyle} />
+            <StepDeviceCustomInput
+              form={form}
+              setForm={set}
+              inputStyle={inputStyle}
+              stepErrors={stepErrors}
+            />
           )}
           {stepErrors.capacity && (
             <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
@@ -1373,19 +1526,23 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Interface <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          <label className="form-label required">
+            Interface
+            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
           </label>
           <select
             className="form-select"
             value={form.interface || ""}
             onChange={(e) => set("interface", e.target.value)}
-            style={inputStyle}
+            style={{ ...inputStyle, ...invalidStyle("interface") }}
+            aria-invalid={!!stepErrors.interface}
           >
             <option value="">Select...</option>
             {["SATA", "NVMe", "SAS", "IDE", "USB", "PCIe", "M.2", "eSATA"].map(
               (i) => (
-                <option key={i} value={i}>{i}</option>
+                <option key={i} value={i}>
+                  {i}
+                </option>
               )
             )}
           </select>
@@ -1414,7 +1571,7 @@ function StepDevice({ form, setForm, capacities, stepErrors }) {
   );
 }
 
-function StepDeviceCustomInput({ form, setForm, inputStyle }) {
+function StepDeviceCustomInput({ form, setForm, inputStyle, stepErrors }) {
   const ref = useRef(null);
   useEffect(() => {
     try {
@@ -1430,6 +1587,13 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
     setForm("capacity", v);
     setForm("_custom_hdd_input", "");
   };
+
+  const invalidStyle = stepErrors.selected_custom_capacity
+    ? {
+        borderColor: "var(--danger)",
+        boxShadow: "0 0 0 2px rgba(239,68,68,0.12)",
+      }
+    : {};
 
   return (
     <div style={{ marginTop: 8 }}>
@@ -1447,7 +1611,8 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
               addCustom(v);
             }
           }}
-          style={{ flex: 1, ...inputStyle }}
+          style={{ flex: 1, ...inputStyle, ...invalidStyle }}
+          aria-invalid={!!stepErrors.selected_custom_capacity}
         />
         <button
           type="button"
@@ -1458,6 +1623,12 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
         </button>
       </div>
 
+      {stepErrors.selected_custom_capacity && (
+        <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+          {stepErrors.selected_custom_capacity}
+        </div>
+      )}
+
       <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
         {(form.custom_hdds || []).map((ch, idx) => (
           <button
@@ -1467,7 +1638,13 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
               setForm("selected_custom_capacity", ch);
               setForm("capacity", ch);
             }}
-            style={{ padding: "6px 10px", borderRadius: 16, border: "1px solid var(--border-default)", background: form.selected_custom_capacity === ch ? "var(--accent-glow)" : "transparent", cursor: "pointer" }}
+            style={{
+              padding: "6px 10px",
+              borderRadius: 16,
+              border: "1px solid var(--border-default)",
+              background: form.selected_custom_capacity === ch ? "var(--accent-glow)" : "transparent",
+              cursor: "pointer",
+            }}
           >
             {ch}
           </button>
@@ -1477,7 +1654,7 @@ function StepDeviceCustomInput({ form, setForm, inputStyle }) {
   );
 }
 
-function StepHddFieldsView({ form, setForm, stepErrors }) {
+function StepHddFieldsView({ form, setForm, stepErrors, showStepErrors }) {
   return (
     <div>
       {form.hdd_type ? (
@@ -1485,7 +1662,7 @@ function StepHddFieldsView({ form, setForm, stepErrors }) {
           <div style={{ marginBottom: 12, padding: "8px 12px", background: "var(--accent-glow)", borderRadius: 6, fontSize: "0.8rem", color: "var(--accent-primary)", fontWeight: 600 }}>
             🔧 Fields for: {HDD_TYPES.find((h) => h.key === form.hdd_type)?.label}
           </div>
-          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} stepErrors={stepErrors} />
+          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} stepErrors={stepErrors} showStepErrors={showStepErrors} />
         </>
       ) : (
         <div style={{ padding: "30px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
@@ -1496,7 +1673,7 @@ function StepHddFieldsView({ form, setForm, stepErrors }) {
   );
 }
 
-function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, stepErrors }) {
+function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, stepErrors, showStepErrors }) {
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
   const showDiagnosis = sectionEnabled(getFieldConfig(), "diagnosis");
   const showImages = sectionEnabled(getFieldConfig(), "image_upload");
@@ -1548,17 +1725,30 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, 
         <label className="form-label">
           Problem Description <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
         </label>
-        <textarea className="form-textarea" placeholder="Client's description of the problem..." value={form.problem_description || ""} onChange={(e) => set("problem_description", e.target.value)} style={{ minHeight: 70, fontSize: "0.82rem" }} />
-        {stepErrors.problem_description && (
-          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-            {stepErrors.problem_description}
-          </div>
-        )}
+        <AutocompleteField
+          value={form.problem_description || ""}
+          onChange={(val) => set("problem_description", val)}
+          placeholder="Client's description of the problem..."
+          fieldType="problem_description"
+          stepErrors={stepErrors}
+          showStepErrors={showStepErrors}
+          isRequired
+        />
       </div>
       {showDiagnosis && (
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Initial Diagnosis / Observation</label>
-          <textarea className="form-textarea" placeholder="Engineer's initial observations..." value={form.initial_diagnosis || ""} onChange={(e) => set("initial_diagnosis", e.target.value)} style={{ minHeight: 60, fontSize: "0.82rem" }} />
+          <label className="form-label">
+            Initial Diagnosis / Observation <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          </label>
+          <AutocompleteField
+            value={form.initial_diagnosis || ""}
+            onChange={(val) => set("initial_diagnosis", val)}
+            placeholder="Engineer's initial observations..."
+            fieldType="initial_diagnosis"
+            stepErrors={stepErrors}
+            showStepErrors={showStepErrors}
+            isRequired
+          />
         </div>
       )}
       {showImages && (
@@ -1661,6 +1851,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
   });
   const [stepErrors, setStepErrors] = useState({});
   const [stepValid, setStepValid] = useState(false);
+  const [showStepErrors, setShowStepErrors] = useState(false);
 
   const validateStepIndex = (idx) => {
     const errs = {};
@@ -1697,9 +1888,13 @@ export default function NewCaseModal({ onClose, onCreated }) {
 
     // Step 3: Problem
     if (idx === 3) {
+      const fCfg = getFieldConfig();
+      const showDiagnosis = sectionEnabled(fCfg, "diagnosis");
+      
       if (!(form.failure_types || []).length) errs.failure_types = "Select at least one failure type";
       if (!(form.symptoms || []).length) errs.symptoms = "Select at least one symptom";
       if (!form.problem_description) errs.problem_description = "Problem description is required";
+      if (showDiagnosis && !form.initial_diagnosis) errs.initial_diagnosis = "Initial diagnosis is required";
     }
 
     // Step 4: Commercial
@@ -1713,10 +1908,15 @@ export default function NewCaseModal({ onClose, onCreated }) {
   };
 
   useEffect(() => {
-  const errs = validateStepIndex(step);
-  setStepErrors(errs);
-  setStepValid(Object.keys(errs).length === 0);
-}, [form, step]);
+    const errs = validateStepIndex(step);
+    setStepErrors(errs);
+    setStepValid(Object.keys(errs).length === 0);
+  }, [form, step]);
+
+  useEffect(() => {
+    setShowStepErrors(false);
+  }, [step]);
+
   const [engineers, setEngineers] = useState([]);
   const [clients, setClients] = useState([]);
   const [clientSearch, setClientSearch] = useState("");
@@ -1841,6 +2041,18 @@ export default function NewCaseModal({ onClose, onCreated }) {
 
       const newCase = await casesApi.create(payload);
 
+      // Persist the problem and diagnosis into suggestion history for future autocomplete
+      try {
+        if (payload.problem_description) {
+          await suggestionsApi.saveProblem({ text: payload.problem_description });
+        }
+        if (payload.initial_diagnosis) {
+          await suggestionsApi.saveDiagnosis({ text: payload.initial_diagnosis });
+        }
+      } catch (e) {
+        console.warn('Failed to save suggestion history:', e);
+      }
+
       // Store images in localStorage keyed by case id (demo mode)
       if (images.length > 0) {
         try {
@@ -1875,620 +2087,6 @@ export default function NewCaseModal({ onClose, onCreated }) {
       (parseFloat(form.advance_amount) || 0),
   );
 
-  const inputStyle = { fontSize: "0.82rem", padding: "8px 10px" };
-
-  // ── Step 0: Client ───────────────────────────────────────────────────────
-  const StepClient = () => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {!showNewClient ? (
-        <>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label required">
-              Search Existing Client
-            </label>
-            <input
-              className="form-input"
-              placeholder="Type name, phone, email..."
-              value={clientSearch}
-              onChange={(e) => setClientSearch(e.target.value)}
-              style={inputStyle}
-              autoFocus
-            />
-            {clients.length > 0 && (
-              <div
-                style={{
-                  border: "1px solid var(--border-default)",
-                  borderRadius: 6,
-                  overflow: "hidden",
-                  maxHeight: 160,
-                  overflowY: "auto",
-                  marginTop: 4,
-                  background: "var(--bg-card)",
-                }}
-              >
-                {clients.map((cl) => (
-                  <div
-                    key={cl.id}
-                    onClick={() => {
-                      setSelectedClient(cl);
-                      setForm((f) => ({ ...f, client_id: cl.id }));
-                      setClientSearch(
-                        `${cl.first_name} ${cl.last_name} — ${cl.phone}`,
-                      );
-                      setClients([]);
-                    }}
-                    style={{
-                      padding: "9px 14px",
-                      cursor: "pointer",
-                      borderBottom: "1px solid var(--border-subtle)",
-                      fontSize: "0.8rem",
-                      background:
-                        form.client_id === cl.id
-                          ? "var(--accent-glow)"
-                          : "transparent",
-                    }}
-                  >
-                    <strong style={{ color: "var(--text-primary)" }}>
-                      {cl.first_name} {cl.last_name}
-                    </strong>
-                    <span
-                      style={{
-                        color: "var(--text-muted)",
-                        marginLeft: 8,
-                        fontSize: "0.72rem",
-                      }}
-                    >
-                      {cl.phone}
-                    </span>
-                    {cl.company && (
-                      <span
-                        style={{
-                          color: "var(--text-muted)",
-                          marginLeft: 6,
-                          fontSize: "0.7rem",
-                        }}
-                      >
-                        · {cl.company}
-                      </span>
-                    )}
-                    {form.client_id === cl.id && (
-                      <span
-                        style={{
-                          color: "var(--accent-primary)",
-                          marginLeft: 8,
-                        }}
-                      >
-                        ✓
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {selectedClient && (
-            <div
-              style={{
-                padding: "10px 14px",
-                background: "var(--accent-glow)",
-                border: "1px solid var(--accent-primary)",
-                borderRadius: 8,
-                fontSize: "0.8rem",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <span>
-                ✅{" "}
-                <strong>
-                  {selectedClient.first_name} {selectedClient.last_name}
-                </strong>{" "}
-                — {selectedClient.phone}
-              </span>
-              <button
-                type="button"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "var(--text-muted)",
-                  fontSize: 12,
-                }}
-                onClick={() => {
-                  setSelectedClient(null);
-                  set("client_id", "");
-                  setClientSearch("");
-                }}
-              >
-                ✕
-              </button>
-            </div>
-          )}
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            style={{ alignSelf: "flex-start" }}
-            onClick={() => setShowNewClient(true)}
-          >
-            ➕ Client not found? Add New
-          </button>
-        </>
-      ) : (
-        <NewClientForm
-          onCreated={(cl) => {
-            setSelectedClient(cl);
-            setForm((f) => ({ ...f, client_id: cl.id }));
-            setShowNewClient(false);
-            setClientSearch(`${cl.first_name} ${cl.last_name} — ${cl.phone}`);
-          }}
-          onCancel={() => setShowNewClient(false)}
-        />
-      )}
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Received At <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-          <input
-            type="datetime-local"
-            className="form-input"
-            value={form.received_at || ""}
-            onChange={(e) => set("received_at", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.received_at && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.received_at}</div>}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Deadline / SLA <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-          <input
-            type="datetime-local"
-            className="form-input"
-            value={form.deadline_at || ""}
-            onChange={(e) => set("deadline_at", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.deadline_at && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.deadline_at}</div>}
-          <div
-            style={{
-              fontSize: "0.65rem",
-              color: "var(--text-muted)",
-              marginTop: 3,
-            }}
-          >
-            Default: 4 days from now
-          </div>
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Priority <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-          <select
-            className="form-select"
-            value={form.priority}
-            onChange={(e) => set("priority", parseInt(e.target.value))}
-            style={inputStyle}
-          >
-            {Object.entries(PRIORITIES).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-          {stepErrors.priority && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.priority}</div>}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Stale Reminder (days) <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-          <input
-            type="number"
-            min="1"
-            max="90"
-            className="form-input"
-            value={form.reminder_days}
-            onChange={(e) => set("reminder_days", parseInt(e.target.value))}
-            style={inputStyle}
-          />
-          {stepErrors.reminder_days && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.reminder_days}</div>}
-        </div>
-        <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
-          <label className="form-label">Assigned Engineer</label>
-          <select
-            className="form-select"
-            value={form.assigned_engineer || ""}
-            onChange={(e) => set("assigned_engineer", e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">Auto-assign / Unassigned</option>
-            {engineers.map((eng) => (
-              <option key={eng.id} value={eng.id}>
-                {eng.full_name || eng.username} (
-                {(eng.role || "").replace(/_/g, " ")})
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── Step 1: Device ────────────────────────────────────────────────────────
-    // ── Step 1: Device ────────────────────────────────────────────────────────
-  const StepDevice = ({ form, setForm, capacities, stepErrors }) => {
-    const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
-    return (
-      <div>
-        {/* HDD / Device Type */}
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
-          <select
-            className="form-select"
-            value={form.hdd_type || ""}
-            onChange={e => set("hdd_type", e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">Select Device Type</option>
-            {ALL_HDD_TYPES.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-          {stepErrors.hdd_type && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.hdd_type}</div>
-          )}
-        </div>
-        {/* Case Number */}
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
-          <input
-            className="form-input"
-            placeholder="Case number"
-            value={form.case_number || ""}
-            onChange={e => set("case_number", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.case_number && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.case_number}</div>
-          )}
-        </div>
-        {/* Capacity */}
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
-          <select
-            className="form-select"
-            value={form.capacity || ""}
-            onChange={e => set("capacity", e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">Select Capacity</option>
-            {capacities.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          {stepErrors.capacity && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.capacity}</div>
-          )}
-        </div>
-        {/* Custom Capacity when "__others__" selected */}
-        {form.capacity === "__others__" && (
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
-            <input
-              className="form-input"
-              placeholder="Custom capacity"
-              value={form.selected_custom_capacity || ""}
-              onChange={e => set("selected_custom_capacity", e.target.value)}
-              style={inputStyle}
-            />
-            {stepErrors.selected_custom_capacity && (
-              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.selected_custom_capacity}</div>
-            )}
-          </div>
-        )}
-        {/* Interface */}
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label" style={{ color: "var(--danger)", marginLeft: 6 }}>*</label>
-          <input
-            className="form-input"
-            placeholder="Interface"
-            value={form.interface || ""}
-            onChange={e => set("interface", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.interface && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>{stepErrors.interface}</div>
-          )}
-        </div>
-      </div>
-    );
-  };
-  // ── Step 2: HDD Fields ────────────────────────────────────────────────────
-  const StepHddFields = () => (
-    <div>
-      {form.hdd_type ? (
-        <>
-          <div
-            style={{
-              marginBottom: 12,
-              padding: "8px 12px",
-              background: "var(--accent-glow)",
-              borderRadius: 6,
-              fontSize: "0.8rem",
-              color: "var(--accent-primary)",
-              fontWeight: 600,
-            }}
-          >
-            🔧 Fields for:{" "}
-            {HDD_TYPES.find((h) => h.key === form.hdd_type)?.label}
-          </div>
-          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} stepErrors={stepErrors} />
-        </>
-      ) : (
-        <div
-          style={{
-            padding: "30px",
-            textAlign: "center",
-            color: "var(--text-muted)",
-            fontSize: "0.85rem",
-          }}
-        >
-          ⚠️ Go back to <strong>Device</strong> step and select an HDD Type
-          first.
-        </div>
-      )}
-    </div>
-  );
-
-  // ── Step 3: Problem + Images ──────────────────────────────────────────────
-  const StepProblem = () => {
-    const fCfg = getFieldConfig();
-    const showDiagnosis = sectionEnabled(fCfg, "diagnosis");
-    const showImages = sectionEnabled(fCfg, "image_upload");
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-        >
-          {FAILURE_TYPES_LIST.map((ft) => {
-            const on = (form.failure_types || []).includes(ft);
-            return (
-              <label
-                key={ft}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "7px 12px",
-                  border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`,
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  background: on ? "var(--accent-glow)" : "transparent",
-                  fontSize: "0.78rem",
-                  fontWeight: on ? 700 : 400,
-                  color: on ? "var(--accent-primary)" : "var(--text-secondary)",
-                  userSelect: "none",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  style={{ display: "none" }}
-                  checked={on}
-                  onChange={() => toggle("failure_types", ft)}
-                />
-                {on ? "✓ " : ""}
-                {ft.replace(/_/g, " ")}
-              </label>
-            );
-          })}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Symptoms</label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {SYMPTOMS.map((s) => {
-              const on = (form.symptoms || []).includes(s);
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => toggle("symptoms", s)}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 20,
-                    border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`,
-                    background: on ? "var(--accent-glow)" : "transparent",
-                    color: on ? "var(--accent-primary)" : "var(--text-muted)",
-                    fontSize: "0.72rem",
-                    cursor: "pointer",
-                    fontWeight: on ? 700 : 400,
-                  }}
-                >
-                  {s.replace(/_/g, " ")}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Problem Description</label>
-          <textarea
-            className="form-textarea"
-            placeholder="Client's description of the problem..."
-            value={form.problem_description || ""}
-            onChange={(e) => set("problem_description", e.target.value)}
-            style={{ minHeight: 70, fontSize: "0.82rem" }}
-          />
-        </div>
-        {showDiagnosis && (
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">
-              Initial Diagnosis / Observation
-            </label>
-            <textarea
-              className="form-textarea"
-              placeholder="Engineer's initial observations..."
-              value={form.initial_diagnosis || ""}
-              onChange={(e) => set("initial_diagnosis", e.target.value)}
-              style={{ minHeight: 60, fontSize: "0.82rem" }}
-            />
-          </div>
-        )}
-        {showImages && (
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">📷 Device Images</label>
-            <ImageUploadArea
-              images={form.images || []}
-              onChange={(imgs) => set("images", imgs)}
-            />
-          </div>
-        )}
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">📎 File Attachments</label>
-          <FileUploadArea
-            files={form.attachments || []}
-            onChange={(files) => set("attachments", files)}
-          />
-        </div>
-      </div>
-    );
-  };
-
-  // ── Step 4: Commercial ────────────────────────────────────────────────────
-  const StepCommercial = () => {
-    const fCfg = getFieldConfig();
-    const showQuotation = sectionEnabled(fCfg, "quotation");
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {showQuotation ? (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Quotation Amount (₹) <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-              <input
-                type="number"
-                className="form-input"
-                placeholder="0"
-                value={form.quotation_amount || ""}
-                onChange={(e) => set("quotation_amount", e.target.value)}
-                style={inputStyle}
-              />
-              {stepErrors.quotation_amount && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.quotation_amount}</div>}
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Advance Received (₹) <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-              <input
-                type="number"
-                className="form-input"
-                placeholder="0"
-                value={form.advance_amount || ""}
-                onChange={(e) => set("advance_amount", e.target.value)}
-                style={inputStyle}
-              />
-              {stepErrors.advance_amount && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.advance_amount}</div>}
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Balance Remaining</label>
-              <div
-                style={{
-                  padding: "8px 10px",
-                  background: "var(--bg-elevated)",
-                  border: "1px solid var(--border-default)",
-                  borderRadius: 8,
-                  fontSize: "0.9rem",
-                  fontWeight: 700,
-                  color: remaining > 0 ? "var(--danger)" : "var(--success)",
-                }}
-              >
-                {remaining > 0
-                  ? `₹${remaining.toLocaleString("en-IN")}`
-                  : "✓ Fully Paid"}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              padding: "10px 14px",
-              background: "rgba(100,116,139,0.1)",
-              borderRadius: 8,
-              fontSize: "0.78rem",
-              color: "var(--text-muted)",
-              border: "1px solid var(--border-subtle)",
-            }}
-          >
-            💰 Commercial section is disabled in Admin Settings → Field Config.
-          </div>
-        )}
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Reference / Notes <span style={{color:'var(--danger)', marginLeft:6}}>*</span></label>
-          <input
-            className="form-input"
-            placeholder="Reference number, courier, etc."
-            value={form.reference || ""}
-            onChange={(e) => set("reference", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.reference && <div style={{color:'var(--danger)',fontSize:'0.78rem',marginTop:6}}>{stepErrors.reference}</div>}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">🖨️ Inward Form Print Template</label>
-          <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-            {[
-              ["standard", "🎨 Modern (Default)"],
-              ["classic", "📄 Classic (B&W)"],
-              ["minimal", "⬜ Minimal"],
-            ].map(([k, l]) => (
-              <label
-                key={k}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 14px",
-                  border: `1px solid ${printTemplate === k ? "var(--accent-primary)" : "var(--border-default)"}`,
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  background:
-                    printTemplate === k ? "var(--accent-glow)" : "transparent",
-                  fontSize: "0.78rem",
-                  fontWeight: printTemplate === k ? 700 : 400,
-                  color:
-                    printTemplate === k
-                      ? "var(--accent-primary)"
-                      : "var(--text-secondary)",
-                  userSelect: "none",
-                }}
-              >
-                <input
-                  type="radio"
-                  name="template"
-                  value={k}
-                  checked={printTemplate === k}
-                  onChange={() => setPrintTemplate(k)}
-                  style={{ display: "none" }}
-                />
-                {l}
-              </label>
-            ))}
-          </div>
-        </div>
-        <div
-          style={{
-            padding: "12px 14px",
-            background: "rgba(0,212,255,0.05)",
-            border: "1px solid rgba(0,212,255,0.15)",
-            borderRadius: 8,
-            fontSize: "0.78rem",
-            color: "var(--text-muted)",
-            lineHeight: 1.7,
-          }}
-        >
-          ℹ️ After creating the case, the <strong>Inward Form</strong> will
-          auto-print in a new tab using your selected template.
-        </div>
-      </div>
-    );
-  };
-
   const STEP_COMPONENTS = [
     <StepClient
       form={form}
@@ -2508,11 +2106,13 @@ export default function NewCaseModal({ onClose, onCreated }) {
       setForm={setForm}
       capacities={CAPACITIES}
       stepErrors={stepErrors}
+      showStepErrors={showStepErrors}
     />,
     <StepHddFieldsView
       form={form}
       setForm={setForm}
       stepErrors={stepErrors}
+      showStepErrors={showStepErrors}
     />,
     <StepProblemView
       form={form}
@@ -2521,6 +2121,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
       SYMPTOMS={SYMPTOMS}
       FAILURE_TYPES_LIST={FAILURE_TYPES_LIST}
       stepErrors={stepErrors}
+      showStepErrors={showStepErrors}
     />,
     <StepCommercialView
       form={form}
@@ -2589,10 +2190,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
               {step < STEPS.length - 1 ? (
                 <button
                   className="btn btn-primary"
-                  disabled={!stepValid}
                   onClick={() => {
                     const errs = validateStepIndex(step);
                     setStepErrors(errs);
+                    setShowStepErrors(true);
                     if (Object.keys(errs).length === 0) setStep((s) => s + 1);
                   }}
                 >
@@ -2601,8 +2202,13 @@ export default function NewCaseModal({ onClose, onCreated }) {
               ) : (
                 <button
                   className="btn btn-primary"
-                  onClick={handleSubmit}
-                  disabled={loading || !stepValid}
+                  onClick={async () => {
+                    const errs = validateStepIndex(step);
+                    setStepErrors(errs);
+                    setShowStepErrors(true);
+                    if (Object.keys(errs).length === 0) await handleSubmit();
+                  }}
+                  disabled={loading}
                 >
                   {loading ? (
                     <>
