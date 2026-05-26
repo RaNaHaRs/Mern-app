@@ -606,6 +606,30 @@ CREATE TABLE case_solution_media (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE case_solution_notes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  note_text TEXT NOT NULL,
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE knowledge_base_entries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title VARCHAR(500) NOT NULL,
+  device_type VARCHAR(100),
+  category VARCHAR(200),
+  problem TEXT,
+  tags JSONB DEFAULT '[]'::jsonb,
+  note_history JSONB DEFAULT '[]'::jsonb,
+  case_refs JSONB DEFAULT '[]'::jsonb,
+  files JSONB DEFAULT '[]'::jsonb,
+  source VARCHAR(20) DEFAULT 'manual',
+  created_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- ============================================================
 -- INVENTORY IMAGES
 -- ============================================================

@@ -5,6 +5,8 @@ const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { upload } = require('../middleware/upload');
+const { solutionUpload } = require('../middleware/solutionUpload');
+const solutionsRouter = require('./solutions');
 
 const router = express.Router();
 router.use(authenticate);
@@ -475,15 +477,45 @@ router.get('/:id/solution', async (req, res) => {
       'SELECT * FROM case_solutions WHERE case_id = $1',
       [req.params.id]
     );
+    const notesRes = await query(
+      `SELECT n.id, n.note_text, n.created_at, n.created_by, u.username AS created_by_name
+       FROM case_solution_notes n
+       LEFT JOIN users u ON u.id = n.created_by
+       WHERE n.case_id = $1
+       ORDER BY n.created_at DESC`,
+      [req.params.id]
+    );
+    let notes = notesRes.rows.map(n => ({
+      id: n.id,
+      text: n.note_text,
+      createdAt: n.created_at,
+      createdBy: n.created_by,
+      createdByName: n.created_by_name,
+    }));
+
+    const legacyNote = solution.rows[0]?.text_note;
+    if (!notes.length && legacyNote) {
+      notes = [{
+        id: 'legacy',
+        text: legacyNote,
+        createdAt: solution.rows[0]?.updated_at,
+        createdBy: solution.rows[0]?.updated_by,
+        createdByName: null,
+      }];
+    }
+
     const media = await query(
       'SELECT id, name, mime_type, data, size, caption, created_at FROM case_solution_media WHERE case_id = $1 ORDER BY created_at ASC',
       [req.params.id]
     );
     res.json({
-      textNote: solution.rows[0]?.text_note || '',
+      textNote: notes[0]?.text || legacyNote || '',
+      notes,
       mediaFiles: media.rows.map(m => ({
         id: m.id, name: m.name, mimeType: m.mime_type,
         data: m.data, size: m.size, caption: m.caption,
+        createdAt: m.created_at,
+        uploadedAt: m.created_at,
       })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -493,18 +525,44 @@ router.get('/:id/solution', async (req, res) => {
 router.put('/:id/solution', requireMinRole('junior_engineer'), async (req, res) => {
   try {
     const { textNote } = req.body;
+    if (!textNote || !String(textNote).trim()) {
+      return res.status(400).json({ error: 'Note text is required' });
+    }
+
+    const noteRes = await query(
+      `INSERT INTO case_solution_notes (case_id, note_text, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, note_text, created_at, created_by`,
+      [req.params.id, textNote.trim(), req.user.id]
+    );
+
     await query(
       `INSERT INTO case_solutions (case_id, text_note, updated_by)
        VALUES ($1, $2, $3)
        ON CONFLICT (case_id) DO UPDATE SET text_note = $2, updated_by = $3, updated_at = NOW()`,
-      [req.params.id, textNote || '', req.user.id]
+      [req.params.id, textNote.trim(), req.user.id]
     );
-    res.json({ message: 'Solution saved' });
+
+    const noteRow = noteRes.rows[0];
+    noteRow.created_by_name = req.user.username;
+    try {
+      await solutionsRouter.syncCaseToKnowledgeBase(req.params.id, req.user);
+    } catch (syncErr) {
+      console.warn('KB sync warning:', syncErr.message);
+    }
+
+    res.json({ message: 'Solution note saved', note: {
+      id: noteRow.id,
+      text: noteRow.note_text,
+      createdAt: noteRow.created_at,
+      createdBy: noteRow.created_by,
+      createdByName: req.user.username,
+    }});
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─── POST /api/cases/:id/solution/media ──────────────────────────
-router.post('/:id/solution/media', requireMinRole('junior_engineer'), upload.array('files', 10), async (req, res) => {
+router.post('/:id/solution/media', requireMinRole('junior_engineer'), solutionUpload.array('files', 20), async (req, res) => {
   try {
     const saved = [];
     for (const file of (req.files || [])) {
@@ -513,14 +571,22 @@ router.post('/:id/solution/media', requireMinRole('junior_engineer'), upload.arr
       try { fs.unlinkSync(file.path); } catch {}
       const r = await query(
         `INSERT INTO case_solution_media (case_id, name, mime_type, data, size, uploaded_by)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, mime_type, data, size`,
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, mime_type, data, size, created_at`,
         [req.params.id, file.originalname, file.mimetype, b64, file.size, req.user.id]
       );
       saved.push({
         id: r.rows[0].id, name: r.rows[0].name,
         mimeType: r.rows[0].mime_type, data: r.rows[0].data, size: r.rows[0].size,
+        createdAt: r.rows[0].created_at,
+        uploadedAt: r.rows[0].created_at,
       });
     }
+    try {
+      await solutionsRouter.syncCaseToKnowledgeBase(req.params.id, req.user);
+    } catch (syncErr) {
+      console.warn('KB sync warning:', syncErr.message);
+    }
+
     res.status(201).json({ uploaded: saved.length, files: saved });
   } catch (err) {
     if (req.files) req.files.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
@@ -536,6 +602,13 @@ router.delete('/:id/solution/media/:fileId', requireMinRole('junior_engineer'), 
       [req.params.fileId, req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Media not found' });
+
+    try {
+      await solutionsRouter.syncCaseToKnowledgeBase(req.params.id, req.user);
+    } catch (syncErr) {
+      console.warn('KB sync warning:', syncErr.message);
+    }
+
     res.json({ message: 'Media deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

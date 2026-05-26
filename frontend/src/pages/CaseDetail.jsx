@@ -5,6 +5,7 @@ import { useAuth } from '../store/AuthContext';
 import { printInwardForm } from '../components/NewCaseModal';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import { openPrintPreviewWindow } from '../utils/printPreview';
+import { formatSolutionTime, fileTypeIcon, canPreviewMedia, downloadFile } from '../utils/solutionMedia';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -181,30 +182,94 @@ function DropZoneUpload({ onUpload, accept = 'image/*,video/*', multiple = true,
   );
 }
 
+// ─── Solution notes timeline ─────────────────────────────────────
+function SolutionNotesTimeline({ notes }) {
+  if (!notes?.length) return null;
+  const chronological = [...notes].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  return (
+    <div style={{ marginBottom: 16, overflowX: 'auto', paddingBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, minWidth: 'min-content', padding: '4px 2px' }}>
+        {chronological.map((n, i) => (
+          <React.Fragment key={n.id}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 88, maxWidth: 120, flexShrink: 0 }}>
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--accent-primary)', border: '2px solid var(--bg-card)', boxShadow: '0 0 0 2px rgba(0,212,255,0.25)' }} />
+              <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: 6, textAlign: 'center', lineHeight: 1.3, fontFamily: 'var(--font-mono)' }}>
+                {formatSolutionTime(n.createdAt)}
+              </div>
+            </div>
+            {i < chronological.length - 1 && (
+              <div style={{ flex: '1 0 24px', minWidth: 24, height: 2, background: 'var(--border-default)', marginTop: 4, alignSelf: 'flex-start' }} />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SolutionMediaFileList({ items, onDelete, canDelete }) {
+  if (!items?.length) return null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 10, marginTop: 12 }}>
+      {items.map(item => {
+        const preview = canPreviewMedia(item);
+        return (
+          <div key={item.id} className="card" style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '1.2rem' }}>{fileTypeIcon(item)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>{item.name}</div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {formatSolutionTime(item.uploadedAt || item.createdAt)} · {formatSize(item.size)}
+                </div>
+              </div>
+              {canDelete && (
+                <button type="button" className="btn btn-ghost btn-icon" style={{ width: 24, height: 24, fontSize: '0.7rem' }}
+                  onClick={() => onDelete(item.id)}>✕</button>
+              )}
+            </div>
+            {preview && item.mimeType?.startsWith('image/') && (
+              <img src={item.data} alt={item.name} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                onClick={() => downloadFile(item)} />
+            )}
+            <button type="button" className="btn btn-sm btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => downloadFile(item)}>
+              Open / Download
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Solution Panel ──────────────────────────────────────────────
 function SolutionPanel({ caseId, caseStage }) {
   const { canAccess } = useAuth();
-  const [solution, setSolution] = useState({ textNote: '', mediaFiles: [] });
+  const [solution, setSolution] = useState({ textNote: '', notes: [], mediaFiles: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [textNote, setTextNote] = useState('');
   const [saved, setSaved] = useState(false);
+  const [mediaOpen, setMediaOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const d = await casesApi.getSolution(caseId);
-      setSolution(d);
-      setTextNote(d.textNote || '');
+      const notes = d.notes?.length ? d.notes : (d.textNote ? [{ id: 'legacy', text: d.textNote, createdAt: null }] : []);
+      setSolution({ ...d, notes });
+      setTextNote('');
     } catch {} finally { setLoading(false); }
   }, [caseId]);
 
   useEffect(() => { load(); }, [load]);
 
   const handleSaveNote = async () => {
+    if (!textNote.trim()) return;
     setSaving(true);
     try {
-      await casesApi.saveSolutionNote(caseId, textNote);
+      await casesApi.saveSolutionNote(caseId, textNote.trim());
+      setTextNote('');
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       await load();
@@ -219,6 +284,7 @@ function SolutionPanel({ caseId, caseStage }) {
       files.forEach(f => fd.append('files', f));
       await casesApi.uploadSolutionMedia(caseId, fd);
       await load();
+      setMediaOpen(true);
     } catch (err) { alert(err.message); }
     finally { setUploading(false); }
   };
@@ -233,6 +299,7 @@ function SolutionPanel({ caseId, caseStage }) {
 
   const isSolved = ['completed', 'delivered'].includes(caseStage);
   const canEdit = canAccess('junior_engineer');
+  const savedNotes = solution.notes || [];
 
   if (loading) return <div style={{display:'flex',justifyContent:'center',padding:40}}><div className="spinner" style={{width:24,height:24}} /></div>;
 
@@ -258,55 +325,88 @@ function SolutionPanel({ caseId, caseStage }) {
         </div>
       )}
 
-      {/* Text Notes */}
       <div className="card" style={{marginBottom:16}}>
         <div className="card-header">
           <div className="card-title">📝 Solution Notes</div>
           {canEdit && (
             <button className={`btn btn-sm ${saved ? 'btn-secondary' : 'btn-primary'}`}
-              disabled={saving} onClick={handleSaveNote}>
-              {saving ? <><div className="spinner" style={{width:12,height:12}} /> Saving…</> : saved ? '✓ Saved' : '💾 Save Notes'}
+              disabled={saving || !textNote.trim()} onClick={handleSaveNote}>
+              {saving ? <><div className="spinner" style={{width:12,height:12}} /> Saving…</> : saved ? '✓ Saved' : '💾 Save Note'}
             </button>
           )}
         </div>
-        <textarea
-          className="form-textarea"
-          style={{minHeight:160,fontFamily:'var(--font-sans)',lineHeight:1.7}}
-          placeholder="Describe the solution in detail:&#10;• What was the root cause?&#10;• What tools were used?&#10;• What specific steps were taken?&#10;• Any tips for similar cases in the future?"
-          value={textNote}
-          onChange={e=>setTextNote(e.target.value)}
-          readOnly={!canEdit}
-        />
-        {!solution.textNote && !textNote && (
-          <div style={{marginTop:8,fontSize:'0.72rem',color:'var(--text-muted)'}}>No solution notes added yet.</div>
-        )}
-      </div>
 
-      {/* Media Upload */}
-      <div className="card" style={{marginBottom:16}}>
-        <div className="card-header">
-          <div className="card-title">🎬 Solution Media</div>
-          <span style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>{solution.mediaFiles?.length || 0} file(s)</span>
-        </div>
-        <p style={{fontSize:'0.78rem',color:'var(--text-muted)',marginBottom:12}}>
-          Attach photos (before/after), videos showing the procedure, or diagnostic screenshots.
-        </p>
+        {savedNotes.length > 0 && <SolutionNotesTimeline notes={savedNotes} />}
 
         {canEdit && (
-          <DropZoneUpload
-            onUpload={handleUploadMedia}
-            uploading={uploading}
-            accept="image/*,video/*"
-            label="Drop solution photos or videos here (before/after shots, recovery screen recordings)"
+          <textarea
+            className="form-textarea"
+            style={{minHeight:120,fontFamily:'var(--font-sans)',lineHeight:1.7,marginBottom:12}}
+            placeholder="Describe the solution: root cause, tools, steps, tips for similar cases…"
+            value={textNote}
+            onChange={e=>setTextNote(e.target.value)}
           />
         )}
 
-        <MediaGrid items={solution.mediaFiles} onDelete={handleDeleteMedia} canDelete={canEdit} />
+        {savedNotes.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {savedNotes.map(note => (
+              <div key={note.id} className="card" style={{ padding: '12px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>
+                    {formatSolutionTime(note.createdAt)}
+                  </span>
+                  {note.createdByName && (
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>by {note.createdByName}</span>
+                  )}
+                </div>
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>{note.text}</pre>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No solution notes added yet.</div>
+        )}
+      </div>
 
-        {!solution.mediaFiles?.length && !canEdit && (
-          <div className="empty-state" style={{padding:24}}>
-            <div className="empty-icon">🖼️</div>
-            <div className="empty-title">No media attached</div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${mediaOpen ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setMediaOpen(o => !o)}
+            aria-expanded={mediaOpen}
+          >
+            🎬 Solution Media
+            {(solution.mediaFiles?.length || 0) > 0 && (
+              <span style={{ marginLeft: 6, opacity: 0.85 }}>({solution.mediaFiles.length})</span>
+            )}
+            <span style={{ marginLeft: 6, fontSize: '0.65rem' }}>{mediaOpen ? '▲' : '▼'}</span>
+          </button>
+          {!mediaOpen && (solution.mediaFiles?.length || 0) > 0 && (
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              {solution.mediaFiles.length} file(s) attached
+            </span>
+          )}
+        </div>
+
+        {mediaOpen && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+            {canEdit && (
+              <DropZoneUpload
+                onUpload={handleUploadMedia}
+                uploading={uploading}
+                accept="*/*"
+                label="Drop any file type — images, videos, PDFs, archives, documents, audio"
+              />
+            )}
+            {solution.mediaFiles?.length > 0 ? (
+              <SolutionMediaFileList items={solution.mediaFiles} onDelete={handleDeleteMedia} canDelete={canEdit} />
+            ) : (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: canEdit ? 12 : 0 }}>
+                {canEdit ? 'No files uploaded yet.' : 'No media attached to this solution.'}
+              </div>
+            )}
           </div>
         )}
       </div>

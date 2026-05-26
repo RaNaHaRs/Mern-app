@@ -75,7 +75,21 @@ export const api = {
       throw Object.assign(new Error(err.error || 'Upload failed'), { status: res.status });
     }
     return res.json();
-  }
+  },
+
+  uploadPut: async (path, formData) => {
+    const token = getToken();
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'PUT',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(err.error || 'Upload failed'), { status: res.status });
+    }
+    return res.json();
+  },
 };
 
 // Auth
@@ -105,6 +119,14 @@ export const casesApi = {
   uploadImages: (id, formData) => api.upload(`/cases/${id}/images`, formData),
   deleteImage: (id, imgId) => api.delete(`/cases/${id}/images/${imgId}`),
   transferToClient: (id, transfer_to_client) => api.patch(`/cases/${id}/transfer-to-client`, { transfer_to_client }),
+};
+
+export const solutionsApi = {
+  list: (params) => api.get('/solutions', params),
+  get: (id) => api.get(`/solutions/${id}`),
+  create: (formData) => api.upload('/solutions', formData),
+  update: (id, formData) => api.uploadPut(`/solutions/${id}`, formData),
+  delete: (id) => api.delete(`/solutions/${id}`),
 };
 
 export const suggestionsApi = {

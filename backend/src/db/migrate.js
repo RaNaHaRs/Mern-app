@@ -119,6 +119,17 @@ async function migrate() {
       console.warn('⚠️  Chat tables migration warning (non-fatal):', chatErr.message);
     }
 
+    try {
+      const solutionKbSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '012_solution_knowledge_base.sql'),
+        'utf8'
+      );
+      await client.query(solutionKbSchema);
+      console.log('✅ Solution notes & knowledge base migration applied');
+    } catch (kbErr) {
+      console.warn('⚠️  Solution/KB migration warning (non-fatal):', kbErr.message);
+    }
+
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");
     if (hasRoleEnum.rows.length) {
       try {

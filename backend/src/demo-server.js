@@ -91,7 +91,74 @@ const upload = multer({
 });
 
 // In-memory stores for uploaded media
-const CASE_SOLUTIONS = {}; // caseId -> { textNote, mediaFiles: [...] }
+const CASE_SOLUTIONS = {}; // caseId -> { textNote, notes: [], mediaFiles: [...] }
+
+function ensureCaseSolution(caseId) {
+  if (!CASE_SOLUTIONS[caseId]) CASE_SOLUTIONS[caseId] = { textNote: '', notes: [], mediaFiles: [] };
+  if (!CASE_SOLUTIONS[caseId].notes) CASE_SOLUTIONS[caseId].notes = [];
+  if (!CASE_SOLUTIONS[caseId].mediaFiles) CASE_SOLUTIONS[caseId].mediaFiles = [];
+  return CASE_SOLUTIONS[caseId];
+}
+
+function syncCaseToKnowledgeBase(caseId, user) {
+  const c = DEMO_CASES.find(x => x.id === caseId);
+  const sol = ensureCaseSolution(caseId);
+  const noteHistory = [...(sol.notes || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const files = (sol.mediaFiles || []).map(f => ({ ...f }));
+  if (!noteHistory.length && !files.length) return;
+
+  const titleBase = c ? `${(c.device_brand || '').trim()} ${(c.device_model || '').trim()}`.trim() : '';
+  const title = `${titleBase || 'Case'} — ${c?.case_number || caseId}`;
+  const deviceType = c?.device_type || 'Other';
+  const category = c?.failure_type || deviceType;
+  const tags = c?.failure_types?.length ? c.failure_types : (c?.failure_type ? [c.failure_type] : []);
+  const latestNote = noteHistory[0]?.text || '';
+  const now = new Date().toISOString();
+  const idx = SOLUTIONS.findIndex(s =>
+    s.source === 'case' && (s.case_refs || []).some(r => r.case_id === caseId)
+  );
+
+  const kbPayload = {
+    title,
+    device_type: deviceType,
+    category,
+    problem: c?.problem_description || c?.failure_description || '',
+    notes: latestNote,
+    note_history: noteHistory,
+    tags,
+    files,
+    case_refs: [{ case_id: caseId, case_number: c?.case_number }],
+    source: 'case',
+    updated_at: now,
+    related_case_count: 1,
+    has_media: files.length > 0,
+  };
+
+  if (idx >= 0) {
+    const existing = SOLUTIONS[idx];
+    SOLUTIONS[idx] = {
+      ...existing,
+      ...kbPayload,
+      id: existing.id,
+      created_at: existing.created_at,
+      created_by: existing.created_by,
+      created_by_name: existing.created_by_name,
+    };
+    return;
+  }
+
+  SOLUTIONS.unshift({
+    id: `kb_${caseId}`,
+    ...kbPayload,
+    created_by: user?.userId || user?.id,
+    created_by_name: user?.username || user?.full_name || 'Engineer',
+    created_at: now,
+  });
+}
+
+function syncCaseNoteToKnowledgeBase(caseId, _noteEntry, user) {
+  syncCaseToKnowledgeBase(caseId, user);
+}
 const CASE_IMAGES = {};    // caseId -> [{ id, name, mimeType, data, uploadedAt }]
 const INVENTORY_IMAGES = {}; // itemId -> [{ id, name, mimeType, data, uploadedAt }]
 
@@ -1130,22 +1197,50 @@ app.get('/api/donors/match/:caseId', authenticate, (req, res) => res.json({ dono
 // â”€â”€â”€ CASE SOLUTION (text + photo + video) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // GET solution for a case
 app.get('/api/cases/:id/solution', authenticate, (req, res) => {
-  const sol = CASE_SOLUTIONS[req.params.id] || { textNote: '', mediaFiles: [] };
-  res.json(sol);
+  const sol = ensureCaseSolution(req.params.id);
+  let notes = [...(sol.notes || [])].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  if (!notes.length && sol.textNote) {
+    notes = [{ id: 'legacy', text: sol.textNote, createdAt: sol.updatedAt || new Date().toISOString(), createdByName: null }];
+  }
+  res.json({
+    textNote: notes[0]?.text || sol.textNote || '',
+    notes,
+    mediaFiles: (sol.mediaFiles || []).map(f => ({
+      ...f,
+      createdAt: f.createdAt || f.uploadedAt,
+      uploadedAt: f.uploadedAt || f.createdAt,
+    })),
+  });
 });
 
-// SAVE/UPDATE text note for solution
+// SAVE/UPDATE text note for solution (append-only)
 app.put('/api/cases/:id/solution', authenticate, (req, res) => {
   const { textNote } = req.body;
-  if (!CASE_SOLUTIONS[req.params.id]) CASE_SOLUTIONS[req.params.id] = { textNote: '', mediaFiles: [] };
-  CASE_SOLUTIONS[req.params.id].textNote = textNote || '';
-  res.json(CASE_SOLUTIONS[req.params.id]);
+  if (!textNote || !String(textNote).trim()) return res.status(400).json({ error: 'Note text is required' });
+  const sol = ensureCaseSolution(req.params.id);
+  const noteEntry = {
+    id: `sn_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    text: String(textNote).trim(),
+    createdAt: new Date().toISOString(),
+    createdBy: req.user.userId || req.user.id,
+    createdByName: req.user.username || req.user.full_name || 'Engineer',
+  };
+  sol.notes.unshift(noteEntry);
+  sol.textNote = noteEntry.text;
+  sol.updatedAt = noteEntry.createdAt;
+  try { syncCaseToKnowledgeBase(req.params.id, req.user); } catch (e) { /* non-fatal */ }
+  res.json({
+    textNote: sol.textNote,
+    notes: sol.notes,
+    mediaFiles: sol.mediaFiles,
+    note: noteEntry,
+  });
 });
 
 // UPLOAD media files for solution
-app.post('/api/cases/:id/solution/media', authenticate, upload.array('files', 10), (req, res) => {
+app.post('/api/cases/:id/solution/media', authenticate, upload.array('files', 20), (req, res) => {
   const caseId = req.params.id;
-  if (!CASE_SOLUTIONS[caseId]) CASE_SOLUTIONS[caseId] = { textNote: '', mediaFiles: [] };
+  const sol = ensureCaseSolution(caseId);
   const added = (req.files || []).map(f => ({
     id: `sm_${Date.now()}_${Math.random().toString(36).slice(2)}`,
     name: f.originalname,
@@ -1153,15 +1248,18 @@ app.post('/api/cases/:id/solution/media', authenticate, upload.array('files', 10
     size: f.size,
     data: `data:${f.mimetype};base64,${f.buffer.toString('base64')}`,
     uploadedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   }));
-  CASE_SOLUTIONS[caseId].mediaFiles.push(...added);
-  res.status(201).json({ added, total: CASE_SOLUTIONS[caseId].mediaFiles.length });
+  sol.mediaFiles.push(...added);
+  try { syncCaseToKnowledgeBase(caseId, req.user); } catch (e) { /* non-fatal */ }
+  res.status(201).json({ uploaded: added.length, files: added, added, total: sol.mediaFiles.length });
 });
 
 // DELETE a solution media file
 app.delete('/api/cases/:id/solution/media/:fileId', authenticate, (req, res) => {
   const sol = CASE_SOLUTIONS[req.params.id];
   if (sol) sol.mediaFiles = sol.mediaFiles.filter(f => f.id !== req.params.fileId);
+  try { syncCaseToKnowledgeBase(req.params.id, req.user); } catch (e) { /* non-fatal */ }
   res.json({ ok: true });
 });
 
@@ -1421,33 +1519,125 @@ let SOLUTIONS = [
   { id: 'sol3', title: 'Samsung SSD â€” Slow Flash Read Fix', company: 'General', device_type: 'SSD', problem: 'SSD detects but extremely slow â€” bad cells', notes: '1. Check SMART for reallocated sectors\n2. Use PC-3000 SSD module\n3. Create image with slow read timeout\n4. Recover from image', tags: ['Bad Sectors', 'Logical Error'], files: [], created_at: '2026-03-01T11:00:00Z' },
 ];
 
+function mapSolutionForApi(s) {
+  const noteHistory = s.note_history || (s.notes ? [{ id: 'legacy', text: s.notes, createdAt: s.created_at }] : []);
+  const caseRefs = s.case_refs || [];
+  return {
+    ...s,
+    note_history: noteHistory,
+    related_case_count: caseRefs.length || s.related_case_count || (s.source === 'case' ? 1 : 0),
+    has_media: !!(s.files?.length || s.has_media),
+    company: s.company || s.category || 'General',
+  };
+}
+
 app.get('/api/solutions', authenticate, (req, res) => {
   let sols = [...SOLUTIONS];
-  const { search, device_type, tag } = req.query;
-  if (search) sols = sols.filter(s => `${s.title} ${s.problem} ${s.notes}`.toLowerCase().includes(search.toLowerCase()));
+  const { search, device_type, tag, category } = req.query;
+  if (search) {
+    const q = search.toLowerCase();
+    sols = sols.filter(s => `${s.title} ${s.problem} ${s.notes} ${(s.note_history || []).map(n => n.text).join(' ')}`.toLowerCase().includes(q));
+  }
   if (device_type) sols = sols.filter(s => s.device_type === device_type);
+  if (category) sols = sols.filter(s => s.category === category);
   if (tag) sols = sols.filter(s => s.tags?.includes(tag));
-  res.json({ solutions: sols.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), total: sols.length });
+  sols = sols.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map(mapSolutionForApi);
+  res.json({ solutions: sols, total: sols.length });
 });
 
 app.get('/api/solutions/:id', authenticate, (req, res) => {
   const s = SOLUTIONS.find(x => x.id === req.params.id);
   if (!s) return res.status(404).json({ error: 'Not found' });
-  res.json(s);
+  res.json(mapSolutionForApi(s));
 });
 
 app.post('/api/solutions', authenticate, upload.array('files', 20), (req, res) => {
   const { title, company, device_type, problem, notes } = req.body;
   let tags = [];
   try { tags = JSON.parse(req.body.tags || '[]'); } catch { tags = []; }
-  const files = (req.files || []).map(f => ({ name: f.originalname, mimeType: f.mimetype, size: f.size, data: `data:${f.mimetype};base64,${f.buffer.toString('base64')}` }));
-  const sol = { id: `sol_${Date.now()}`, title, company: company || '', device_type, problem: problem || '', notes: notes || '', tags, files, created_at: new Date().toISOString() };
-  SOLUTIONS.push(sol);
-  res.status(201).json(sol);
+  const now = new Date().toISOString();
+  const files = (req.files || []).map(f => ({
+    id: `sf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name: f.originalname,
+    mimeType: f.mimetype,
+    size: f.size,
+    data: `data:${f.mimetype};base64,${f.buffer.toString('base64')}`,
+    uploadedAt: now,
+  }));
+  const noteHistory = notes ? [{ id: `nh_${Date.now()}`, text: notes, createdAt: now, createdBy: req.user.userId, createdByName: req.user.username }] : [];
+  const sol = {
+    id: `sol_${Date.now()}`,
+    title,
+    company: company || '',
+    device_type: device_type || 'Other',
+    category: company || device_type || 'General',
+    problem: problem || '',
+    notes: notes || '',
+    note_history: noteHistory,
+    tags,
+    files,
+    case_refs: [],
+    source: 'manual',
+    created_by: req.user.userId,
+    created_by_name: req.user.username,
+    created_at: now,
+    updated_at: now,
+    related_case_count: 0,
+    has_media: files.length > 0,
+  };
+  SOLUTIONS.unshift(sol);
+  res.status(201).json({ solution: mapSolutionForApi(sol) });
+});
+
+app.put('/api/solutions/:id', authenticate, upload.array('files', 20), (req, res) => {
+  const idx = SOLUTIONS.findIndex(x => x.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const existing = SOLUTIONS[idx];
+  const { title, company, device_type, problem, notes } = req.body;
+  let tags = existing.tags;
+  try { if (req.body.tags !== undefined) tags = JSON.parse(req.body.tags || '[]'); } catch { /* keep */ }
+
+  const newFiles = (req.files || []).map(f => ({
+    id: `sf_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    name: f.originalname,
+    mimeType: f.mimetype,
+    size: f.size,
+    data: `data:${f.mimetype};base64,${f.buffer.toString('base64')}`,
+    uploadedAt: new Date().toISOString(),
+  }));
+
+  let noteHistory = existing.note_history || [];
+  if (notes !== undefined && String(notes).trim()) {
+    noteHistory = [{
+      id: `nh_${Date.now()}`,
+      text: String(notes).trim(),
+      createdAt: new Date().toISOString(),
+      createdBy: req.user.userId,
+      createdByName: req.user.username,
+    }, ...noteHistory];
+  }
+
+  const updated = {
+    ...existing,
+    title: title || existing.title,
+    company: company !== undefined ? company : existing.company,
+    device_type: device_type || existing.device_type,
+    category: company || existing.category,
+    problem: problem !== undefined ? problem : existing.problem,
+    notes: notes !== undefined ? notes : existing.notes,
+    note_history: noteHistory,
+    tags,
+    files: [...(existing.files || []), ...newFiles],
+    updated_at: new Date().toISOString(),
+    has_media: [...(existing.files || []), ...newFiles].length > 0,
+  };
+  SOLUTIONS[idx] = updated;
+  res.json({ solution: mapSolutionForApi(updated) });
 });
 
 app.delete('/api/solutions/:id', authenticate, (req, res) => {
-  SOLUTIONS = SOLUTIONS.filter(x => x.id !== req.params.id);
+  const idx = SOLUTIONS.findIndex(x => x.id === req.params.id);
+  if (idx !== -1) SOLUTIONS.splice(idx, 1);
   res.json({ ok: true });
 });
 
@@ -2523,57 +2713,6 @@ app.get('/api/knowledge-base', authenticate, (req, res) => {
     hasSolution: !!(CASE_SOLUTIONS[c.id]?.textNote),
   }));
   res.json({ results, total: results.length });
-});
-
-// â”€â”€â”€ SOLUTIONS / KNOWLEDGE BASE CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const SOLUTIONS_STORE = [];
-
-app.get('/api/solutions', authenticate, (req, res) => {
-  const { search, device_type, tag } = req.query;
-  let results = [...SOLUTIONS_STORE];
-  if (search) {
-    const q = search.toLowerCase();
-    results = results.filter(s =>
-      s.title?.toLowerCase().includes(q) ||
-      s.problem?.toLowerCase().includes(q) ||
-      s.notes?.toLowerCase().includes(q) ||
-      s.company?.toLowerCase().includes(q)
-    );
-  }
-  if (device_type) results = results.filter(s => s.device_type === device_type);
-  if (tag) results = results.filter(s => (s.tags || []).includes(tag));
-  res.json({ solutions: results, total: results.length });
-});
-
-app.post('/api/solutions', authenticate, upload.array('files'), (req, res) => {
-  const { title, device_type, problem, notes, company, tags } = req.body;
-  if (!title) return res.status(400).json({ error: 'Title required' });
-  const parsedTags = (() => { try { return JSON.parse(tags || '[]'); } catch { return []; } })();
-  const files = (req.files || []).map(f => ({
-    id: `sf_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
-    name: f.originalname,
-    size: f.size,
-    mimeType: f.mimetype,
-    data: `data:${f.mimetype};base64,${f.buffer.toString('base64')}`,
-  }));
-  const entry = {
-    id: `sol_${Date.now()}`,
-    title, device_type, problem, notes, company,
-    tags: parsedTags,
-    files,
-    created_by: req.user.userId,
-    created_by_name: req.user.username,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  SOLUTIONS_STORE.unshift(entry);
-  res.json({ solution: entry });
-});
-
-app.delete('/api/solutions/:id', authenticate, (req, res) => {
-  const idx = SOLUTIONS_STORE.findIndex(s => s.id === req.params.id);
-  if (idx !== -1) SOLUTIONS_STORE.splice(idx, 1);
-  res.json({ ok: true });
 });
 
 // â”€â”€â”€ PUBLIC CLIENT PORTAL (no auth needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
