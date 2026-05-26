@@ -183,6 +183,15 @@ async function runInventoryMigration() {
     "CREATE INDEX IF NOT EXISTS idx_inventory_model ON inventory_items(model)",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL",
     "CREATE INDEX IF NOT EXISTS idx_inventory_deleted_at ON inventory_items(deleted_at)",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS health VARCHAR(100)",
+    `CREATE TABLE IF NOT EXISTS inventory_item_notes (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+      note_text TEXT NOT NULL,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_inventory_item_notes_item ON inventory_item_notes(inventory_item_id)",
   ];
   for (const sql of migrations) {
     try { await query(sql); } catch (e) { /* column may already exist */ }
