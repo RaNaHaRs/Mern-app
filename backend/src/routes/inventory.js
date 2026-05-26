@@ -23,6 +23,55 @@ async function saveInventoryCustomFields(itemId, customFieldValues = {}) {
   }
 }
 
+async function ensureInventoryNotesSchema() {
+  await query(`ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS health VARCHAR(100)`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS inventory_item_notes (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+      note_text TEXT NOT NULL,
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_inventory_item_notes_item ON inventory_item_notes(inventory_item_id)`);
+}
+
+async function loadItemNotes(itemId) {
+  await ensureInventoryNotesSchema();
+  const legacy = await query('SELECT notes, updated_at, created_at FROM inventory_items WHERE id=$1', [itemId]);
+  const legacyNote = legacy.rows[0]?.notes?.trim();
+  if (legacyNote) {
+    const existing = await query(
+      'SELECT id FROM inventory_item_notes WHERE inventory_item_id=$1 LIMIT 1',
+      [itemId]
+    );
+    if (!existing.rows.length) {
+      await query(
+        `INSERT INTO inventory_item_notes (inventory_item_id, note_text, created_at)
+         VALUES ($1, $2, COALESCE($3, NOW()))`,
+        [itemId, legacyNote, legacy.rows[0].updated_at || legacy.rows[0].created_at]
+      );
+    }
+  }
+  const result = await query(
+    `SELECT n.id, n.note_text, n.created_at, n.created_by,
+            u.full_name AS created_by_name, u.username AS created_by_username
+     FROM inventory_item_notes n
+     LEFT JOIN users u ON u.id = n.created_by
+     WHERE n.inventory_item_id = $1
+     ORDER BY n.created_at DESC`,
+    [itemId]
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    text: row.note_text,
+    created_at: row.created_at,
+    created_by: row.created_by,
+    created_by_name: row.created_by_name || row.created_by_username || null,
+  }));
+}
+
 async function loadCustomFieldValues(itemId) {
   const r = await query(
     `SELECT icfv.custom_field_id, icfv.field_value, cf.field_label, cf.field_key
@@ -62,6 +111,11 @@ async function recordTransfer(req, item, body) {
   } catch (e) {
     console.log('Transfer log failed (non-blocking):', e.message);
   }
+}
+
+function isOtherCatPayload(body) {
+  const ui = normalizeUiCategory(body.category || body.ui_category);
+  return ui === 'other' || ui === 'others' || ui === 'stock_item';
 }
 
 function buildItemPayload(body, categoriesList = []) {
@@ -249,14 +303,14 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
         sku, stock_number, name, category, ui_category,
         serial_number, pcb_number, head_map, storage_model_id,
         description, quantity, min_quantity, unit_cost, location,
-        condition, notes, reserved_for_case,
+        condition, notes, reserved_for_case, health,
         firmware_version, firmware,
         company, brand, model, site_code, date_code, family,
         capacity, interface, form_factor, status, source_case_id,
         dynamic_fields, custom_field_values, added_by
       ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-        $18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
       ) RETURNING *`,
       [
         sku, stockNumber, built.name, built.mappedCategory, built.uiCategory,
@@ -265,6 +319,7 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
         parseInt(body.quantity, 10) || 0, parseInt(body.min_quantity, 10) || 1,
         body.unit_cost || null, body.location || null,
         body.condition || 'used', body.notes || null, body.reserved_for_case || null,
+        body.health || null,
         built.firmware, built.firmware,
         body.company || null, body.brand || null, body.model || built.name,
         body.site_code || built.dynamicFields.site_code || null,
@@ -282,6 +337,16 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
 
     const item = result.rows[0];
     await saveInventoryCustomFields(item.id, body.customFieldValues);
+
+    const initialNote = String(body.initial_note || body.notes || '').trim();
+    if (initialNote) {
+      await ensureInventoryNotesSchema();
+      await query(
+        `INSERT INTO inventory_item_notes (inventory_item_id, note_text, created_by)
+         VALUES ($1, $2, $3)`,
+        [item.id, initialNote, req.user.id]
+      );
+    }
 
     if ((parseInt(body.quantity, 10) || 0) > 0) {
       try {
@@ -322,16 +387,16 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
         serial_number=$5, pcb_number=$6, head_map=$7,
         quantity=COALESCE($8,quantity), min_quantity=COALESCE($9,min_quantity),
         unit_cost=$10, location=$11, condition=COALESCE($12,condition),
-        notes=$13, storage_model_id=$14, reserved_for_case=$15,
-        firmware_version=$16, firmware=$17,
-        company=$18, brand=$19, model=$20,
-        site_code=$21, date_code=$22, family=$23,
-        capacity=$24, interface=$25, form_factor=$26,
-        status=COALESCE($27,status),
-        dynamic_fields=COALESCE($28,dynamic_fields),
-        custom_field_values=COALESCE($29,custom_field_values),
+        notes=$13, storage_model_id=$14, reserved_for_case=$15, health=$16,
+        firmware_version=$17, firmware=$18,
+        company=$19, brand=$20, model=$21,
+        site_code=$22, date_code=$23, family=$24,
+        capacity=$25, interface=$26, form_factor=$27,
+        status=COALESCE($28,status),
+        dynamic_fields=COALESCE($29,dynamic_fields),
+        custom_field_values=COALESCE($30,custom_field_values),
         updated_at=NOW()
-       WHERE id=$30 RETURNING *`,
+       WHERE id=$31 RETURNING *`,
       [
         built.name || null, built.mappedCategory || null, built.uiCategory || null,
         body.stock_number || null,
@@ -339,8 +404,10 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
         body.quantity != null ? parseInt(body.quantity, 10) : null,
         body.min_quantity != null ? parseInt(body.min_quantity, 10) : null,
         body.unit_cost || null, body.location || null,
-        body.condition || null, body.notes || null, body.storage_model_id || null,
-        body.reserved_for_case || null,
+        body.condition || null,
+        isOtherCatPayload(body) ? (body.notes || null) : null,
+        body.storage_model_id || null,
+        body.reserved_for_case || null, body.health || null,
         built.firmware, built.firmware,
         body.company || null, body.brand || null, body.model || null,
         body.site_code || null, body.date_code || null, body.family || null,
@@ -625,18 +692,63 @@ router.get('/donors', async (req, res) => {
   }
 });
 
+// GET /api/inventory/:id/notes — timeline (latest first)
+router.get('/:id/notes', async (req, res) => {
+  try {
+    const item = await query('SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
+    if (!item.rows.length) return res.status(404).json({ error: 'Item not found' });
+    const notes = await loadItemNotes(req.params.id);
+    res.json({ notes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/inventory/:id/notes — append note (does not overwrite history)
+router.post('/:id/notes', requireMinRole('junior_engineer'), async (req, res) => {
+  try {
+    const text = String(req.body.text || req.body.note || '').trim();
+    if (!text) return res.status(400).json({ error: 'Note text is required' });
+
+    const item = await query('SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
+    if (!item.rows.length) return res.status(404).json({ error: 'Item not found' });
+
+    await ensureInventoryNotesSchema();
+    const inserted = await query(
+      `INSERT INTO inventory_item_notes (inventory_item_id, note_text, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, note_text, created_at, created_by`,
+      [req.params.id, text, req.user.id]
+    );
+    const row = inserted.rows[0];
+    res.status(201).json({
+      note: {
+        id: row.id,
+        text: row.note_text,
+        created_at: row.created_at,
+        created_by: row.created_by,
+        created_by_name: req.user.full_name || req.user.username || null,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/inventory/:id
 router.get('/:id', async (req, res) => {
   try {
     const result = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'Item not found' });
     const { values, labeled } = await loadCustomFieldValues(req.params.id);
+    const notesTimeline = await loadItemNotes(req.params.id);
     const row = result.rows[0];
     res.json({
       item: formatItemRow({
         ...row,
         custom_field_values: values,
         custom_fields_display: labeled,
+        notes_timeline: notesTimeline,
       }),
     });
   } catch (err) {
