@@ -30,7 +30,7 @@ END$$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'device_interface') THEN
-    CREATE TYPE device_interface AS ENUM ('SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'mSATA', 'M2');
+    CREATE TYPE device_interface AS ENUM ('SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'mSATA', 'M2', 'eSATA');
   END IF;
 END$$;
 DO $$
@@ -246,6 +246,7 @@ CREATE TABLE cases (
   total_data_gb DECIMAL(10,3),
   imaging_tool VARCHAR(100),
   recovery_tool VARCHAR(100),
+  transfer_to_client BOOLEAN DEFAULT false,
   -- Internal
   internal_notes TEXT,
   created_by UUID REFERENCES users(id),

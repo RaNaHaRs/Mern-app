@@ -104,6 +104,14 @@ export const casesApi = {
   getImages: (id) => api.get(`/cases/${id}/images`),
   uploadImages: (id, formData) => api.upload(`/cases/${id}/images`, formData),
   deleteImage: (id, imgId) => api.delete(`/cases/${id}/images/${imgId}`),
+  transferToClient: (id, transfer_to_client) => api.patch(`/cases/${id}/transfer-to-client`, { transfer_to_client }),
+};
+
+export const suggestionsApi = {
+  searchProblems: (params) => api.get('/suggestions/problems', params),
+  searchDiagnosis: (params) => api.get('/suggestions/diagnosis', params),
+  saveProblem: (data) => api.post('/suggestions/problems', data),
+  saveDiagnosis: (data) => api.post('/suggestions/diagnosis', data),
 };
 
 // Clients

@@ -1029,6 +1029,19 @@ export default function CaseDetail() {
     } catch(e){ alert(e.message || 'Transfer failed'); }
   };
 
+  const handleTransferToClient = async () => {
+    const newStatus = !caseData.transfer_to_client;
+    const confirmMsg = newStatus 
+      ? 'Are you sure you want to transfer this case to the client?' 
+      : 'Are you sure you want to undo the transfer of this case to the client?';
+    if (!confirm(confirmMsg)) return;
+    try {
+      await casesApi.transferToClient(id, newStatus);
+      setCaseData(prev => ({ ...prev, transfer_to_client: newStatus }));
+      alert(`✅ Case status updated: Transferred to Client = ${newStatus ? 'Yes' : 'No'}`);
+    } catch(e){ alert(e.message || 'Failed to update transfer status'); }
+  };
+
   const handleSaveEdit = async () => {
     try {
       await fetch(`${BASE_URL}/cases/${id}`, {
@@ -1403,6 +1416,9 @@ export default function CaseDetail() {
             <button className="btn btn-secondary btn-sm" onClick={() => { setEditForm({...caseData}); setShowEditCase(true); }}>✏️ Edit</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}>💳 Payment</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setStockTransferItem(true)}>🔄 To Stock</button>
+            <button className={`btn btn-sm ${caseData.transfer_to_client ? 'btn-success' : 'btn-secondary'}`} onClick={handleTransferToClient}>
+              {caseData.transfer_to_client ? '✓ Transferred to Client' : '🤝 Transfer to Client'}
+            </button>
             <button className="btn btn-primary btn-sm" onClick={() => setShowTransition(true)}>⚡ Advance Stage</button>
           </div>
         )}
@@ -1413,6 +1429,9 @@ export default function CaseDetail() {
             <button className="btn btn-secondary btn-sm" onClick={() => { setEditForm({...caseData}); setShowEditCase(true); }}>✏️ Edit</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}>💳 Payment</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setStockTransferItem(true)}>🔄 To Stock</button>
+            <button className={`btn btn-sm ${caseData.transfer_to_client ? 'btn-success' : 'btn-secondary'}`} onClick={handleTransferToClient}>
+              {caseData.transfer_to_client ? '✓ Transferred to Client' : '🤝 Transfer to Client'}
+            </button>
           </div>
         )}
       </div>

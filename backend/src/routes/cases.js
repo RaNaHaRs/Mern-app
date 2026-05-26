@@ -118,6 +118,7 @@ router.get('/', async (req, res) => {
               c.device_brand, c.device_model, c.serial_number, c.capacity_gb, c.interface,
               c.ai_risk_level, c.recovery_progress_pct, c.assigned_engineer,
               c.received_at, c.deadline_at, c.completed_at, c.created_at, c.updated_at,
+              c.transfer_to_client,
               cl.id as client_id, cl.first_name, cl.last_name, cl.phone, cl.company,
               u.full_name as engineer_name, u.role as engineer_role,
               sm.model_number as storage_model_number,
@@ -155,7 +156,19 @@ router.post('/',
     body('device_brand').trim().notEmpty(),
     body('device_model').trim().notEmpty(),
     body('symptoms').isArray().optional(),
-    body('failure_type').optional().isIn(['logical', 'firmware', 'electrical', 'mechanical', 'unknown']),
+    body('failure_type').optional().isIn([
+      'logical',
+      'firmware',
+      'electrical',
+      'mechanical',
+      'head_crash',
+      'pcb_damage',
+      'motor_failure',
+      'bad_sectors',
+      'water_damage',
+      'fire_damage',
+      'unknown'
+    ]),
     body('priority').optional().isInt({ min: 1, max: 5 }),
   ],
   auditLog('create_case', 'case'),
@@ -353,7 +366,7 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_case', 'c
       device_brand, device_model, serial_number, failure_type, symptoms,
       symptom_notes, initial_diagnosis, final_diagnosis, priority, deadline_at,
       internal_notes, assigned_engineer, recovery_progress_pct, data_recovered_gb,
-      total_data_gb, imaging_tool, recovery_tool, storage_model_id
+      total_data_gb, imaging_tool, recovery_tool, storage_model_id, transfer_to_client
     } = req.body;
 
     const result = await query(
@@ -376,14 +389,31 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_case', 'c
          imaging_tool = COALESCE($16, imaging_tool),
          recovery_tool = COALESCE($17, recovery_tool),
          storage_model_id = COALESCE($18, storage_model_id),
+         transfer_to_client = COALESCE($19, transfer_to_client),
          updated_at = NOW()
-       WHERE id = $19 RETURNING *`,
+       WHERE id = $20 RETURNING *`,
       [device_brand, device_model, serial_number, failure_type, symptoms,
        symptom_notes, initial_diagnosis, final_diagnosis, priority, deadline_at,
        internal_notes, assigned_engineer, recovery_progress_pct, data_recovered_gb,
-       total_data_gb, imaging_tool, recovery_tool, storage_model_id, req.params.id]
+       total_data_gb, imaging_tool, recovery_tool, storage_model_id, 
+       transfer_to_client !== undefined ? transfer_to_client : null, req.params.id]
     );
 
+    if (!result.rows.length) return res.status(404).json({ error: 'Case not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── PATCH /api/cases/:id/transfer-to-client ──────────────────────
+router.patch('/:id/transfer-to-client', requireMinRole('junior_engineer'), auditLog('update_case', 'case'), async (req, res) => {
+  try {
+    const { transfer_to_client } = req.body;
+    const result = await query(
+      `UPDATE cases SET transfer_to_client = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [!!transfer_to_client, req.params.id]
+    );
     if (!result.rows.length) return res.status(404).json({ error: 'Case not found' });
     res.json(result.rows[0]);
   } catch (err) {

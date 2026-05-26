@@ -118,7 +118,7 @@ export default function CasesPage() {
                   <th>Priority</th>
                   <th>Failure</th>
                   <th>Risk</th>
-                  <th>Progress</th>
+                  <th>Transfer to Client</th>
                   <th>Engineer</th>
                   <th>Received</th>
                 </tr>
@@ -150,12 +150,11 @@ export default function CasesPage() {
                       </div>
                     </td>
                     <td>{c.ai_risk_level && <span className={`badge badge-risk-${c.ai_risk_level}`}>{c.ai_risk_level}</span>}</td>
-                    <td style={{minWidth:100}}>
-                      {c.recovery_progress_pct > 0 && (
-                        <div>
-                          <div className="progress-bar"><div className="progress-fill" style={{width:`${c.recovery_progress_pct}%`}}/></div>
-                          <div className="text-xs text-muted" style={{marginTop:3}}>{c.recovery_progress_pct}%</div>
-                        </div>
+                    <td>
+                      {c.transfer_to_client ? (
+                        <span className="badge badge-completed" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>Yes</span>
+                      ) : (
+                        <span className="badge badge-received" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>No</span>
                       )}
                     </td>
                     <td className="text-xs text-muted">{c.engineer_name || '—'}</td>

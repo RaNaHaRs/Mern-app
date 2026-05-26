@@ -512,6 +512,13 @@ code, kbd, pre { font-family: var(--font-mono); }
 }
 .btn-danger:hover:not(:disabled) { background: var(--status-danger); color: white; }
 
+.btn-success {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+  border-color: rgba(22, 163, 74, 0.3);
+}
+.btn-success:hover:not(:disabled) { background: var(--status-success); color: white; }
+
 .btn-ghost {
   background: transparent;
   color: var(--text-secondary);
