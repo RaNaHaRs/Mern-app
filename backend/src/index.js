@@ -204,22 +204,42 @@ async function start() {
     const { Server } = require('socket.io');
     const io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:5175',
+        origin: process.env.NODE_ENV === 'production' ? (process.env.FRONTEND_URL || 'http://localhost:5174') : '*',
         methods: ['GET', 'POST'],
         credentials: true,
       },
     });
 
+    // Expose io on app for route handlers to broadcast (e.g. file uploads)
+    app.set('io', io);
+
     const jwt = require('jsonwebtoken');
     const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_THIS_SECRET_IN_PRODUCTION';
     const onlineUsers = new Map();
+    const chatService = require('./services/chatService');
+
+    const emitAllowedOnlineUsers = async (targetSocket) => {
+      try {
+        const allowedUsers = await chatService.getAllowedChatUsers(targetSocket.userId);
+        const allowedIds = new Set(allowedUsers.map((u) => String(u.id)));
+        const onlineAllowed = Array.from(new Set(onlineUsers.values())).filter((id) => allowedIds.has(String(id)));
+        targetSocket.emit('onlineUsers', onlineAllowed);
+      } catch (e) {
+        logger.warn('Failed to emit allowed online users', { error: e.message });
+      }
+    };
+
+    const refreshOnlineUsersForAll = async () => {
+      const sockets = await io.fetchSockets();
+      await Promise.all(sockets.map((s) => emitAllowedOnlineUsers(s)));
+    };
 
     io.use((socket, next) => {
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       if (!token) return next(new Error('Authentication error'));
       try {
         const payload = jwt.verify(token, JWT_SECRET);
-        socket.userId = payload.userId;
+        socket.userId = String(payload.userId);
         return next();
       } catch (err) {
         return next(new Error('Invalid token'));
@@ -228,20 +248,29 @@ async function start() {
 
     io.on('connection', (socket) => {
       logger.info(`⚡ Socket connected: ${socket.id} (user ${socket.userId})`);
-      onlineUsers.set(socket.id, socket.userId);
-      io.emit('onlineUsers', Array.from(new Set(onlineUsers.values())));
+      onlineUsers.set(socket.id, String(socket.userId));
+      refreshOnlineUsersForAll();
 
-      socket.on('joinRoom', (room) => {
+      socket.on('joinRoom', async (room) => {
+        if (!room || typeof room !== 'string' || !room.startsWith('dm:')) return;
+        const participantIds = room.replace('dm:', '').split(':').filter(Boolean);
+        if (!participantIds.includes(String(socket.userId))) return;
+        const otherUserId = participantIds.find((id) => id !== String(socket.userId));
+        if (!otherUserId) return;
+        const canChat = await chatService.canUsersChat(socket.userId, otherUserId);
+        if (!canChat) return;
         socket.join(room);
+        await chatService.markMessagesDelivered(room, socket.userId);
+        io.to(room).emit('messagesDelivered', { room, userId: socket.userId, deliveredAt: new Date().toISOString() });
         logger.info(`User ${socket.userId} joined room ${room}`);
       });
 
       socket.on('sendMessage', async (msg) => {
-        const chatService = require('./services/chatService');
         try {
           const saved = await chatService.createMessage({
-            room: msg.room,
             senderId: socket.userId,
+            recipientId: msg.recipientId,
+            room: msg.room,
             text: msg.text,
             filePath: msg.filePath,
             mimeType: msg.mimeType,
@@ -252,13 +281,29 @@ async function start() {
         }
       });
 
+      // Mark messages in a room as seen by the current user
+      socket.on('markSeen', async ({ room }) => {
+        try {
+          if (!room || typeof room !== 'string' || !room.startsWith('dm:')) return;
+          const participantIds = room.replace('dm:', '').split(':').filter(Boolean);
+          if (!participantIds.includes(String(socket.userId))) return;
+          const otherUserId = participantIds.find((id) => id !== String(socket.userId));
+          const canChat = await chatService.canUsersChat(socket.userId, otherUserId);
+          if (!canChat) return;
+          await chatService.markMessagesSeen(room, socket.userId);
+          io.to(room).emit('messagesSeen', { room, userId: socket.userId });
+        } catch (e) {
+          logger.warn('markSeen failed', { error: e.message });
+        }
+      });
+
       socket.on('typing', (data) => {
         socket.to(data.room).emit('typing', data.userName);
       });
 
       socket.on('disconnect', () => {
         onlineUsers.delete(socket.id);
-        io.emit('onlineUsers', Array.from(new Set(onlineUsers.values())));
+        refreshOnlineUsersForAll();
         logger.info(`⚡ Socket disconnected: ${socket.id}`);
       });
     });

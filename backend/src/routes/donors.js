@@ -1,10 +1,22 @@
 const express = require('express');
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
-const { findDonors } = require('../services/donorEngine');
+const { findDonors, getAllDonorMatches } = require('../services/donorEngine');
 
 const router = express.Router();
 router.use(authenticate);
+
+router.get('/matches', async (req, res) => {
+  try {
+    const { min_score, brand, top_count } = req.query;
+    const result = await getAllDonorMatches({
+      minScore: parseFloat(min_score || 30),
+      brandFilter: brand,
+      topCount: parseInt(top_count, 10) || 6
+    });
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 router.get('/find/:model_id', async (req, res) => {
   try {

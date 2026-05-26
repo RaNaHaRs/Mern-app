@@ -18,6 +18,7 @@ const ClientsPage      = React.lazy(() => import('./pages/ClientsPage'));
 const ClientDetail     = React.lazy(() => import('./pages/ClientDetail'));
 const InventoryPage    = React.lazy(() => import('./pages/InventoryPage'));
 const InventoryDetail  = React.lazy(() => import('./pages/InventoryDetail'));
+const DonorsPage       = React.lazy(() => import('./pages/DonorsPage'));
 const TransferredItemsPage = React.lazy(() => import('./pages/TransferredItemsPage'));
 const AnalyticsPage    = React.lazy(() => import('./pages/AnalyticsPage'));
 const SettingsPage     = React.lazy(() => import('./pages/SettingsPage'));
@@ -62,6 +63,7 @@ function Sidebar({ open, onClose }) {
   ];
   const intelItems = isSuperAdmin ? [] : [
     ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '🔄', label: 'Inventory', to: '/inventory' }] : []),
+    ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '💿', label: 'Donor Drive', to: '/donors' }] : []),
     ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '📤', label: 'Transferred Items', to: '/transferred-items' }] : []),
     ...(hasPermission('knowledge_base', 'view') || isAdmin ? [{ icon: '📚', label: 'Knowledge Base', to: '/solutions' }] : []),
     ...(isAdmin ? [{ icon: '📣', label: 'Marketing', to: '/marketing' }] : []),
@@ -112,6 +114,7 @@ function Sidebar({ open, onClose }) {
       ]},
       { group: 'Access', items: [
         { icon: '👤', label: 'Users & Roles', to: '/users' },
+        { icon: '💬', label: 'Team Chat', to: '/chat' },
         { icon: '🛡️', label: 'Security & Backup', to: '/security' },
         { icon: '⚙️', label: 'Settings',           to: '/settings' },
       ]},
@@ -210,7 +213,7 @@ function Header() {
   const navigate = useNavigate();
   const titles = {
     '/': 'Dashboard', '/cases': 'Case Management', '/clients': 'Client Management',
-    '/inventory': 'Inventory & Donors', '/accounting': 'Accounting', '/solutions': 'Knowledge Base',
+    '/inventory': 'Inventory & Donors', '/donors': 'HDD Donor Drive Matching', '/accounting': 'Accounting', '/solutions': 'Knowledge Base',
     '/reports': 'Reports & Export', '/analytics': 'Analytics', '/subscription': 'Subscription & Plans',
     '/recycle-bin': 'Recycle Bin', '/settings': 'Settings', '/security': 'Security & Backup',
     '/super-admin': 'Platform Command Center', '/users': 'Users & Roles', '/chat': 'Team Chat',
@@ -309,6 +312,7 @@ function AppLayout() {
               <Route path="/clients/:id"       element={<PermissionRoute module="clients"><ClientDetail /></PermissionRoute>} />
               <Route path="/inventory"         element={<PermissionRoute module="inventory"><InventoryPage /></PermissionRoute>} />
               <Route path="/inventory/:id"     element={<PermissionRoute module="inventory"><InventoryDetail /></PermissionRoute>} />
+              <Route path="/donors"            element={<PermissionRoute module="inventory"><DonorsPage /></PermissionRoute>} />
               <Route path="/transferred-items" element={<PermissionRoute module="inventory"><TransferredItemsPage /></PermissionRoute>} />
               <Route path="/accounting"        element={<PermissionRoute module="accounting"><AccountingPage /></PermissionRoute>} />
               <Route path="/solutions"         element={<PermissionRoute module="knowledge_base"><SolutionsPage /></PermissionRoute>} />
