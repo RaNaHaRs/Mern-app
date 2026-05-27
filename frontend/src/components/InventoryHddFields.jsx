@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fieldConfigApi } from '../services/fieldConfigApi';
-import { categoryToConfigKey } from '../constants/inventoryConfig';
+import { inventoryToConfigKey } from '../utils/hddCategoryMap';
 
 const BUILTIN_LABELS = {
   serial_number: 'Serial Number',
@@ -16,7 +16,7 @@ const BUILTIN_LABELS = {
   pcb_number: 'PCB Number',
   compatible_drives: 'Compatible Drives',
   voltage: 'Voltage',
-  manufacture_country: 'Manufacture Country',
+  manufacture_country: 'Manufacturing Country',
   manufacture_date: 'Manufacture Date',
 };
 
@@ -24,6 +24,8 @@ const SELECT_OPTIONS = {
   interface: ['SATA', 'IDE', 'SAS', 'USB', 'PCIe', 'NVMe', 'NVMe M.2', 'mSATA'],
   form_factor: ['3.5" HDD', '2.5" HDD', '1.8" HDD'],
 };
+
+const MANUFACTURING_COUNTRIES = ['Thailand', 'China', 'Malaysia', 'Philippines'];
 
 /**
  * Dynamic fields for Add Stock — driven by Settings → Field Config per category (pcb, ssd, wd_35, …).
@@ -38,7 +40,7 @@ export default function InventoryHddFields({
   const [schema, setSchema] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const configKey = categoryToConfigKey(category);
+  const configKey = inventoryToConfigKey(category);
   const isSeagate = (category || '').includes('seagate');
 
   useEffect(() => {
@@ -107,6 +109,40 @@ export default function InventoryHddFields({
                   <option value="">Select…</option>
                   {selectOpts.map(o => <option key={o} value={o}>{o}</option>)}
                 </select>
+              </div>
+            );
+          }
+
+          if (field.field_key === 'manufacture_country') {
+            return (
+              <div key={field.field_key} className="form-group" style={{ margin: 0 }}>
+                <label className={`form-label${isMandatory ? ' required' : ''}`}>Manufacturing Country</label>
+                <select
+                  className="form-select"
+                  value={val}
+                  required={isMandatory}
+                  onChange={e => handleFieldChange(field.field_key, e.target.value)}
+                >
+                  <option value="">Select Manufacturing Country...</option>
+                  {MANUFACTURING_COUNTRIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            );
+          }
+
+          if (field.field_key === 'manufacture_date') {
+            return (
+              <div key={field.field_key} className="form-group" style={{ margin: 0 }}>
+                <label className={`form-label${isMandatory ? ' required' : ''}`}>{label}</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={val}
+                  required={isMandatory}
+                  onChange={e => handleFieldChange(field.field_key, e.target.value)}
+                />
               </div>
             );
           }

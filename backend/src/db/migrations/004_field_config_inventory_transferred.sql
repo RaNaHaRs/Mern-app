@@ -75,13 +75,13 @@ INSERT INTO hdd_field_mappings (field_key, field_label, field_type, field_order)
   ('form_factor', 'Form Factor', 'text', 18),
   ('head_map', 'Head Map', 'text', 19),
   ('family', 'ROM Family', 'text', 20)
-ON CONFLICT (field_key) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 INSERT INTO section_configs (section_key, section_label) VALUES
   ('image_upload', 'Image Upload Section'),
   ('diagnosis', 'Diagnosis Field'),
   ('quotation', 'Commercial / Quotation Section')
-ON CONFLICT (section_key) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- ─── Inventory extensions ──────────────────────────────────────────────────
 ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS ui_category VARCHAR(50);

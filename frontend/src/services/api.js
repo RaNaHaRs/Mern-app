@@ -4,6 +4,16 @@ function getToken() {
   return localStorage.getItem('accessToken');
 }
 
+async function parseJsonResponse(res) {
+  const text = await res.text();
+  if (!text || !text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 async function request(path, options = {}) {
   const token = getToken();
   const headers = {
@@ -27,16 +37,20 @@ async function request(path, options = {}) {
         body: JSON.stringify({ refreshToken }),
       });
       if (refreshRes.ok) {
-        const { accessToken } = await refreshRes.json();
-        localStorage.setItem('accessToken', accessToken);
-        // Retry
-        headers.Authorization = `Bearer ${accessToken}`;
-        const retryRes = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-        if (!retryRes.ok) {
-          const err = await retryRes.json().catch(() => ({}));
-          throw Object.assign(new Error(err.error || 'Request failed'), { status: retryRes.status, data: err });
+        const refreshData = await parseJsonResponse(refreshRes);
+        const accessToken = refreshData?.accessToken;
+        if (accessToken) {
+          localStorage.setItem('accessToken', accessToken);
+          // Retry
+          headers.Authorization = `Bearer ${accessToken}`;
+          const retryRes = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+          if (!retryRes.ok) {
+            const err = await parseJsonResponse(retryRes);
+            throw Object.assign(new Error(err?.error || 'Request failed'), { status: retryRes.status, data: err });
+          }
+          if (retryRes.status === 204) return null;
+          return parseJsonResponse(retryRes);
         }
-        return retryRes.json();
       }
     }
     localStorage.clear();
@@ -45,12 +59,12 @@ async function request(path, options = {}) {
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw Object.assign(new Error(err.error || 'Request failed'), { status: res.status, data: err });
+    const err = await parseJsonResponse(res);
+    throw Object.assign(new Error(err?.error || err?.message || 'Request failed'), { status: res.status, data: err });
   }
 
   if (res.status === 204) return null;
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 export const api = {
@@ -98,6 +112,13 @@ export const authApi = {
   logout: (refreshToken) => api.post('/auth/logout', { refreshToken }),
   me: () => api.get('/auth/me'),
   changePassword: (data) => api.put('/auth/change-password', data),
+};
+
+export const chatApi = {
+  getContacts: () => api.get('/chat/contacts'),
+  getConversation: (peerId) => api.get(`/chat/conversations/${peerId}`),
+  sendMessage: (peerId, body) => api.post(`/chat/conversations/${peerId}/messages`, body),
+  markRead: (peerId) => api.patch(`/chat/conversations/${peerId}/read`),
 };
 
 // Cases

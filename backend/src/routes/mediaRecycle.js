@@ -15,6 +15,7 @@ router.get('/', async (req, res) => {
       page: req.query.page,
       limit: req.query.limit,
       source: req.query.source,
+      user: req.user,
     });
     res.json(data);
   } catch (err) {
@@ -24,7 +25,7 @@ router.get('/', async (req, res) => {
 
 router.post('/:id/restore', requireMinRole('junior_engineer'), async (req, res) => {
   try {
-    const result = await restoreMediaRecycleItem(req.params.id);
+    const result = await restoreMediaRecycleItem(req.params.id, req.user);
     if (!result) return res.status(404).json({ error: 'Media not found in recycle bin' });
     res.json({ message: 'Media restored', ...result });
   } catch (err) {
@@ -34,7 +35,7 @@ router.post('/:id/restore', requireMinRole('junior_engineer'), async (req, res) 
 
 router.delete('/:id/permanent-delete', requireMinRole('admin'), async (req, res) => {
   try {
-    const id = await permanentDeleteMediaRecycleItem(req.params.id);
+    const id = await permanentDeleteMediaRecycleItem(req.params.id, req.user);
     if (!id) return res.status(404).json({ error: 'Media not found in recycle bin' });
     res.json({ message: 'Media permanently deleted', id });
   } catch (err) {

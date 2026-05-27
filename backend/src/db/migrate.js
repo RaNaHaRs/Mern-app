@@ -120,6 +120,17 @@ async function migrate() {
     }
 
     try {
+      const inventoryTimelineSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '012_inventory_health_and_notes_timeline.sql'),
+        'utf8'
+      );
+      await client.query(inventoryTimelineSchema);
+      console.log('âœ… Inventory notes timeline migration applied');
+    } catch (inventoryTimelineErr) {
+      console.warn('âš ï¸  Inventory notes timeline migration warning (non-fatal):', inventoryTimelineErr.message);
+    }
+
+    try {
       const solutionKbSchema = fs.readFileSync(
         path.join(__dirname, 'migrations', '012_solution_knowledge_base.sql'),
         'utf8'
@@ -161,6 +172,17 @@ async function migrate() {
       console.log('✅ Problem & diagnosis history migration applied');
     } catch (problemHistoryErr) {
       console.warn('⚠️  Problem history migration warning (non-fatal):', problemHistoryErr.message);
+    }
+
+    try {
+      const unifiedTenantSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '016_unified_tenant_id.sql'),
+        'utf8'
+      );
+      await client.query(unifiedTenantSchema);
+      console.log('âœ… Unified tenant_id migration applied');
+    } catch (unifiedTenantErr) {
+      console.warn('âš ï¸  Unified tenant_id migration warning (non-fatal):', unifiedTenantErr.message);
     }
 
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");

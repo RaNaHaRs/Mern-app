@@ -1,9 +1,24 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
 const logger = require('../config/logger');
+const { tenantAdminId } = require('../utils/tenantAccess');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_THIS_SECRET_IN_PRODUCTION';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
+
+function normalizeTenantContext(user) {
+  if (!user || user.role === 'super_admin') return null;
+  return tenantAdminId(user);
+}
+
+function buildTokenPayload(user) {
+  return {
+    userId: user.id,
+    role: user.role,
+    tenantId: normalizeTenantContext(user),
+    permissions: user.permissions || null,
+  };
+}
 
 // ─── Verify JWT Token ───────────────────────────────────────────
 async function authenticate(req, res, next) {
@@ -28,13 +43,13 @@ async function authenticate(req, res, next) {
     let result;
     try {
       result = await query(
-        'SELECT id, username, email, full_name, role, tenant_id, is_active, specializations FROM users WHERE id = $1',
+        'SELECT id, username, email, full_name, role, tenant_id, tenant_owner_id, is_active, specializations, permissions FROM users WHERE id = $1',
         [decoded.userId]
       );
     } catch (err) {
       if (err.message.includes('tenant_id')) {
         result = await query(
-          'SELECT id, username, email, full_name, role, tenant_owner_id, is_active, specializations FROM users WHERE id = $1',
+          'SELECT id, username, email, full_name, role, tenant_owner_id, is_active, specializations, permissions FROM users WHERE id = $1',
           [decoded.userId]
         );
       } else {
@@ -47,12 +62,26 @@ async function authenticate(req, res, next) {
     }
 
     req.user = result.rows[0];
-    req.user.tenant_id = req.user.tenant_id || req.user.tenant_owner_id || req.user.id || 1;
+    req.user.tenant_id = normalizeTenantContext(req.user);
     next();
   } catch (err) {
     logger.error('Auth middleware error', { error: err.message });
     res.status(500).json({ error: 'Authentication error' });
   }
+}
+
+async function verifySocketToken(token) {
+  const decoded = jwt.verify(token, JWT_SECRET);
+  const result = await query(
+    'SELECT id, username, email, full_name, role, tenant_id, tenant_owner_id, is_active, specializations, permissions FROM users WHERE id = $1',
+    [decoded.userId]
+  );
+  if (!result.rows.length || !result.rows[0].is_active) {
+    throw new Error('Invalid or inactive user');
+  }
+  const user = result.rows[0];
+  user.tenant_id = normalizeTenantContext(user);
+  return user;
 }
 
 // ─── Role-Based Access Control ──────────────────────────────────
@@ -137,8 +166,8 @@ function requireOwner(req, res, next) {
 }
 
 // ─── Token Generation ───────────────────────────────────────────
-function generateAccessToken(userId, role) {
-  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+function generateAccessToken(user) {
+  return jwt.sign(buildTokenPayload(user), JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
 function generateRefreshToken(userId) {
@@ -147,6 +176,7 @@ function generateRefreshToken(userId) {
 
 module.exports = {
   authenticate,
+  verifySocketToken,
   requireRole,
   requireMinRole,
   requireSuperAdmin,

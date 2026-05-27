@@ -45,4 +45,4 @@ VALUES
   ('Burnt PCB smell', 1, 'electrical'),
   ('Water damage', 1, 'physical'),
   ('Dropped drive', 1, 'physical')
-ON CONFLICT (text) DO NOTHING;
+ON CONFLICT DO NOTHING;

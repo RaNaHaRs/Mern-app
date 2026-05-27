@@ -6,6 +6,7 @@ const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { upload, UPLOAD_DIR } = require('../middleware/upload');
 const { auditLog } = require('../middleware/audit');
+const { isSuperAdmin, tenantAdminId, verifyCaseAccess } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -24,9 +25,10 @@ router.post('/upload',
       const { case_id, file_type, description } = req.body;
       if (!case_id) return res.status(400).json({ error: 'case_id is required' });
 
-      // Verify case exists
-      const caseCheck = await query('SELECT id FROM cases WHERE id = $1', [case_id]);
-      if (!caseCheck.rows.length) return res.status(404).json({ error: 'Case not found' });
+      // Verify case exists and belongs to the user's tenant
+      if (!isSuperAdmin(req.user) && !(await verifyCaseAccess(case_id, req.user))) {
+        return res.status(404).json({ error: 'Case not found' });
+      }
 
       const savedFiles = [];
 
@@ -57,8 +59,11 @@ router.post('/upload',
 router.get('/:id/download', auditLog('download_file', 'file'), async (req, res) => {
   try {
     const result = await query(
-      `SELECT cf.*, c.created_by as case_owner FROM case_files cf JOIN cases c ON cf.case_id = c.id WHERE cf.id = $1`,
-      [req.params.id]
+      `SELECT cf.*, c.created_by as case_owner
+       FROM case_files cf
+       JOIN cases c ON cf.case_id = c.id
+       WHERE cf.id = $1${!isSuperAdmin(req.user) ? ' AND cf.tenant_id = $2' : ''}`,
+      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
 
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
@@ -84,7 +89,12 @@ router.get('/:id/download', auditLog('download_file', 'file'), async (req, res) 
 // ─── DELETE /api/files/:id ────────────────────────────────────────
 router.delete('/:id', requireMinRole('senior_engineer'), auditLog('delete_file', 'file'), async (req, res) => {
   try {
-    const result = await query('SELECT * FROM case_files WHERE id = $1', [req.params.id]);
+    const result = await query(
+      `SELECT cf.* FROM case_files cf
+       JOIN cases c ON cf.case_id = c.id
+       WHERE cf.id = $1${!isSuperAdmin(req.user) ? ' AND cf.tenant_id = $2' : ''}`,
+      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+    );
     if (!result.rows.length) return res.status(404).json({ error: 'File not found' });
 
     const file = result.rows[0];
@@ -96,7 +106,10 @@ router.delete('/:id', requireMinRole('senior_engineer'), auditLog('delete_file',
     
     try { fs.renameSync(file.file_path, trashPath); } catch {}
 
-    await query('DELETE FROM case_files WHERE id = $1', [req.params.id]);
+    await query(
+      `DELETE FROM case_files WHERE id = $1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
+      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+    );
     res.json({ message: 'File deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });

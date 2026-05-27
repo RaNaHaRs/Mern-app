@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { isSuperAdmin, tenantCreatedByInUserScope, tenantAdminId } = require('../utils/tenantAccess');
 const logger = require('../config/logger');
 
 const router = express.Router();
@@ -16,6 +17,7 @@ async function ensureMarketingTables() {
     // Email templates
     `CREATE TABLE IF NOT EXISTS marketing_email_templates (
       id SERIAL PRIMARY KEY,
+      tenant_id UUID,
       name VARCHAR(200) NOT NULL,
       subject VARCHAR(500) NOT NULL,
       preview_text VARCHAR(500),
@@ -25,13 +27,14 @@ async function ensureMarketingTables() {
       tags TEXT[] DEFAULT '{}',
       variables TEXT[] DEFAULT '{}',
       is_active BOOLEAN DEFAULT true,
-      created_by INTEGER REFERENCES users(id),
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`,
     // WhatsApp templates
     `CREATE TABLE IF NOT EXISTS marketing_whatsapp_templates (
       id SERIAL PRIMARY KEY,
+      tenant_id UUID,
       name VARCHAR(200) NOT NULL,
       message_body TEXT NOT NULL,
       variables TEXT[] DEFAULT '{}',
@@ -39,13 +42,14 @@ async function ensureMarketingTables() {
       has_media BOOLEAN DEFAULT false,
       media_url TEXT,
       is_active BOOLEAN DEFAULT true,
-      created_by INTEGER REFERENCES users(id),
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`,
     // Campaigns
     `CREATE TABLE IF NOT EXISTS marketing_campaigns (
       id SERIAL PRIMARY KEY,
+      tenant_id UUID,
       name VARCHAR(300) NOT NULL,
       description TEXT,
       type VARCHAR(50) NOT NULL DEFAULT 'email',
@@ -69,15 +73,16 @@ async function ensureMarketingTables() {
       total_bounced INTEGER DEFAULT 0,
       total_unsubscribed INTEGER DEFAULT 0,
       settings JSONB DEFAULT '{}',
-      created_by INTEGER REFERENCES users(id),
+      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`,
     // Campaign recipients
     `CREATE TABLE IF NOT EXISTS marketing_campaign_recipients (
       id SERIAL PRIMARY KEY,
+      tenant_id UUID,
       campaign_id INTEGER REFERENCES marketing_campaigns(id) ON DELETE CASCADE,
-      client_id INTEGER REFERENCES clients(id),
+      client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
       email VARCHAR(300),
       phone VARCHAR(50),
       name VARCHAR(200),
@@ -92,20 +97,37 @@ async function ensureMarketingTables() {
     // Unsubscribes
     `CREATE TABLE IF NOT EXISTS marketing_unsubscribes (
       id SERIAL PRIMARY KEY,
-      email VARCHAR(300) UNIQUE,
+      tenant_id UUID,
+      email VARCHAR(300),
       phone VARCHAR(50),
       source VARCHAR(100),
       created_at TIMESTAMPTZ DEFAULT NOW()
     )`,
+    `ALTER TABLE marketing_email_templates ADD COLUMN IF NOT EXISTS tenant_id UUID`,
+    `ALTER TABLE marketing_whatsapp_templates ADD COLUMN IF NOT EXISTS tenant_id UUID`,
+    `ALTER TABLE marketing_campaigns ADD COLUMN IF NOT EXISTS tenant_id UUID`,
+    `ALTER TABLE marketing_campaign_recipients ADD COLUMN IF NOT EXISTS tenant_id UUID`,
+    `ALTER TABLE marketing_unsubscribes ADD COLUMN IF NOT EXISTS tenant_id UUID`,
     // Indexes
+    `CREATE INDEX IF NOT EXISTS idx_marketing_email_templates_tenant ON marketing_email_templates(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_whatsapp_templates_tenant ON marketing_whatsapp_templates(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_campaigns_tenant ON marketing_campaigns(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_campaign_recipients_tenant ON marketing_campaign_recipients(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_unsubscribes_tenant ON marketing_unsubscribes(tenant_id)`,
     `CREATE INDEX IF NOT EXISTS idx_campaign_recs_campaign ON marketing_campaign_recipients(campaign_id)`,
     `CREATE INDEX IF NOT EXISTS idx_campaign_recs_client ON marketing_campaign_recipients(client_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_unsubscribes_tenant_email ON marketing_unsubscribes(tenant_id, email) WHERE email IS NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_marketing_unsubscribes_tenant_phone ON marketing_unsubscribes(tenant_id, phone) WHERE phone IS NOT NULL`,
   ];
   for (const sql of migrations) {
     try { await query(sql); } catch (e) {/* already exists */}
   }
 }
 ensureMarketingTables().catch(e => logger.warn('Marketing migration:', e.message));
+
+function currentTenantId(user) {
+  return tenantAdminId(user);
+}
 
 // ─── HELPERS ────────────────────────────────────────────────────
 
@@ -201,6 +223,8 @@ router.get('/email-templates', async (req, res) => {
     const params = [];
     if (category) { params.push(category); sql += ` AND et.category = $${params.length}`; }
     if (search) { params.push(`%${search}%`); sql += ` AND (et.name ILIKE $${params.length} OR et.subject ILIKE $${params.length})`; }
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, params.length + 1, 'et') : null;
+    if (tenantCondition) { params.push(...tenantCondition.params); sql += ` AND ${tenantCondition.clause}`; }
     sql += ' ORDER BY et.updated_at DESC';
     const result = await query(sql, params);
     res.json(result.rows);
@@ -219,9 +243,9 @@ router.post('/email-templates', [
     const { name, subject, preview_text, html_body, text_body, category, tags } = req.body;
     const variables = extractVariables(html_body + ' ' + (text_body || ''));
     const result = await query(
-      `INSERT INTO marketing_email_templates (name, subject, preview_text, html_body, text_body, category, tags, variables, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [name, subject, preview_text, html_body, text_body, category || 'general', tags || [], variables, req.user.id]
+      `INSERT INTO marketing_email_templates (tenant_id, name, subject, preview_text, html_body, text_body, category, tags, variables, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [currentTenantId(req.user), name, subject, preview_text, html_body, text_body, category || 'general', tags || [], variables, req.user.id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -232,9 +256,11 @@ router.put('/email-templates/:id', async (req, res) => {
   try {
     const { name, subject, preview_text, html_body, text_body, category, tags } = req.body;
     const variables = extractVariables(html_body + ' ' + (text_body || ''));
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 10) : null;
     const result = await query(
       `UPDATE marketing_email_templates SET name=$1,subject=$2,preview_text=$3,html_body=$4,text_body=$5,
-       category=$6,tags=$7,variables=$8,updated_at=NOW() WHERE id=$9 RETURNING *`,
+       category=$6,tags=$7,variables=$8,updated_at=NOW() WHERE id=$9${tenantCondition ? ` AND ${tenantCondition.clause}` : ''} RETURNING *`,
+      tenantCondition ? [name, subject, preview_text, html_body, text_body, category || 'general', tags || [], variables, req.params.id, ...tenantCondition.params] :
       [name, subject, preview_text, html_body, text_body, category || 'general', tags || [], variables, req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Template not found' });
@@ -245,7 +271,11 @@ router.put('/email-templates/:id', async (req, res) => {
 // DELETE /api/marketing/email-templates/:id
 router.delete('/email-templates/:id', async (req, res) => {
   try {
-    await query('UPDATE marketing_email_templates SET is_active=false WHERE id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    await query(
+      `UPDATE marketing_email_templates SET is_active=false WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -265,9 +295,9 @@ router.post('/email-templates/import-html', async (req, res) => {
                          .replace(/\s+/g, ' ')
                          .trim();
     const result = await query(
-      `INSERT INTO marketing_email_templates (name, subject, html_body, text_body, category, variables, created_by)
-       VALUES ($1,$2,$3,$4,'imported',$5,$6) RETURNING *`,
-      [name || subject, subject, html, textBody.substring(0, 5000), variables, req.user.id]
+      `INSERT INTO marketing_email_templates (tenant_id, name, subject, html_body, text_body, category, variables, created_by)
+       VALUES ($1,$2,$3,$4,$5,'imported',$6,$7) RETURNING *`,
+      [currentTenantId(req.user), name || subject, subject, html, textBody.substring(0, 5000), variables, req.user.id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -276,7 +306,11 @@ router.post('/email-templates/import-html', async (req, res) => {
 // POST /api/marketing/email-templates/:id/preview  — preview with test data
 router.post('/email-templates/:id/preview', async (req, res) => {
   try {
-    const tpl = await query('SELECT * FROM marketing_email_templates WHERE id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    const tpl = await query(
+      `SELECT * FROM marketing_email_templates WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     if (!tpl.rows.length) return res.status(404).json({ error: 'Template not found' });
     const t = tpl.rows[0];
     const personalized = personalizeContent(t.html_body, req.body.variables || {});
@@ -300,7 +334,11 @@ router.post('/email-templates/:id/preview', async (req, res) => {
 
 router.get('/whatsapp-templates', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM marketing_whatsapp_templates WHERE is_active=true ORDER BY updated_at DESC');
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 1) : null;
+    const result = await query(
+      `SELECT * FROM marketing_whatsapp_templates WHERE is_active=true${tenantCondition ? ` AND ${tenantCondition.clause}` : ''} ORDER BY updated_at DESC`,
+      tenantCondition ? tenantCondition.params : []
+    );
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -310,9 +348,9 @@ router.post('/whatsapp-templates', async (req, res) => {
     const { name, message_body, category, has_media, media_url } = req.body;
     const variables = extractVariables(message_body);
     const result = await query(
-      `INSERT INTO marketing_whatsapp_templates (name, message_body, category, has_media, media_url, variables, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [name, message_body, category || 'general', has_media || false, media_url, variables, req.user.id]
+      `INSERT INTO marketing_whatsapp_templates (tenant_id, name, message_body, category, has_media, media_url, variables, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [currentTenantId(req.user), name, message_body, category || 'general', has_media || false, media_url, variables, req.user.id]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -322,9 +360,11 @@ router.put('/whatsapp-templates/:id', async (req, res) => {
   try {
     const { name, message_body, category, has_media, media_url } = req.body;
     const variables = extractVariables(message_body);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 8) : null;
     const result = await query(
       `UPDATE marketing_whatsapp_templates SET name=$1,message_body=$2,category=$3,has_media=$4,
-       media_url=$5,variables=$6,updated_at=NOW() WHERE id=$7 RETURNING *`,
+       media_url=$5,variables=$6,updated_at=NOW() WHERE id=$7${tenantCondition ? ` AND ${tenantCondition.clause}` : ''} RETURNING *`,
+      tenantCondition ? [name, message_body, category, has_media, media_url, variables, req.params.id, ...tenantCondition.params] :
       [name, message_body, category, has_media, media_url, variables, req.params.id]
     );
     res.json(result.rows[0]);
@@ -333,7 +373,11 @@ router.put('/whatsapp-templates/:id', async (req, res) => {
 
 router.delete('/whatsapp-templates/:id', async (req, res) => {
   try {
-    await query('UPDATE marketing_whatsapp_templates SET is_active=false WHERE id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    await query(
+      `UPDATE marketing_whatsapp_templates SET is_active=false WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -356,6 +400,8 @@ router.get('/campaigns', async (req, res) => {
     const params = [];
     if (type) { params.push(type); sql += ` AND c.type=$${params.length}`; }
     if (status) { params.push(status); sql += ` AND c.status=$${params.length}`; }
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, params.length + 1, 'c') : null;
+    if (tenantCondition) { params.push(...tenantCondition.params); sql += ` AND ${tenantCondition.clause}`; }
     sql += ' ORDER BY c.created_at DESC';
     const result = await query(sql, params);
     res.json(result.rows);
@@ -371,7 +417,11 @@ router.post('/campaigns', async (req, res) => {
     // Count audience
     let audienceCount = 0;
     try {
-      const clientQ = await query('SELECT COUNT(*) as cnt FROM clients WHERE is_active = true');
+      const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 1) : null;
+      const clientQ = await query(
+        `SELECT COUNT(*) as cnt FROM clients ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''}`,
+        tenantCondition ? tenantCondition.params : []
+      );
       audienceCount = parseInt(clientQ.rows[0]?.cnt || 0);
     } catch(e) {}
 
@@ -379,12 +429,12 @@ router.post('/campaigns', async (req, res) => {
       `INSERT INTO marketing_campaigns 
        (name,description,type,email_template_id,whatsapp_template_id,sms_template,
         subject_line,from_name,from_email,reply_to,audience_filter,audience_count,
-        scheduled_at,settings,created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        scheduled_at,settings,created_by,tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [name, description, type || 'email', email_template_id, whatsapp_template_id,
        sms_template, subject_line, from_name, from_email, reply_to,
        JSON.stringify(audience_filter || {}), audienceCount,
-       scheduled_at, JSON.stringify(settings || {}), req.user.id]
+       scheduled_at, JSON.stringify(settings || {}), req.user.id, currentTenantId(req.user)]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -395,11 +445,15 @@ router.put('/campaigns/:id', async (req, res) => {
   try {
     const { name, description, type, email_template_id, whatsapp_template_id, sms_template,
             subject_line, from_name, from_email, reply_to, audience_filter, scheduled_at, settings } = req.body;
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 15) : null;
     const result = await query(
       `UPDATE marketing_campaigns SET name=$1,description=$2,type=$3,email_template_id=$4,
        whatsapp_template_id=$5,sms_template=$6,subject_line=$7,from_name=$8,from_email=$9,
        reply_to=$10,audience_filter=$11,scheduled_at=$12,settings=$13,updated_at=NOW()
-       WHERE id=$14 AND status='draft' RETURNING *`,
+       WHERE id=$14 AND status='draft'${tenantCondition ? ` AND ${tenantCondition.clause}` : ''} RETURNING *`,
+      tenantCondition ? [name, description, type, email_template_id, whatsapp_template_id, sms_template,
+       subject_line, from_name, from_email, reply_to, JSON.stringify(audience_filter || {}),
+       scheduled_at, JSON.stringify(settings || {}), req.params.id, ...tenantCondition.params] :
       [name, description, type, email_template_id, whatsapp_template_id, sms_template,
        subject_line, from_name, from_email, reply_to, JSON.stringify(audience_filter || {}),
        scheduled_at, JSON.stringify(settings || {}), req.params.id]
@@ -412,7 +466,11 @@ router.put('/campaigns/:id', async (req, res) => {
 // POST /api/marketing/campaigns/:id/send  — launch campaign
 router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async (req, res) => {
   try {
-    const camp = await query('SELECT * FROM marketing_campaigns WHERE id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    const camp = await query(
+      `SELECT * FROM marketing_campaigns WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     if (!camp.rows.length) return res.status(404).json({ error: 'Campaign not found' });
     const c = camp.rows[0];
     if (c.status === 'sent' || c.status === 'sending') return res.status(400).json({ error: 'Campaign already launched' });
@@ -421,8 +479,14 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
     await query(`UPDATE marketing_campaigns SET status='sending', sent_at=NOW() WHERE id=$1`, [c.id]);
 
     // Fetch audience (all clients with email/phone)
-    let audienceQuery = `SELECT id, full_name, email, phone, company_name FROM clients WHERE is_active=true`;
-    const audience = await query(audienceQuery);
+    let audienceQuery = `SELECT id, CONCAT_WS(' ', first_name, last_name) AS full_name, email, phone, company AS company_name FROM clients WHERE 1=1`;
+    let audienceParams = [];
+    if (!isSuperAdmin(req.user)) {
+      const tenantCondition = tenantCreatedByInUserScope(req.user, 1);
+      audienceQuery += ` AND ${tenantCondition.clause}`;
+      audienceParams = tenantCondition.params;
+    }
+    const audience = await query(audienceQuery, audienceParams);
 
     // Build recipient list
     let inserted = 0;
@@ -432,15 +496,20 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
       if (c.type === 'sms' && !client.phone) continue;
 
       // Check unsubscribe list
-      const unsub = await query('SELECT id FROM marketing_unsubscribes WHERE email=$1 OR phone=$2', [client.email, client.phone]);
+      const unsub = await query(
+        `SELECT id FROM marketing_unsubscribes
+         WHERE (email=$1 OR phone=$2)${!isSuperAdmin(req.user) ? ' AND tenant_id = $3' : ''}`,
+        !isSuperAdmin(req.user) ? [client.email, client.phone, currentTenantId(req.user)] : [client.email, client.phone]
+      );
       if (unsub.rows.length) continue;
 
       await query(
-        `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, personalization)
-         VALUES ($1,$2,$3,$4,$5,'queued',$6)
+        `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, personalization, tenant_id)
+         VALUES ($1,$2,$3,$4,$5,'queued',$6,$7)
          ON CONFLICT DO NOTHING`,
         [c.id, client.id, client.email, client.phone, client.full_name,
-         JSON.stringify({ name: client.full_name, company: client.company_name, email: client.email })]
+         JSON.stringify({ name: client.full_name, company: client.company_name, email: client.email }),
+         c.tenant_id || currentTenantId(req.user)]
       );
       inserted++;
     }
@@ -463,7 +532,15 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
 router.post('/campaigns/:id/send-test', async (req, res) => {
   try {
     const { test_email, test_phone, test_variables } = req.body;
-    const camp = await query('SELECT c.*, et.html_body, et.subject as tpl_subject, wt.message_body FROM marketing_campaigns c LEFT JOIN marketing_email_templates et ON et.id=c.email_template_id LEFT JOIN marketing_whatsapp_templates wt ON wt.id=c.whatsapp_template_id WHERE c.id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    const camp = await query(
+      `SELECT c.*, et.html_body, et.subject as tpl_subject, wt.message_body
+       FROM marketing_campaigns c
+       LEFT JOIN marketing_email_templates et ON et.id=c.email_template_id
+       LEFT JOIN marketing_whatsapp_templates wt ON wt.id=c.whatsapp_template_id
+       WHERE c.id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     if (!camp.rows.length) return res.status(404).json({ error: 'Campaign not found' });
     const c = camp.rows[0];
     
@@ -491,7 +568,11 @@ router.post('/campaigns/:id/send-test', async (req, res) => {
 // GET /api/marketing/campaigns/:id/stats
 router.get('/campaigns/:id/stats', async (req, res) => {
   try {
-    const camp = await query('SELECT * FROM marketing_campaigns WHERE id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    const camp = await query(
+      `SELECT * FROM marketing_campaigns WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     if (!camp.rows.length) return res.status(404).json({ error: 'Campaign not found' });
     const recs = await query(`
       SELECT status, COUNT(*) as count FROM marketing_campaign_recipients WHERE campaign_id=$1 GROUP BY status`,
@@ -506,7 +587,11 @@ router.get('/campaigns/:id/stats', async (req, res) => {
 // DELETE /api/marketing/campaigns/:id
 router.delete('/campaigns/:id', async (req, res) => {
   try {
-    const camp = await query('SELECT status FROM marketing_campaigns WHERE id=$1', [req.params.id]);
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    const camp = await query(
+      `SELECT status FROM marketing_campaigns WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
+    );
     if (!camp.rows.length) return res.status(404).json({ error: 'Not found' });
     if (camp.rows[0].status === 'sending') return res.status(400).json({ error: 'Cannot delete a running campaign' });
     await query('DELETE FROM marketing_campaign_recipients WHERE campaign_id=$1', [req.params.id]);
@@ -522,10 +607,15 @@ router.delete('/campaigns/:id', async (req, res) => {
 // GET /api/marketing/audience — preview audience for filter
 router.get('/audience', async (req, res) => {
   try {
-    const result = await query(`
-      SELECT id, full_name, email, phone, company_name, created_at
-      FROM clients WHERE is_active=true ORDER BY full_name LIMIT 500`);
-    const unsubList = await query('SELECT email, phone FROM marketing_unsubscribes');
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 1) : null;
+    const result = await query(
+      `SELECT id, CONCAT_WS(' ', first_name, last_name) AS full_name, email, phone, company AS company_name, created_at
+      FROM clients${tenantCondition ? ` WHERE ${tenantCondition.clause}` : ''} ORDER BY full_name LIMIT 500`,
+      tenantCondition ? tenantCondition.params : []);
+    const unsubList = await query(
+      `SELECT email, phone FROM marketing_unsubscribes${!isSuperAdmin(req.user) ? ' WHERE tenant_id = $1' : ''}`,
+      !isSuperAdmin(req.user) ? [currentTenantId(req.user)] : []
+    );
     const unsubEmails = new Set(unsubList.rows.map(r => r.email));
     const unsubPhones = new Set(unsubList.rows.map(r => r.phone));
     const audience = result.rows.map(c => ({
@@ -540,8 +630,8 @@ router.get('/audience', async (req, res) => {
 router.post('/unsubscribe', async (req, res) => {
   try {
     const { email, phone } = req.body;
-    if (email) await query('INSERT INTO marketing_unsubscribes (email) VALUES ($1) ON CONFLICT DO NOTHING', [email]);
-    if (phone) await query('INSERT INTO marketing_unsubscribes (phone) VALUES ($1) ON CONFLICT DO NOTHING', [phone]);
+    if (email) await query('INSERT INTO marketing_unsubscribes (tenant_id, email) VALUES ($1, $2) ON CONFLICT DO NOTHING', [currentTenantId(req.user), email]);
+    if (phone) await query('INSERT INTO marketing_unsubscribes (tenant_id, phone) VALUES ($1, $2) ON CONFLICT DO NOTHING', [currentTenantId(req.user), phone]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -552,12 +642,28 @@ router.post('/unsubscribe', async (req, res) => {
 
 router.get('/analytics', async (req, res) => {
   try {
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 1) : null;
     const [camps, totalSent, totalOpened, totalClicked, recentCamps] = await Promise.all([
-      query('SELECT COUNT(*) as total, status FROM marketing_campaigns GROUP BY status'),
-      query('SELECT COALESCE(SUM(total_sent),0) as total FROM marketing_campaigns'),
-      query('SELECT COALESCE(SUM(total_opened),0) as total FROM marketing_campaigns'),
-      query('SELECT COALESCE(SUM(total_clicked),0) as total FROM marketing_campaigns'),
-      query('SELECT id,name,type,status,total_sent,total_opened,total_clicked,created_at FROM marketing_campaigns ORDER BY created_at DESC LIMIT 5'),
+      query(
+        `SELECT COUNT(*) as total, status FROM marketing_campaigns ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''} GROUP BY status`,
+        tenantCondition ? tenantCondition.params : []
+      ),
+      query(
+        `SELECT COALESCE(SUM(total_sent),0) as total FROM marketing_campaigns ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''}`,
+        tenantCondition ? tenantCondition.params : []
+      ),
+      query(
+        `SELECT COALESCE(SUM(total_opened),0) as total FROM marketing_campaigns ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''}`,
+        tenantCondition ? tenantCondition.params : []
+      ),
+      query(
+        `SELECT COALESCE(SUM(total_clicked),0) as total FROM marketing_campaigns ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''}`,
+        tenantCondition ? tenantCondition.params : []
+      ),
+      query(
+        `SELECT id,name,type,status,total_sent,total_opened,total_clicked,created_at FROM marketing_campaigns ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''} ORDER BY created_at DESC LIMIT 5`,
+        tenantCondition ? tenantCondition.params : []
+      ),
     ]);
     const campByStatus = {};
     camps.rows.forEach(r => campByStatus[r.status] = parseInt(r.total));

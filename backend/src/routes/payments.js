@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { isSuperAdmin, tenantAdminId, verifyCaseAccess } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -9,6 +10,9 @@ router.use(authenticate);
 // Payments routes
 router.get('/case/:case_id', async (req, res) => {
   try {
+    if (!isSuperAdmin(req.user) && !(await verifyCaseAccess(req.params.case_id, req.user))) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       `SELECT p.*, q.estimated_cost, q.parts_cost, q.service_cost, q.total_amount as quoted_total, u.full_name as recorded_by_name
        FROM payments p
@@ -28,6 +32,9 @@ router.get('/case/:case_id', async (req, res) => {
 router.post('/quotations', requireMinRole('staff'), auditLog('create_quotation', 'payment'), async (req, res) => {
   try {
     const { case_id, estimated_cost, parts_cost, service_cost, tax_pct, valid_until, notes } = req.body;
+    if (!isSuperAdmin(req.user) && !(await verifyCaseAccess(case_id, req.user))) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const total = parseFloat(estimated_cost || 0) * (1 + parseFloat(tax_pct || 18) / 100);
     const qNumResult = await query('SELECT COUNT(*) FROM quotations');
     const qNum = `QT-${String(parseInt(qNumResult.rows[0].count)+1).padStart(5,'0')}`;
@@ -44,6 +51,9 @@ router.post('/quotations', requireMinRole('staff'), auditLog('create_quotation',
 router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'), async (req, res) => {
   try {
     const { case_id, quotation_id, amount, method, reference_number, notes } = req.body;
+    if (!isSuperAdmin(req.user) && !(await verifyCaseAccess(case_id, req.user))) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
        VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
@@ -58,6 +68,14 @@ router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'),
 router.patch('/quotations/:id/approve', requireMinRole('staff'), async (req, res) => {
   try {
     const { approved } = req.body;
+    if (!isSuperAdmin(req.user)) {
+      const access = await query(
+        `SELECT q.id FROM quotations q
+         WHERE q.id = $1 AND q.tenant_id = $2`,
+        [req.params.id, tenantAdminId(req.user)]
+      );
+      if (!access.rows.length) return res.status(404).json({ error: 'Quotation not found' });
+    }
     const result = await query(
       `UPDATE quotations SET approved_by_client = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`,
       [approved, req.params.id]

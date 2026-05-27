@@ -118,7 +118,7 @@ router.post('/login',
       let result;
       try {
         result = await query(
-          `SELECT id, username, email, full_name, role, tenant_id, password_hash, is_active, specializations, avatar_url, permissions, phone, notes FROM users WHERE username = $1 OR email = $1`,
+          `SELECT id, username, email, full_name, role, tenant_id, tenant_owner_id, password_hash, is_active, specializations, avatar_url, permissions, phone, notes FROM users WHERE username = $1 OR email = $1`,
           [username.toLowerCase()]
         );
       } catch (err) {
@@ -144,7 +144,6 @@ router.post('/login',
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      const accessToken = generateAccessToken(user.id, user.role);
       const refreshToken = generateRefreshToken(user.id);
 
       // Store refresh token
@@ -161,6 +160,13 @@ router.post('/login',
 
       // Resolve effective permissions: custom > role-based > default presets > empty
       const effectivePermissions = await resolveUserPermissions(user.id, user.role, user.permissions);
+      const normalizedTenantId = user.tenant_id || user.tenant_owner_id || (user.role === 'super_admin' ? null : user.id) || null;
+      const accessToken = generateAccessToken({
+        id: user.id,
+        role: user.role,
+        tenant_id: normalizedTenantId,
+        permissions: effectivePermissions,
+      });
 
       res.json({
         accessToken,
@@ -171,7 +177,7 @@ router.post('/login',
           email: user.email,
           fullName: user.full_name,
           role: user.role,
-          tenantId: user.tenant_id || user.tenant_owner_id || user.id || 1,
+          tenantId: normalizedTenantId,
           specializations: user.specializations,
           avatarUrl: user.avatar_url,
           permissions: effectivePermissions
@@ -199,7 +205,8 @@ router.post('/refresh', async (req, res) => {
     }
 
     const result = await query(
-      `SELECT rt.*, u.role, u.is_active FROM refresh_tokens rt
+      `SELECT rt.*, u.role, u.is_active, u.tenant_id, u.tenant_owner_id, u.permissions
+       FROM refresh_tokens rt
        JOIN users u ON rt.user_id = u.id
        WHERE rt.token = $1 AND rt.expires_at > NOW()`,
       [refreshToken]
@@ -213,7 +220,13 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Account deactivated' });
     }
 
-    const newAccessToken = generateAccessToken(decoded.userId, result.rows[0].role);
+    const effectivePermissions = await resolveUserPermissions(decoded.userId, result.rows[0].role, result.rows[0].permissions);
+    const newAccessToken = generateAccessToken({
+      id: decoded.userId,
+      role: result.rows[0].role,
+      tenant_id: result.rows[0].tenant_id || result.rows[0].tenant_owner_id || (result.rows[0].role === 'super_admin' ? null : decoded.userId),
+      permissions: effectivePermissions,
+    });
     res.json({ accessToken: newAccessToken });
   } catch (err) {
     res.status(500).json({ error: 'Token refresh failed' });
@@ -260,7 +273,7 @@ router.get('/me', authenticate, async (req, res) => {
     email: u.email,
     fullName: u.full_name,
     role: u.role,
-    tenantId: u.tenant_id || u.tenant_owner_id || u.id || 1,
+    tenantId: u.tenant_id || u.tenant_owner_id || (u.role === 'super_admin' ? null : u.id) || null,
     isActive: u.is_active,
     specializations: u.specializations,
     avatar: u.avatar_url,

@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { isSuperAdmin, tenantClientCondition, tenantAdminId, verifyClientAccess } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -16,6 +17,12 @@ router.get('/', async (req, res) => {
     const params = [];
     let pi = 1;
 
+    if (!isSuperAdmin(req.user)) {
+      const tenantCondition = tenantClientCondition(req.user, 'cl', pi);
+      conditions.push(tenantCondition.clause);
+      params.push(...tenantCondition.params);
+      pi += tenantCondition.params.length;
+    }
     if (search) {
       conditions.push(`(cl.first_name ILIKE $${pi} OR cl.last_name ILIKE $${pi} OR cl.phone ILIKE $${pi} OR cl.email ILIKE $${pi} OR cl.client_code ILIKE $${pi} OR cl.company ILIKE $${pi})`);
       params.push(`%${search}%`); pi++;
@@ -127,6 +134,9 @@ router.post('/',
 // ─── GET /api/clients/:id ─────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
+    if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
     const result = await query(`SELECT cl.*, u.full_name as created_by_name FROM clients cl LEFT JOIN users u ON cl.created_by = u.id WHERE cl.id = $1`, [req.params.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'Client not found' });
 
@@ -159,6 +169,9 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', requireMinRole('staff'), auditLog('update_client', 'client'), async (req, res) => {
   try {
     const { first_name, last_name, email, phone, phone_alt, company, address, city, country, notes, is_corporate, is_vip } = req.body;
+    if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
     const result = await query(
       `UPDATE clients SET first_name=COALESCE($1,first_name), last_name=COALESCE($2,last_name), email=COALESCE($3,email), phone=COALESCE($4,phone), phone_alt=$5, company=$6, address=$7, city=$8, country=COALESCE($9,country), notes=$10, is_corporate=COALESCE($11,is_corporate), is_vip=COALESCE($12,is_vip), updated_at=NOW() WHERE id=$13 RETURNING *`,
       [first_name, last_name, email, phone, phone_alt, company, address, city, country, notes, is_corporate, is_vip, req.params.id]
@@ -173,6 +186,9 @@ router.put('/:id', requireMinRole('staff'), auditLog('update_client', 'client'),
 // ─── POST /api/clients/:id/communications ────────────────────────
 router.post('/:id/communications', requireMinRole('staff'), async (req, res) => {
   try {
+    if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
     const { type, direction, summary, follow_up_date } = req.body;
     const result = await query(
       `INSERT INTO client_communications (client_id, user_id, type, direction, summary, follow_up_date)

@@ -628,7 +628,7 @@ export default function InventoryDetail() {
             {uploading ? (
               <><div className="spinner" style={{ width:24,height:24,margin:'0 auto 8px' }} /><div style={{ color:'var(--text-muted)',fontSize:'0.82rem' }}>Uploading…</div></>
             ) : (
-              <><div style={{ fontSize:'2.5rem',marginBottom:8 }}>�</div><div style={{ fontWeight:600,marginBottom:4 }}>Drag & drop media or click to browse</div><div style={{ fontSize:'0.75rem',color:'var(--text-muted)' }}>Supports images, videos (MP4, MOV, WebM), and files (PDF, DOC, ZIP, etc.)</div></>
+              <><div style={{ fontSize:'2.5rem',marginBottom:8 }}>📤</div><div style={{ fontWeight:600,marginBottom:4 }}>Drag & drop media or click to browse</div><div style={{ fontSize:'0.75rem',color:'var(--text-muted)' }}>Supports images, videos (MP4, MOV, WebM), and files (PDF, DOC, ZIP, etc.)</div></>
             )}
           </div>
           {images.length === 0 ? (

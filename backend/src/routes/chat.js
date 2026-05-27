@@ -4,7 +4,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, verifySocketToken } = require('../middleware/auth');
 const chatService = require('../services/chatService');
 
 // Multer config for file uploads (max 5MB)
@@ -37,9 +37,10 @@ router.get('/contacts', authenticate, async (req, res) => {
 router.get('/messages', authenticate, async (req, res) => {
   const { room, page = 1, limit = 50 } = req.query;
   try {
-    const msgs = await chatService.getMessages(room, parseInt(page), parseInt(limit));
+    const msgs = await chatService.getMessages(room, req.user.id, parseInt(page, 10), parseInt(limit, 10));
     res.json({ messages: msgs });
   } catch (e) {
+    if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
     console.error('Error fetching chat messages', e);
     res.status(500).json({ error: 'Failed to fetch messages' });
   }
@@ -86,8 +87,34 @@ router.post('/messages', authenticate, upload.single('file'), async (req, res) =
     }
     res.status(201).json(newMsg);
   } catch (e) {
+    if (file?.path) {
+      try { fs.unlinkSync(file.path); } catch {}
+    }
     console.error('Error creating chat message', e);
-    res.status(500).json({ error: 'Failed to create message' });
+    res.status(e.statusCode || 500).json({ error: e.message || 'Failed to create message' });
+  }
+});
+
+router.get('/messages/:id/attachment', async (req, res) => {
+  try {
+    const bearer = req.headers.authorization?.startsWith('Bearer ')
+      ? req.headers.authorization.substring(7)
+      : null;
+    const token = req.query.token || bearer;
+    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    const user = await verifySocketToken(token);
+    const attachment = await chatService.getAttachmentForMessage(req.params.id, user.id);
+    if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+    if (!fs.existsSync(attachment.path)) {
+      return res.status(404).json({ error: 'Attachment not available on disk' });
+    }
+    res.setHeader('Content-Type', attachment.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(attachment.fileName)}"`);
+    fs.createReadStream(attachment.path).pipe(res);
+  } catch (e) {
+    if (e.statusCode) return res.status(e.statusCode).json({ error: e.message });
+    console.error('Error fetching chat attachment', e);
+    res.status(500).json({ error: 'Failed to fetch attachment' });
   }
 });
 

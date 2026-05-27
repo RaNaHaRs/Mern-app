@@ -2,6 +2,7 @@ const express = require('express');
 const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { isSuperAdmin, tenantInventoryCondition, tenantAdminId } = require('../utils/tenantAccess');
 const mediaRecycle = require('../services/mediaRecycle');
 const {
   toDbCategory, formatItemRow, isInventoryHddCategory, normalizeUiCategory, validatePcbPayload,
@@ -90,6 +91,12 @@ async function loadCustomFieldValues(itemId) {
   return { values, labeled };
 }
 
+async function ensureInventoryItemAccessible(itemId, user) {
+  if (isSuperAdmin(user)) return true;
+  const result = await query('SELECT id FROM inventory_items WHERE id = $1 AND tenant_id = $2', [itemId, tenantAdminId(user)]);
+  return result.rows.length > 0;
+}
+
 async function recordTransfer(req, item, body) {
   if (!body.source_case_id) return;
   try {
@@ -165,6 +172,12 @@ router.get('/recycle-bin', async (req, res) => {
     const conditions = ['ii.deleted_at IS NOT NULL'];
     const params = [];
     let pi = 1;
+    if (!isSuperAdmin(req.user)) {
+      const tenantCondition = tenantInventoryCondition(req.user, 'ii', pi);
+      conditions.push(tenantCondition.clause);
+      params.push(...tenantCondition.params);
+      pi += tenantCondition.params.length;
+    }
 
     if (search) {
       conditions.push(`(
@@ -211,6 +224,12 @@ router.get('/', async (req, res) => {
     const conditions = ['ii.deleted_at IS NULL'];
     const params = [];
     let pi = 1;
+    if (!isSuperAdmin(req.user)) {
+      const tenantCondition = tenantInventoryCondition(req.user, 'ii', pi);
+      conditions.push(tenantCondition.clause);
+      params.push(...tenantCondition.params);
+      pi += tenantCondition.params.length;
+    }
 
     if (category) {
       const norm = normalizeUiCategory(category);
@@ -289,16 +308,15 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
     if (!stockId) {
       return res.status(400).json({ error: 'Stock ID is required' });
     }
+    const sku = stockId;
+    const stockNumber = stockId;
     const dup = await query(
-      'SELECT id FROM inventory_items WHERE stock_number=$1 OR sku=$1 LIMIT 1',
-      [stockId]
+      'SELECT id FROM inventory_items WHERE (stock_number=$1 OR sku=$1)' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : '') + ' LIMIT 1',
+      !isSuperAdmin(req.user) ? [stockId, tenantAdminId(req.user)] : [stockId]
     );
     if (dup.rows.length) {
       return res.status(409).json({ error: 'Stock ID already exists' });
     }
-    const sku = stockId;
-    const stockNumber = stockId;
-
     const result = await query(
       `INSERT INTO inventory_items (
         sku, stock_number, name, category, ui_category,
@@ -308,10 +326,10 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
         firmware_version, firmware,
         company, brand, model, site_code, date_code, family,
         capacity, interface, form_factor, status, source_case_id,
-        dynamic_fields, custom_field_values, added_by
+        dynamic_fields, custom_field_values, tenant_id, added_by
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34
+        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35
       ) RETURNING *`,
       [
         sku, stockNumber, built.name, built.mappedCategory, built.uiCategory,
@@ -332,6 +350,7 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
         body.status || 'available', body.source_case_id || null,
         JSON.stringify(built.dynamicFields),
         JSON.stringify(body.customFieldValues || {}),
+        tenantAdminId(req.user),
         req.user.id,
       ]
     );
@@ -397,7 +416,7 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
         dynamic_fields=COALESCE($29,dynamic_fields),
         custom_field_values=COALESCE($30,custom_field_values),
         updated_at=NOW()
-       WHERE id=$31 RETURNING *`,
+       WHERE id=$31` + (!isSuperAdmin(req.user) ? ` AND tenant_id = $32` : ``) + ` RETURNING *`,
       [
         built.name || null, built.mappedCategory || null, built.uiCategory || null,
         body.stock_number || null,
@@ -417,6 +436,7 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
         body.dynamicFields ? JSON.stringify(built.dynamicFields) : null,
         body.customFieldValues ? JSON.stringify(body.customFieldValues) : null,
         req.params.id,
+        ...(!isSuperAdmin(req.user) ? [tenantAdminId(req.user)] : []),
       ]
     );
 
@@ -433,10 +453,10 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
 router.patch('/:id/quantity', requireMinRole('junior_engineer'), auditLog('adjust_inventory', 'inventory'), async (req, res) => {
   try {
     const { type, quantity, case_id, notes } = req.body;
-    const item = await query('SELECT * FROM inventory_items WHERE id=$1', [req.params.id]);
-    if (!item.rows.length) return res.status(404).json({ error: 'Item not found' });
+    const itemResult = await query('SELECT * FROM inventory_items WHERE id=$1' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]);
+    if (!itemResult.rows.length) return res.status(404).json({ error: 'Item not found' });
 
-    let newQty = item.rows[0].quantity;
+    let newQty = itemResult.rows[0].quantity;
     if (type === 'in') newQty += parseInt(quantity, 10);
     else if (['out', 'reserved', 'disposed'].includes(type)) newQty -= parseInt(quantity, 10);
     if (newQty < 0) return res.status(400).json({ error: 'Insufficient stock' });
@@ -477,8 +497,8 @@ router.patch('/:id/transfer-to-client', requireMinRole('junior_engineer'), audit
     }
 
     const result = await query(
-      `UPDATE inventory_items SET is_transferred_to_client = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [!!is_transferred_to_client, req.params.id]
+      `UPDATE inventory_items SET is_transferred_to_client = $1, updated_at = NOW() WHERE id = $2` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $3' : '') + ` RETURNING *`,
+      !isSuperAdmin(req.user) ? [!!is_transferred_to_client, req.params.id, tenantAdminId(req.user)] : [!!is_transferred_to_client, req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Item not found' });
     res.json(result.rows[0]);
@@ -501,7 +521,9 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
       if (!row.serial_number && !row.name && !row.stock_number) { skipped++; continue; }
 
       const built = buildItemPayload(row, categoriesList);
-      const skuResult = await query('SELECT COUNT(*) FROM inventory_items', []);
+      const countSql = 'SELECT COUNT(*) FROM inventory_items' + (!isSuperAdmin(req.user) ? ' WHERE tenant_id = $1' : '');
+      const countParams = !isSuperAdmin(req.user) ? [tenantAdminId(req.user)] : [];
+      const skuResult = await query(countSql, countParams);
       const sku = row.sku || `INV-${String(parseInt(skuResult.rows[0].count, 10) + imported + 1).padStart(5, '0')}`;
       const stockNumber = row.stock_number || sku;
       const itemName = row.name || row.model || stockNumber;
@@ -509,8 +531,8 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
       const lookupKey = row.stock_number || row.sku;
       if (mode === 'overwrite' && lookupKey) {
         const existing = await query(
-          'SELECT id FROM inventory_items WHERE stock_number=$1 OR sku=$1',
-          [lookupKey]
+          'SELECT id FROM inventory_items WHERE (stock_number=$1 OR sku=$1)' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''),
+          !isSuperAdmin(req.user) ? [lookupKey, tenantAdminId(req.user)] : [lookupKey]
         );
         if (existing.rows.length) {
           try {
@@ -519,16 +541,27 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
                serial_number=$4, pcb_number=$5, firmware=$6, firmware_version=$6,
                condition=$7, quantity=$8, unit_cost=$9, location=$10, notes=$11,
                company=$12, brand=$13, model=$14, capacity=$15, dynamic_fields=$16, updated_at=NOW()
-               WHERE id=$17`,
-              [
-                itemName, built.mappedCategory, built.uiCategory,
-                built.serial_number, built.pcb_number, built.firmware,
-                row.condition || 'used', parseInt(row.quantity, 10) || 0,
-                row.unit_cost || null, row.location || null, row.notes || null,
-                row.company || null, row.brand || null, row.model || null,
-                row.capacity || null, JSON.stringify(built.dynamicFields),
-                existing.rows[0].id,
-              ]
+               WHERE id=$17` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $18' : ''),
+              !isSuperAdmin(req.user)
+                ? [
+                    itemName, built.mappedCategory, built.uiCategory,
+                    built.serial_number, built.pcb_number, built.firmware,
+                    row.condition || 'used', parseInt(row.quantity, 10) || 0,
+                    row.unit_cost || null, row.location || null, row.notes || null,
+                    row.company || null, row.brand || null, row.model || null,
+                    row.capacity || null, JSON.stringify(built.dynamicFields),
+                    existing.rows[0].id,
+                    tenantAdminId(req.user),
+                  ]
+                : [
+                    itemName, built.mappedCategory, built.uiCategory,
+                    built.serial_number, built.pcb_number, built.firmware,
+                    row.condition || 'used', parseInt(row.quantity, 10) || 0,
+                    row.unit_cost || null, row.location || null, row.notes || null,
+                    row.company || null, row.brand || null, row.model || null,
+                    row.capacity || null, JSON.stringify(built.dynamicFields),
+                    existing.rows[0].id,
+                  ]
             );
             imported++;
             continue;
@@ -544,8 +577,8 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
             sku, stock_number, name, category, ui_category,
             serial_number, pcb_number, firmware, firmware_version,
             condition, quantity, min_quantity, unit_cost, location, notes,
-            company, brand, model, capacity, dynamic_fields, added_by
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+            company, brand, model, capacity, dynamic_fields, tenant_id, added_by
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
           [
             sku, stockNumber, itemName, built.mappedCategory, built.uiCategory,
             built.serial_number, built.pcb_number, built.firmware,
@@ -553,7 +586,7 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
             parseInt(row.min_quantity, 10) || 1, row.unit_cost || null,
             row.location || null, row.notes || null,
             row.company || null, row.brand || null, row.model || null,
-            row.capacity || null, JSON.stringify(built.dynamicFields), req.user.id,
+            row.capacity || null, JSON.stringify(built.dynamicFields), tenantAdminId(req.user), req.user.id,
           ]
         );
         imported++;
@@ -578,11 +611,9 @@ router.post('/bulk-delete', requireMinRole('junior_engineer'), auditLog('bulk_de
     }
 
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    await query(
-      `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
-       WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-      ids
-    );
+    const sql = `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 1) : '');
+    await query(sql, !isSuperAdmin(req.user) ? [...ids, tenantAdminId(req.user)] : ids);
 
     res.json({ message: `${ids.length} item(s) moved to recycle bin`, deleted_count: ids.length });
   } catch (err) {
@@ -599,11 +630,9 @@ router.post('/bulk-recycle', requireMinRole('junior_engineer'), auditLog('bulk_r
     }
 
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    await query(
-      `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
-       WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-      ids
-    );
+    const sql = `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 1) : '');
+    await query(sql, !isSuperAdmin(req.user) ? [...ids, tenantAdminId(req.user)] : ids);
 
     res.json({ message: `${ids.length} item(s) moved to recycle bin`, recycled_count: ids.length });
   } catch (err) {
@@ -624,8 +653,8 @@ router.post('/bulk-permanent-delete', requireMinRole('admin'), auditLog('bulk_pe
       await client.query(`DELETE FROM inventory_transactions WHERE item_id IN (${placeholders})`, ids);
       await client.query(`DELETE FROM inventory_images WHERE item_id IN (${placeholders})`, ids);
       const result = await client.query(
-        `DELETE FROM inventory_items WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL RETURNING id`,
-        ids
+        `DELETE FROM inventory_items WHERE id IN (${placeholders}) AND deleted_at IS NOT NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 1) : '') + ` RETURNING id`,
+        !isSuperAdmin(req.user) ? [...ids, tenantAdminId(req.user)] : ids
       );
       return result.rows.length;
     });
@@ -644,8 +673,8 @@ router.post('/recycle-bin/:id/restore', requireMinRole('junior_engineer'), audit
   try {
     const result = await query(
       `UPDATE inventory_items SET deleted_at=NULL, status='available', updated_at=NOW()
-       WHERE id=$1 AND deleted_at IS NOT NULL RETURNING *`,
-      [req.params.id]
+       WHERE id=$1 AND deleted_at IS NOT NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : '') + ` RETURNING *`,
+      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Item not found in recycle bin' });
     const { labeled } = await loadCustomFieldValues(req.params.id);
@@ -660,14 +689,17 @@ router.delete('/recycle-bin/:id/permanent-delete', requireMinRole('admin'), audi
   try {
     const result = await transaction(async client => {
       const itemCheck = await client.query(
-        'SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NOT NULL',
-        [req.params.id]
+        'SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NOT NULL' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''),
+        !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
       );
       if (!itemCheck.rows.length) return null;
 
       await client.query('DELETE FROM inventory_transactions WHERE item_id=$1', [req.params.id]);
       await client.query('DELETE FROM inventory_images WHERE item_id=$1', [req.params.id]);
-      const deleted = await client.query('DELETE FROM inventory_items WHERE id=$1 RETURNING id', [req.params.id]);
+      const deleted = await client.query(
+        'DELETE FROM inventory_items WHERE id=$1' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : '') + ' RETURNING id',
+        !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      );
       return deleted.rows[0];
     });
 
@@ -681,11 +713,16 @@ router.delete('/recycle-bin/:id/permanent-delete', requireMinRole('admin'), audi
 // GET /api/inventory/donors
 router.get('/donors', async (req, res) => {
   try {
+    const params = [];
+    const tenantClause = !isSuperAdmin(req.user) ? 'AND tenant_id = $1' : '';
+    if (!isSuperAdmin(req.user)) params.push(tenantAdminId(req.user));
     const result = await query(
       `SELECT * FROM inventory_items
        WHERE deleted_at IS NULL
          AND COALESCE(status,'available')='available' AND quantity > 0
-       ORDER BY created_at DESC`
+         ${tenantClause}
+       ORDER BY created_at DESC`,
+      params
     );
     res.json(result.rows.map(formatItemRow));
   } catch (err) {
@@ -696,7 +733,7 @@ router.get('/donors', async (req, res) => {
 // GET /api/inventory/:id/notes — timeline (latest first)
 router.get('/:id/notes', async (req, res) => {
   try {
-    const item = await query('SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
+    const item = await query('SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NULL' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]);
     if (!item.rows.length) return res.status(404).json({ error: 'Item not found' });
     const notes = await loadItemNotes(req.params.id);
     res.json({ notes });
@@ -711,7 +748,7 @@ router.post('/:id/notes', requireMinRole('junior_engineer'), async (req, res) =>
     const text = String(req.body.text || req.body.note || '').trim();
     if (!text) return res.status(400).json({ error: 'Note text is required' });
 
-    const item = await query('SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
+    const item = await query('SELECT id FROM inventory_items WHERE id=$1 AND deleted_at IS NULL' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]);
     if (!item.rows.length) return res.status(404).json({ error: 'Item not found' });
 
     await ensureInventoryNotesSchema();
@@ -739,7 +776,7 @@ router.post('/:id/notes', requireMinRole('junior_engineer'), async (req, res) =>
 // GET /api/inventory/:id
 router.get('/:id', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [req.params.id]);
+    const result = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]);
     if (!result.rows.length) return res.status(404).json({ error: 'Item not found' });
     const { values, labeled } = await loadCustomFieldValues(req.params.id);
     const notesTimeline = await loadItemNotes(req.params.id);
@@ -760,6 +797,9 @@ router.get('/:id', async (req, res) => {
 // GET /api/inventory/:id/images
 router.get('/:id/images', async (req, res) => {
   try {
+    if (!await ensureInventoryItemAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
     const result = await query(
       'SELECT id, name, mime_type, data, size, created_at FROM inventory_images WHERE item_id=$1 ORDER BY created_at ASC',
       [req.params.id]
@@ -775,6 +815,9 @@ router.post('/:id/images', requireMinRole('junior_engineer'), async (req, res) =
   try {
     const { name, data, size, mimeType } = req.body;
     if (!data) return res.status(400).json({ error: 'No image data' });
+    if (!await ensureInventoryItemAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
     const r = await query(
       `INSERT INTO inventory_images (item_id, name, mime_type, data, size, uploaded_by)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, mime_type, data, size`,
@@ -789,6 +832,9 @@ router.post('/:id/images', requireMinRole('junior_engineer'), async (req, res) =
 // DELETE /api/inventory/:id/images/:imgId
 router.delete('/:id/images/:imgId', requireMinRole('junior_engineer'), async (req, res) => {
   try {
+    if (!await ensureInventoryItemAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
     const result = await query(
       'SELECT * FROM inventory_images WHERE id=$1 AND item_id=$2',
       [req.params.imgId, req.params.id]
@@ -838,7 +884,7 @@ router.post('/:id/transfer', requireMinRole('junior_engineer'), auditLog('transf
     const itemId = req.params.id;
     const { notes } = req.body;
 
-    const itemResult = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [itemId]);
+    const itemResult = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]);
     if (!itemResult.rows.length) return res.status(404).json({ error: 'Item not found' });
 
     const item = itemResult.rows[0];
@@ -902,12 +948,12 @@ router.post('/:id/transfer', requireMinRole('junior_engineer'), auditLog('transf
 
     await query(
       `UPDATE inventory_items SET status='transferred', is_available=false, updated_at=NOW()
-       WHERE id=$1 AND deleted_at IS NULL`,
-      [itemId]
+       WHERE id=$1 AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''),
+      !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]
     );
 
     const { labeled } = await loadCustomFieldValues(itemId);
-    const refreshed = await query('SELECT * FROM inventory_items WHERE id=$1', [itemId]);
+    const refreshed = await query('SELECT * FROM inventory_items WHERE id=$1' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]);
     res.json({
       message: 'Item transferred successfully',
       item: formatItemRow({ ...refreshed.rows[0], custom_fields_display: labeled }),
@@ -921,7 +967,7 @@ router.post('/:id/transfer', requireMinRole('junior_engineer'), auditLog('transf
 router.post('/:id/revoke-transfer', requireMinRole('junior_engineer'), auditLog('revoke_transfer_inventory', 'inventory'), async (req, res) => {
   try {
     const itemId = req.params.id;
-    const itemResult = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL', [itemId]);
+    const itemResult = await query('SELECT * FROM inventory_items WHERE id=$1 AND deleted_at IS NULL' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]);
     if (!itemResult.rows.length) return res.status(404).json({ error: 'Item not found' });
 
     const transferResult = await query(
@@ -933,11 +979,11 @@ router.post('/:id/revoke-transfer', requireMinRole('junior_engineer'), auditLog(
     await query('DELETE FROM transferred_items WHERE id=$1', [transferResult.rows[0].id]);
     await query(
       `UPDATE inventory_items SET status='available', is_available=true, updated_at=NOW()
-       WHERE id=$1 AND deleted_at IS NULL`,
-      [itemId]
+       WHERE id=$1 AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''),
+      !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]
     );
 
-    const item = await query('SELECT * FROM inventory_items WHERE id=$1', [itemId]);
+    const item = await query('SELECT * FROM inventory_items WHERE id=$1' + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''), !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]);
     const { labeled } = await loadCustomFieldValues(itemId);
     res.json({
       message: 'Transfer revoked successfully',

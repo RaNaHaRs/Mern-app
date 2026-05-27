@@ -5,7 +5,6 @@ const cors = require('cors');
 const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const path = require('path');
 
 const logger = require('./config/logger');
 const { testConnection } = require('./config/database');
@@ -36,7 +35,6 @@ const chatRoutes = require('./routes/chat');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-app.use('/uploads/chat', express.static(path.join(__dirname, '..', 'uploads', 'chat')));
 
 // ─── Security Middleware ────────────────────────────────────────
 app.use(helmet({
@@ -177,8 +175,12 @@ async function runInventoryMigration() {
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS dynamic_fields JSONB DEFAULT '{}'",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'",
     "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS source_case_id UUID",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS tenant_id INTEGER",
-    "UPDATE inventory_items SET tenant_id=1 WHERE tenant_id IS NULL",
+    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS tenant_id UUID",
+    `UPDATE inventory_items ii
+       SET tenant_id = COALESCE(ii.tenant_id, u.tenant_id, u.tenant_owner_id, u.id)
+       FROM users u
+      WHERE ii.tenant_id IS NULL
+        AND ii.added_by = u.id`,
     "UPDATE inventory_items SET status='available' WHERE status IS NULL",
     "CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory_items(tenant_id)",
     "CREATE INDEX IF NOT EXISTS idx_inventory_stock_number ON inventory_items(stock_number)",
@@ -226,10 +228,9 @@ async function start() {
     // Expose io on app for route handlers to broadcast (e.g. file uploads)
     app.set('io', io);
 
-    const jwt = require('jsonwebtoken');
-    const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_THIS_SECRET_IN_PRODUCTION';
     const onlineUsers = new Map();
     const chatService = require('./services/chatService');
+    const { verifySocketToken } = require('./middleware/auth');
 
     const emitAllowedOnlineUsers = async (targetSocket) => {
       try {
@@ -247,12 +248,13 @@ async function start() {
       await Promise.all(sockets.map((s) => emitAllowedOnlineUsers(s)));
     };
 
-    io.use((socket, next) => {
+    io.use(async (socket, next) => {
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       if (!token) return next(new Error('Authentication error'));
       try {
-        const payload = jwt.verify(token, JWT_SECRET);
-        socket.userId = String(payload.userId);
+        const user = await verifySocketToken(token);
+        socket.userId = String(user.id);
+        socket.user = user;
         return next();
       } catch (err) {
         return next(new Error('Invalid token'));
@@ -262,6 +264,11 @@ async function start() {
     io.on('connection', (socket) => {
       logger.info(`⚡ Socket connected: ${socket.id} (user ${socket.userId})`);
       onlineUsers.set(socket.id, String(socket.userId));
+      // Personal room for reliable delivery even if DM room not joined yet
+      socket.join(`user:${String(socket.userId)}`);
+      if (socket.user?.tenant_id) {
+        socket.join(`tenant:${String(socket.user.tenant_id)}`);
+      }
       refreshOnlineUsersForAll();
 
       socket.on('joinRoom', async (room) => {
@@ -288,7 +295,11 @@ async function start() {
             filePath: msg.filePath,
             mimeType: msg.mimeType,
           });
-          io.to(msg.room).emit('newMessage', saved);
+          if (saved?.room) io.to(saved.room).emit('newMessage', saved);
+          // Deliver to recipient's personal room so they get it even without joinRoom
+          if (msg.recipientId && String(msg.recipientId) !== String(socket.userId)) {
+            io.to(`user:${String(msg.recipientId)}`).emit('newMessage', saved);
+          }
         } catch (e) {
           logger.error('Error saving message', { error: e.message });
         }
@@ -320,10 +331,6 @@ async function start() {
         logger.info(`⚡ Socket disconnected: ${socket.id}`);
       });
     });
-
-    const path = require('path');
-    // Moved static chat uploads route after app initialization
-
     server.listen(PORT, () => {
       logger.info(`🚀 Data Recovery CRM API running on port ${PORT}`);
       logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);

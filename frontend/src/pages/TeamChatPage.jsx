@@ -16,6 +16,11 @@ function formatTime(value) {
   return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+function attachmentUrl(filePath) {
+  const token = getToken();
+  return filePath && token ? `${filePath}?token=${encodeURIComponent(token)}` : filePath;
+}
+
 export default function TeamChatPage() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState([]);
@@ -230,14 +235,14 @@ export default function TeamChatPage() {
                       <div className="chat-msg-bubble" style={{ padding: 8 }}>
                         {isImageType(msg.mimeType) ? (
                           <img
-                            src={msg.filePath}
+                            src={attachmentUrl(msg.filePath)}
                             alt="attachment"
                             style={{ maxWidth: 240, borderRadius: 8, cursor: 'pointer' }}
-                            onClick={() => window.open(msg.filePath, '_blank')}
+                            onClick={() => window.open(attachmentUrl(msg.filePath), '_blank')}
                           />
                         ) : (
-                          <a href={msg.filePath} target="_blank" rel="noreferrer" download>
-                            {msg.filePath.split('/').pop()}
+                          <a href={attachmentUrl(msg.filePath)} target="_blank" rel="noreferrer" download>
+                            {msg.fileName || msg.filePath.split('/').pop()}
                           </a>
                         )}
                       </div>

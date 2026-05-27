@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const { isSuperAdmin, tenantCaseCondition } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -24,18 +25,19 @@ router.get('/', async (req, res) => {
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const count = await query(`SELECT COUNT(*) FROM storage_models sm ${where}`, params);
+    const tenantCase = !isSuperAdmin(req.user) ? tenantCaseCondition(req.user, 'c', 1) : null;
     const result = await query(
       `SELECT sm.*, sb.name as brand_name,
               COUNT(c.id) as case_count,
               AVG(CASE WHEN c.stage = 'completed' THEN 1 WHEN c.stage = 'failed' THEN 0 END) * 100 as success_rate
        FROM storage_models sm
        JOIN storage_brands sb ON sm.brand_id = sb.id
-       LEFT JOIN cases c ON c.storage_model_id = sm.id
+       LEFT JOIN cases c ON c.storage_model_id = sm.id ${tenantCase ? `AND ${tenantCase.clause}` : ''}
        ${where}
        GROUP BY sm.id, sb.name
        ORDER BY sm.model_number ASC
        LIMIT $${pi} OFFSET $${pi+1}`,
-      [...params, parseInt(limit), offset]
+      tenantCase ? [...tenantCase.params, ...params, parseInt(limit), offset] : [...params, parseInt(limit), offset]
     );
 
     res.json({

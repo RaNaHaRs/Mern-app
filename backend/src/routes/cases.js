@@ -6,6 +6,7 @@ const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { upload } = require('../middleware/upload');
 const { solutionUpload } = require('../middleware/solutionUpload');
+const { isSuperAdmin, tenantCaseCondition, verifyCaseAccess, verifyClientAccess } = require('../utils/tenantAccess');
 const solutionsRouter = require('./solutions');
 const mediaRecycle = require('../services/mediaRecycle');
 const { normalizeFailureType, isValidFailureType } = require('../utils/failureTypes');
@@ -86,6 +87,11 @@ function normalizeCasePayloadMiddleware(req, res, next) {
   next();
 }
 
+async function ensureCaseAccessible(caseId, user) {
+  if (isSuperAdmin(user)) return true;
+  return await verifyCaseAccess(caseId, user);
+}
+
 // ─── GET /api/cases ───────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -108,6 +114,13 @@ router.get('/', async (req, res) => {
       conditions.push(`(c.case_number ILIKE $${pi} OR cl.first_name ILIKE $${pi} OR cl.last_name ILIKE $${pi} OR c.serial_number ILIKE $${pi})`);
       params.push(`%${search}%`);
       pi++;
+    }
+
+    if (!isSuperAdmin(req.user)) {
+      const tenantCondition = tenantCaseCondition(req.user, 'c', pi);
+      conditions.push(tenantCondition.clause);
+      params.push(...tenantCondition.params);
+      pi += tenantCondition.params.length;
     }
 
     // Engineers can only see their own cases (unless admin/senior)
@@ -184,6 +197,9 @@ router.post('/',
         symptom_notes, initial_diagnosis, priority, deadline_at, internal_notes,
         assigned_engineer
       } = req.body;
+      if (client_id && !isSuperAdmin(req.user) && !(await verifyClientAccess(client_id, req.user))) {
+        return res.status(404).json({ error: 'Client not found' });
+      }
 
       // Run smart assist
       let aiData = {};
@@ -276,6 +292,9 @@ if (client_id) {
 // ─── GET /api/cases/:id ───────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       `SELECT c.*,
               cl.first_name, cl.last_name, cl.phone, cl.email, cl.company, cl.client_code,
@@ -348,6 +367,9 @@ router.patch('/:id/stage',
     const { stage, notes, timeSpentMinutes, actionsPerformed, toolsUsed } = req.body;
 
     try {
+      if (!await ensureCaseAccessible(req.params.id, req.user)) {
+        return res.status(404).json({ error: 'Case not found' });
+      }
       const { transitionCase } = require('../services/workflowEngine');
       const result = await transitionCase(
         req.params.id, stage, req.user.id, req.user.role,
@@ -370,6 +392,9 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_case', 'c
       total_data_gb, imaging_tool, recovery_tool, storage_model_id, transfer_to_client
     } = req.body;
 
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       `UPDATE cases SET
          device_brand = COALESCE($1, device_brand),
@@ -410,6 +435,9 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_case', 'c
 // ─── PATCH /api/cases/:id/transfer-to-client ──────────────────────
 router.patch('/:id/transfer-to-client', requireMinRole('junior_engineer'), auditLog('update_case', 'case'), async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const { transfer_to_client } = req.body;
     const result = await query(
       `UPDATE cases SET transfer_to_client = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
@@ -425,6 +453,9 @@ router.patch('/:id/transfer-to-client', requireMinRole('junior_engineer'), audit
 // ─── GET /api/cases/:id/smart-assist ─────────────────────────────
 router.get('/:id/smart-assist', async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const caseResult = await query(
       `SELECT c.device_brand, c.device_model, c.symptoms, c.failure_type, c.storage_model_id,
               sb.name as brand_name
@@ -455,6 +486,9 @@ router.get('/:id/smart-assist', async (req, res) => {
 // ─── GET /api/cases/:id/donors ────────────────────────────────────
 router.get('/:id/donors', async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const caseResult = await query('SELECT storage_model_id FROM cases WHERE id = $1', [req.params.id]);
     if (!caseResult.rows.length) return res.status(404).json({ error: 'Case not found' });
     if (!caseResult.rows[0].storage_model_id) {
@@ -472,6 +506,9 @@ router.get('/:id/donors', async (req, res) => {
 // ─── GET /api/cases/:id/solution ─────────────────────────────────
 router.get('/:id/solution', async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const solution = await query(
       'SELECT * FROM case_solutions WHERE case_id = $1',
       [req.params.id]
@@ -523,6 +560,9 @@ router.get('/:id/solution', async (req, res) => {
 // ─── PUT /api/cases/:id/solution ─────────────────────────────────
 router.put('/:id/solution', requireMinRole('junior_engineer'), async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const { textNote } = req.body;
     if (!textNote || !String(textNote).trim()) {
       return res.status(400).json({ error: 'Note text is required' });
@@ -563,6 +603,10 @@ router.put('/:id/solution', requireMinRole('junior_engineer'), async (req, res) 
 // ─── POST /api/cases/:id/solution/media ──────────────────────────
 router.post('/:id/solution/media', requireMinRole('junior_engineer'), solutionUpload.array('files', 20), async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      if (req.files) req.files.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const saved = [];
     for (const file of (req.files || [])) {
       const buf = fs.readFileSync(file.path);
@@ -596,6 +640,9 @@ router.post('/:id/solution/media', requireMinRole('junior_engineer'), solutionUp
 // ─── DELETE /api/cases/:id/solution/media/:fileId ────────────────
 router.delete('/:id/solution/media/:fileId', requireMinRole('junior_engineer'), async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       'SELECT * FROM case_solution_media WHERE id=$1 AND case_id=$2',
       [req.params.fileId, req.params.id]
@@ -632,6 +679,9 @@ router.delete('/:id/solution/media/:fileId', requireMinRole('junior_engineer'), 
 // ─── GET /api/cases/:id/images ────────────────────────────────────
 router.get('/:id/images', async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       'SELECT id, name, mime_type, data, size, caption, created_at FROM case_images WHERE case_id=$1 ORDER BY created_at ASC',
       [req.params.id]
@@ -646,6 +696,10 @@ router.get('/:id/images', async (req, res) => {
 // ─── POST /api/cases/:id/images ───────────────────────────────────
 router.post('/:id/images', requireMinRole('junior_engineer'), upload.array('images', 20), async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      if (req.files) req.files.forEach(f => { try { fs.unlinkSync(f.path); } catch {} });
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const saved = [];
     for (const file of (req.files || [])) {
       const buf = fs.readFileSync(file.path);
@@ -671,6 +725,9 @@ router.post('/:id/images', requireMinRole('junior_engineer'), upload.array('imag
 // ─── DELETE /api/cases/:id/images/:imgId ─────────────────────────
 router.delete('/:id/images/:imgId', requireMinRole('junior_engineer'), async (req, res) => {
   try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
     const result = await query(
       'SELECT * FROM case_images WHERE id=$1 AND case_id=$2',
       [req.params.imgId, req.params.id]

@@ -16,9 +16,10 @@ function auditLog(action, resourceType) {
                            null;
         
         query(
-          `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, details, ip_address, user_agent)
-           VALUES ($1, $2, $3, $4, $5, $6::inet, $7)`,
+          `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::inet, $8)`,
           [
+            req.user.tenant_id || null,
             req.user.id,
             action,
             resourceType,

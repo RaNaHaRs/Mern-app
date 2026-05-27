@@ -81,14 +81,12 @@ const INITIAL_CHATS = [
 
 export default function FloatingChat() {
   const [isOpen, setIsOpen] = useState(false);
-  const [chats, setChats] = useState(() => {
-    const saved = localStorage.getItem('crm_floating_chats');
-    return saved ? JSON.parse(saved) : INITIAL_CHATS;
-  });
+  const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('focused');
   const [newMessageText, setNewMessageText] = useState('');
+  const [loadingMessages, setLoadingMessages] = useState(false);
   
   const messageEndRef = useRef(null);
 
@@ -96,14 +94,52 @@ export default function FloatingChat() {
   const [currentUser, setCurrentUser] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
 
-  // Save chats to localStorage for persistent dummy state
+  // Refs to prevent stale closures in socket events
+  const contactsRef = useRef([]);
+  const currentUserRef = useRef(null);
+  const selectedChatIdRef = useRef(null);
+  const chatsRef = useRef([]);
+
   useEffect(() => {
-    localStorage.setItem('crm_floating_chats', JSON.stringify(chats));
+    contactsRef.current = contacts;
+  }, [contacts]);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  useEffect(() => {
+    selectedChatIdRef.current = selectedChatId;
+  }, [selectedChatId]);
+
+  useEffect(() => {
+    chatsRef.current = chats;
   }, [chats]);
 
-  // Initialize socket + load current user + contact list
+  // Scroll to bottom when conversation changes or new message is added
+  useEffect(() => {
+    if (messageEndRef.current) {
+      messageEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [selectedChatId, chats]);
+
+  // Helper to build a 1:1 room name
+  const roomForUser = (a, b) => {
+    try {
+      const ids = [String(a), String(b)].sort();
+      return `dm:${ids[0]}:${ids[1]}`;
+    } catch {
+      return null;
+    }
+  };
+
+  const attachmentUrl = (message) => {
+    const token = localStorage.getItem('accessToken');
+    return message?.filePath && token ? `${message.filePath}?token=${encodeURIComponent(token)}` : message?.filePath;
+  };
+
+  // Initialize socket + load current user + contact list + conversations
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (!token) return;
@@ -114,19 +150,39 @@ export default function FloatingChat() {
       .then(user => setCurrentUser(user))
       .catch(() => {});
 
-    // fetch contact list
-    fetch('/api/users', { headers: { Authorization: `Bearer ${token}` } })
+    // fetch allowed contacts & conversations
+    fetch('/api/chat/contacts', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(list => setContacts(list || []))
-      .catch(() => setContacts([]));
+      .then(data => {
+        if (data.users) setContacts(data.users || []);
+        if (data.conversations) {
+          const loadedChats = (data.conversations || []).map((conv) => ({
+            id: `conv-${conv.participant.id}`,
+            participantId: conv.participant.id,
+            name: conv.participant.full_name || conv.participant.username,
+            role: conv.participant.role,
+            avatar: (conv.participant.full_name || conv.participant.username || '').split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase(),
+            avatarBg: conv.participant.role === 'admin' || conv.participant.role === 'super_admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+            lastMessage: conv.lastMessage ? (conv.lastMessage.text || (conv.lastMessage.filePath ? 'Attachment' : '')) : '',
+            time: conv.lastMessage && conv.lastMessage.created_at ? new Date(conv.lastMessage.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
+            unread: 0,
+            tab: (conv.participant.role === 'admin' || conv.participant.role === 'super_admin') ? 'focused' : 'other',
+            room: conv.room,
+            messages: [],
+          }));
+          setChats(loadedChats);
+        }
+      })
+      .catch(() => {});
 
-    // connect directly to backend server (avoid vite proxy for WebSocket)
+    // connect directly to backend server
     const backendUrl = import.meta.env.VITE_API_URL || `${location.protocol}//${location.hostname}:5001`;
     const s = io(backendUrl, { auth: { token } });
     setSocket(s);
 
     s.on('connect', () => {
-      // connected
+      const activeChat = chatsRef.current.find((c) => c.id === selectedChatIdRef.current);
+      if (activeChat?.room) s.emit('joinRoom', activeChat.room);
     });
 
     s.on('onlineUsers', (users) => {
@@ -134,14 +190,57 @@ export default function FloatingChat() {
     });
 
     s.on('newMessage', (msg) => {
-      // Append to matching chat by room
-      setChats(prev => prev.map(c => {
-        if (c.room === msg.room) {
-          const next = { id: msg.id, sender: msg.sender_id === (currentUser && String(currentUser.id)) ? 'me' : 'them', text: msg.text || '', time: new Date(msg.created_at).toLocaleTimeString(), filePath: msg.filePath };
-          return { ...c, messages: [...(c.messages || []), next], lastMessage: msg.text || (msg.filePath ? 'Attachment' : '') };
+      const currentUserId = currentUserRef.current?.id;
+      const otherId = String(msg.sender_id) === String(currentUserId) ? String(msg.recipientId) : String(msg.sender_id);
+      if (!otherId || otherId === 'undefined') return;
+
+      setChats((prev) => {
+        const existing = prev.find((c) => c.room === msg.room);
+        const isOwn = String(msg.sender_id) === String(currentUserId);
+        const formattedMsg = {
+          id: msg.id,
+          sender: isOwn ? 'me' : 'them',
+          text: msg.text || '',
+          time: new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          filePath: msg.filePath,
+          mimeType: msg.mimeType,
+        };
+
+        if (existing) {
+          if (existing.messages.some((m) => String(m.id) === String(msg.id))) return prev;
+          return prev.map((c) =>
+            c.room === msg.room
+              ? {
+                  ...c,
+                  messages: [...(c.messages || []), formattedMsg],
+                  lastMessage: msg.text || (msg.filePath ? 'Attachment' : ''),
+                  time: new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                  unread: isOwn || selectedChatIdRef.current === c.id ? c.unread : c.unread + 1,
+                }
+              : c
+          );
+        } else {
+          // If conversation is brand new, resolve contact info from list
+          const contact = contactsRef.current.find((u) => String(u.id) === String(otherId));
+          if (!contact) return prev;
+
+          const newChat = {
+            id: `conv-${contact.id}`,
+            participantId: contact.id,
+            name: contact.full_name || contact.username,
+            role: contact.role,
+            avatar: (contact.full_name || contact.username || '').split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase(),
+            avatarBg: contact.role === 'admin' || contact.role === 'super_admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+            lastMessage: msg.text || (msg.filePath ? 'Attachment' : ''),
+            time: new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+            unread: isOwn ? 0 : 1,
+            tab: (contact.role === 'admin' || contact.role === 'super_admin') ? 'focused' : 'other',
+            room: msg.room,
+            messages: [formattedMsg],
+          };
+          return [newChat, ...prev];
         }
-        return c;
-      }));
+      });
     });
 
     s.on('messagesSeen', ({ room }) => {
@@ -151,31 +250,22 @@ export default function FloatingChat() {
     return () => { s.disconnect(); };
   }, []);
 
-  // Scroll to bottom when conversation changes or new message is added
-  useEffect(() => {
-    if (messageEndRef.current) {
-      messageEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [selectedChatId, chats]);
-
   const activeChat = chats.find(c => c.id === selectedChatId);
 
   // Send message handler
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!newMessageText.trim() || !selectedChatId) return;
+    if (!newMessageText.trim() || !selectedChatId || !currentUser) return;
 
-    const timeString = new Date().toLocaleTimeString('en-IN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
-
-    // send through socket (server will persist and broadcast)
     const chat = chats.find(c => c.id === selectedChatId);
-    if (socket && chat && currentUser) {
-      const room = chat.room;
-      socket.emit('sendMessage', { room, text: newMessageText.trim() });
+    if (!chat) return;
+
+    if (socket && chat.room) {
+      socket.emit('sendMessage', {
+        room: chat.room,
+        recipientId: chat.participantId,
+        text: newMessageText.trim(),
+      });
     }
 
     setNewMessageText('');
@@ -191,22 +281,14 @@ export default function FloatingChat() {
     const token = localStorage.getItem('accessToken');
     const fd = new FormData();
     fd.append('room', room);
+    fd.append('recipientId', chat.participantId);
     fd.append('file', file);
     try {
       const res = await fetch('/api/chat/messages', { method: 'POST', body: fd, headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error('Upload failed');
-      const created = await res.json();
-      // server will broadcast newMessage; local optimistic add if desired
-      setChats(prev => prev.map(c => c.id === selectedChatId ? ({ ...c, messages: [...c.messages, { id: created.id, sender: String(created.sender_id) === String(currentUser && currentUser.id) ? 'me' : 'them', text: created.text || '', time: new Date(created.created_at).toLocaleTimeString(), filePath: created.filePath } ] }) : c));
     } catch (e) {
       console.warn('File upload failed', e.message);
     }
-  };
-
-  // Open chat and clear unread badge
-  // Helper to build a 1:1 room name
-  const roomForUser = (a, b) => {
-    try { const ids = [String(a), String(b)].sort(); return `chat:${ids.join('-')}`; } catch { return null; }
   };
 
   const handleSelectChat = (id) => {
@@ -214,19 +296,17 @@ export default function FloatingChat() {
     setSelectedChatId(id);
     setChats(prevChats => prevChats.map(c => c.id === id ? { ...c, unread: 0 } : c));
 
-    // join socket room and fetch messages if room present
     if (chat && chat.participantId && currentUser) {
-      const room = roomForUser(currentUser.id, chat.participantId);
-      if (socket && room) {
-        socket.emit('joinRoom', room);
-        socket.emit('markSeen', { room });
+      if (socket && chat.room) {
+        socket.emit('joinRoom', chat.room);
+        socket.emit('markSeen', { room: chat.room });
         setLoadingMessages(true);
         const token = localStorage.getItem('accessToken');
-        fetch(`/api/chat/messages?room=${encodeURIComponent(room)}&limit=200`, { headers: { Authorization: `Bearer ${token}` } })
+        fetch(`/api/chat/conversations/${chat.participantId}/messages?limit=200`, { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.json())
           .then(data => {
             if (Array.isArray(data.messages)) {
-              setChats(prev => prev.map(pc => pc.id === id ? ({ ...pc, messages: data.messages.map(m => ({ id: m.id, sender: String(m.sender_id) === String(currentUser && currentUser.id) ? 'me' : 'them', text: m.text || '', time: new Date(m.created_at).toLocaleTimeString(), filePath: m.filePath, mimeType: m.mimeType, seen: !!m.seen_at })) }) : pc));
+              setChats(prev => prev.map(pc => pc.id === id ? ({ ...pc, messages: data.messages.map(m => ({ id: m.id, sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them', text: m.text || '', time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }), filePath: m.filePath, mimeType: m.mimeType, seen: !!m.seen_at })) }) : pc));
             }
           }).finally(() => setLoadingMessages(false));
       }
@@ -238,13 +318,15 @@ export default function FloatingChat() {
 
   // Contacts filtered by search and role; used as sidebar entries
   const filteredContacts = contacts.filter(user => {
-    // exclude current user from contact list
     if (currentUser && String(user.id) === String(currentUser.id)) return false;
     const q = searchQuery.trim().toLowerCase();
     if (q) {
-      return (user.full_name || user.username || '').toLowerCase().includes(q) || (user.email || '').toLowerCase().includes(q) || (user.role || '').toLowerCase().includes(q);
+      const match = (user.full_name || user.username || '').toLowerCase().includes(q) || (user.role || '').toLowerCase().includes(q);
+      if (!match) return false;
     }
-    return true;
+    const isFocused = true; // All fetched allowed contacts are Focused for immediate visibility
+    if (activeTab === 'focused') return isFocused;
+    return !isFocused;
   });
 
   return (
@@ -296,8 +378,8 @@ export default function FloatingChat() {
                   <div className="chat-message-bubble">
                     {msg.filePath ? (
                       <div className="chat-message-attachment">
-                        <a href={msg.filePath} target="_blank" rel="noreferrer" download>
-                          {msg.filePath.split('/').pop()}
+                        <a href={attachmentUrl(msg)} target="_blank" rel="noreferrer" download>
+                          {msg.fileName || msg.filePath.split('/').pop()}
                         </a>
                       </div>
                     ) : (
@@ -363,56 +445,120 @@ export default function FloatingChat() {
             <div className="chat-list-scroller">
                 {filteredContacts.length > 0 ? (
                   filteredContacts.map(user => {
-                    const id = `contact-${user.id}`;
+                    const id = `conv-${user.id}`;
                     const isOnline = onlineUsers.includes(String(user.id));
-                  return (
-                  <div 
-                    key={id} 
-                    className="chat-item-row"
-                    onClick={() => {
-                      // Ensure a chat item exists for this contact
-                      const existing = chats.find(c => c.participantId === user.id || c.id === id);
-                      if (!existing) {
-                        const room = roomForUser(currentUser ? currentUser.id : 'me', user.id);
-                        const newChat = {
-                          id,
-                          participantId: user.id,
-                          name: user.full_name || user.username,
-                          role: user.role,
-                          avatar: (user.full_name || user.username || '').split(' ').map(n=>n[0]).slice(0,2).join(''),
-                          avatarBg: 'linear-gradient(135deg,#0ea5e9,#0369a1)',
-                          lastMessage: '',
-                          time: '',
-                          unread: 0,
-                          tab: 'focused',
-                          room,
-                          messages: []
-                        };
-                        setChats(prev => [newChat, ...prev]);
-                        setTimeout(() => handleSelectChat(id), 50);
-                      } else {
-                        setSelectedChatId(existing.id);
-                        handleSelectChat(existing.id);
-                      }
-                    }}
-                  >
+                    const conversation = chats.find(c => String(c.participantId) === String(user.id));
+                    const avatarText = (user.full_name || user.username || '').split(' ').map(n=>n[0]).slice(0,2).join('').toUpperCase();
+
+                    return (
                     <div 
-                      className="chat-user-avatar"
-                      style={{ background: isOnline ? 'linear-gradient(135deg,#10b981,#059669)' : '#64748b' }}
+                      key={user.id} 
+                      className="chat-item-row"
+                      onClick={() => {
+                        // Ensure a chat item exists for this contact
+                        const existing = chats.find(c => c.participantId === user.id || c.id === id);
+                        if (!existing) {
+                          const room = roomForUser(currentUser ? currentUser.id : 'me', user.id);
+                          const newChat = {
+                            id,
+                            participantId: user.id,
+                            name: user.full_name || user.username,
+                            role: user.role,
+                            avatar: avatarText,
+                            avatarBg: user.role === 'admin' || user.role === 'super_admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+                            lastMessage: '',
+                            time: '',
+                            unread: 0,
+                            tab: (user.role === 'admin' || user.role === 'super_admin') ? 'focused' : 'other',
+                            room,
+                            messages: []
+                          };
+                          setChats(prev => [newChat, ...prev]);
+                          setTimeout(() => handleSelectChat(id), 50);
+                        } else {
+                          setSelectedChatId(existing.id);
+                          handleSelectChat(existing.id);
+                        }
+                      }}
                     >
-                      { (user.full_name || user.username || '').split(' ').map(n=>n[0]).slice(0,2).join('') }
-                    </div>
-                    <div className="chat-item-mid">
-                      <div className="chat-item-row-top">
-                        <span className="chat-item-name">{user.full_name || user.username}</span>
-                        <span className="chat-item-time">{isOnline ? 'online' : ''}</span>
+                      <div className="chat-user-avatar-wrapper" style={{ position: 'relative' }}>
+                        <div 
+                          className="chat-user-avatar"
+                          style={{ background: user.role === 'admin' || user.role === 'super_admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)' }}
+                        >
+                          {avatarText}
+                        </div>
+                        {isOnline && (
+                          <span style={{
+                            position: 'absolute', bottom: -2, right: -2, width: 10, height: 10,
+                            borderRadius: '50%', background: '#10b981', border: '2px solid var(--bg-card)',
+                            display: 'inline-block'
+                          }} />
+                        )}
                       </div>
-                      <div className="chat-item-row-bottom">
-                        <span className="chat-item-preview">{user.role}</span>
+                      <div className="chat-item-mid">
+                        <div className="chat-item-row-top" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="chat-item-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>{user.full_name || user.username}</span>
+                          {user.role === 'super_admin' && (
+                            <span className="chat-role-badge" style={{
+                              fontSize: '0.6rem',
+                              fontWeight: '700',
+                              padding: '1px 5px',
+                              borderRadius: '3px',
+                              background: 'rgba(239, 68, 68, 0.2)',
+                              color: '#f87171',
+                              border: '1px solid rgba(239, 68, 68, 0.4)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'inline-block',
+                              flexShrink: 0
+                            }}>Super Admin</span>
+                          )}
+                          {user.role === 'admin' && (
+                            <span className="chat-role-badge" style={{
+                              fontSize: '0.6rem',
+                              fontWeight: '700',
+                              padding: '1px 5px',
+                              borderRadius: '3px',
+                              background: 'rgba(139, 92, 246, 0.25)',
+                              color: '#a78bfa',
+                              border: '1px solid rgba(139, 92, 246, 0.4)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'inline-block',
+                              flexShrink: 0
+                            }}>Admin</span>
+                          )}
+                          {user.role !== 'admin' && user.role !== 'super_admin' && (
+                            <span className="chat-role-badge" style={{
+                              fontSize: '0.6rem',
+                              fontWeight: '700',
+                              padding: '1px 5px',
+                              borderRadius: '3px',
+                              background: 'rgba(59, 130, 246, 0.2)',
+                              color: '#60a5fa',
+                              border: '1px solid rgba(59, 130, 246, 0.4)',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              display: 'inline-block',
+                              flexShrink: 0
+                            }}>{user.role.replace(/_/g, ' ')}</span>
+                          )}
+                          <span className="chat-item-time" style={{ marginLeft: 'auto', flexShrink: 0 }}>{conversation?.time || (isOnline ? 'online' : '')}</span>
+                        </div>
+                        <div className="chat-item-row-bottom" style={{ display: 'flex', alignItems: 'center' }}>
+                          <span className="chat-item-preview" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+                            {conversation?.lastMessage || user.role.replace(/_/g, ' ')}
+                          </span>
+                          {conversation && conversation.unread > 0 && (
+                            <span className="chat-item-unread-badge sa-chat-unread-badge" style={{ marginLeft: 'auto' }}>
+                              {conversation.unread}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )})
+                  )})
               ) : (
                 <div className="chat-empty-state">
                   <div className="chat-empty-icon">💬</div>

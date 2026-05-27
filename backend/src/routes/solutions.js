@@ -3,8 +3,17 @@ const fs = require('fs');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { solutionUpload } = require('../middleware/solutionUpload');
+const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
 
 const router = express.Router();
+
+function knowledgeBaseScope(req, alias = 'kb', paramIndex = 1) {
+  if (isSuperAdmin(req.user)) return { clause: '1=1', params: [] };
+  return {
+    clause: `${alias}.tenant_id = $${paramIndex}`,
+    params: [tenantAdminId(req.user)],
+  };
+}
 
 function mapKbRow(row) {
   const noteHistory = row.note_history || [];
@@ -54,7 +63,7 @@ function buildCaseTags(c) {
 async function syncCaseToKnowledgeBase(caseId, user) {
   const caseRes = await query(
     `SELECT id, case_number, device_brand, device_model, failure_type, symptoms,
-            initial_diagnosis, final_diagnosis, symptom_notes
+            initial_diagnosis, final_diagnosis, symptom_notes, tenant_id
      FROM cases WHERE id = $1`,
     [caseId]
   );
@@ -132,12 +141,13 @@ async function syncCaseToKnowledgeBase(caseId, user) {
   const existing = await query(
     `SELECT id, created_by FROM knowledge_base_entries
      WHERE source = 'case'
+       AND tenant_id = $2
        AND EXISTS (
          SELECT 1 FROM jsonb_array_elements(case_refs) AS ref
          WHERE ref->>'case_id' = $1
        )
      LIMIT 1`,
-    [caseId]
+    [caseId, c.tenant_id || user?.tenant_id || tenantAdminId(user)]
   );
 
   if (existing.rows.length) {
@@ -170,9 +180,10 @@ async function syncCaseToKnowledgeBase(caseId, user) {
 
   await query(
     `INSERT INTO knowledge_base_entries (
-      title, device_type, category, problem, tags, note_history, case_refs, files, source, created_by
-    ) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::jsonb,'case',$9)`,
+      tenant_id, title, device_type, category, problem, tags, note_history, case_refs, files, source, created_by
+    ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,'case',$10)`,
     [
+      c.tenant_id || user?.tenant_id || tenantAdminId(user),
       payload.title,
       payload.deviceType,
       payload.category,
@@ -196,13 +207,14 @@ router.syncCaseNoteToKnowledgeBase = syncCaseNoteToKnowledgeBase;
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, device_type, tag, category } = req.query;
+    const scope = knowledgeBaseScope(req, 'kb', 1);
     let sql = `
       SELECT kb.*, u.username AS created_by_name
       FROM knowledge_base_entries kb
       LEFT JOIN users u ON u.id = kb.created_by
-      WHERE 1=1`;
-    const params = [];
-    let n = 1;
+      WHERE ${scope.clause}`;
+    const params = [...scope.params];
+    let n = params.length + 1;
 
     if (search) {
       sql += ` AND (kb.title ILIKE $${n} OR kb.problem ILIKE $${n} OR kb.note_history::text ILIKE $${n})`;
@@ -239,12 +251,13 @@ router.get('/', authenticate, async (req, res) => {
 
 router.get('/:id', authenticate, async (req, res) => {
   try {
+    const scope = knowledgeBaseScope(req, 'kb', 2);
     const result = await query(
       `SELECT kb.*, u.username AS created_by_name
        FROM knowledge_base_entries kb
        LEFT JOIN users u ON u.id = kb.created_by
-       WHERE kb.id = $1`,
-      [req.params.id]
+       WHERE kb.id = $1 AND ${scope.clause}`,
+      [req.params.id, ...scope.params]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Not found' });
     res.json(mapKbRow(result.rows[0]));
@@ -286,10 +299,11 @@ router.post('/', authenticate, requireMinRole('junior_engineer'), solutionUpload
 
     const result = await query(
       `INSERT INTO knowledge_base_entries (
-        title, device_type, category, problem, tags, note_history, case_refs, files, source, created_by
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual',$9)
+        tenant_id, title, device_type, category, problem, tags, note_history, case_refs, files, source, created_by
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'manual',$10)
       RETURNING *`,
       [
+        tenantAdminId(req.user),
         title,
         device_type || 'Other',
         company || device_type || 'General',
@@ -313,7 +327,11 @@ router.post('/', authenticate, requireMinRole('junior_engineer'), solutionUpload
 
 router.put('/:id', authenticate, requireMinRole('junior_engineer'), solutionUpload.array('files', 20), async (req, res) => {
   try {
-    const existing = await query('SELECT * FROM knowledge_base_entries WHERE id = $1', [req.params.id]);
+    const scope = knowledgeBaseScope(req, 'knowledge_base_entries', 2);
+    const existing = await query(
+      `SELECT * FROM knowledge_base_entries WHERE id = $1 AND ${scope.clause}`,
+      [req.params.id, ...scope.params]
+    );
     if (!existing.rows.length) return res.status(404).json({ error: 'Not found' });
 
     const row = existing.rows[0];
@@ -386,7 +404,11 @@ router.put('/:id', authenticate, requireMinRole('junior_engineer'), solutionUplo
 
 router.delete('/:id', authenticate, requireMinRole('admin'), async (req, res) => {
   try {
-    const result = await query('DELETE FROM knowledge_base_entries WHERE id = $1 RETURNING id', [req.params.id]);
+    const scope = knowledgeBaseScope(req, 'knowledge_base_entries', 2);
+    const result = await query(
+      `DELETE FROM knowledge_base_entries WHERE id = $1 AND ${scope.clause} RETURNING id`,
+      [req.params.id, ...scope.params]
+    );
     if (!result.rows.length) return res.status(404).json({ error: 'Not found' });
     res.json({ ok: true });
   } catch (err) {

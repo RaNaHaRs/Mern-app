@@ -2,6 +2,7 @@ const express = require('express');
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { mergeProblemSuggestions } = require('../utils/problemSuggestions');
+const { isSuperAdmin, tenantCaseCondition, tenantAdminId } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -36,28 +37,34 @@ router.get('/problems', async (req, res) => {
     let caseRows = [];
 
     try {
+      const historyTenantClause = !isSuperAdmin(req.user) ? ' AND tenant_id = $4' : '';
       const historyResult = await query(
         `SELECT text, use_count, last_used_at
          FROM problem_history
          WHERE text ILIKE $1
+         ${historyTenantClause}
          ORDER BY
            CASE WHEN text ILIKE $2 THEN 0 ELSE 1 END,
            use_count DESC,
            last_used_at DESC NULLS LAST
          LIMIT $3`,
-        [contains, prefix, max]
+        !isSuperAdmin(req.user)
+          ? [contains, prefix, max, tenantAdminId(req.user)]
+          : [contains, prefix, max]
       );
       historyRows = historyResult.rows;
 
+      const tenantCase = !isSuperAdmin(req.user) ? tenantCaseCondition(req.user, 'c', 2) : null;
       const caseResult = await query(
         `SELECT DISTINCT symptom_notes AS text, 0 AS use_count, NULL::timestamptz AS last_used_at
-         FROM cases
+         FROM cases c
          WHERE symptom_notes IS NOT NULL
            AND TRIM(symptom_notes) <> ''
            AND symptom_notes ILIKE $1
+           ${tenantCase ? `AND ${tenantCase.clause}` : ''}
          ORDER BY symptom_notes
          LIMIT $2`,
-        [contains, max]
+        tenantCase ? [contains, ...tenantCase.params, max] : [contains, max]
       );
       caseRows = caseResult.rows;
     } catch (dbErr) {
@@ -115,25 +122,30 @@ router.get('/diagnosis', async (req, res) => {
         last_used_at
       FROM diagnosis_history
       WHERE ${conditions}
+        ${!isSuperAdmin(req.user) ? `AND tenant_id = $${paramIndex}` : ''}
       ORDER BY
-        CASE WHEN text ILIKE $${paramIndex} THEN 0 ELSE 1 END,
+        CASE WHEN text ILIKE $${paramIndex + (isSuperAdmin(req.user) ? 0 : 1)} THEN 0 ELSE 1 END,
         use_count DESC,
         last_used_at DESC NULLS LAST
-      LIMIT $${paramIndex + 1}`,
-      params
+      LIMIT $${paramIndex + (isSuperAdmin(req.user) ? 1 : 2)}`,
+      !isSuperAdmin(req.user)
+        ? [...params.slice(0, -2), tenantAdminId(req.user), ...params.slice(-2)]
+        : params
     );
 
     let caseRows = [];
     try {
+      const tenantCase = !isSuperAdmin(req.user) ? tenantCaseCondition(req.user, 'c', 2) : null;
       const caseResult = await query(
         `SELECT DISTINCT initial_diagnosis AS text, 0 AS use_count, NULL::timestamptz AS last_used_at
-         FROM cases
+         FROM cases c
          WHERE initial_diagnosis IS NOT NULL
            AND TRIM(initial_diagnosis) <> ''
            AND initial_diagnosis ILIKE $1
+           ${tenantCase ? `AND ${tenantCase.clause}` : ''}
          ORDER BY initial_diagnosis
          LIMIT $2`,
-        [contains, max]
+        tenantCase ? [contains, ...tenantCase.params, max] : [contains, max]
       );
       caseRows = caseResult.rows;
     } catch {
@@ -176,14 +188,14 @@ router.post('/problems', async (req, res) => {
     }
 
     const result = await query(
-      `INSERT INTO problem_history (text, category, severity, use_count, created_by)
-      VALUES ($1, $2, $3, 1, $4)
-      ON CONFLICT (text) DO UPDATE
+      `INSERT INTO problem_history (text, category, severity, use_count, created_by, tenant_id)
+      VALUES ($1, $2, $3, 1, $4, $5)
+      ON CONFLICT (tenant_id, text) DO UPDATE
       SET
         use_count = problem_history.use_count + 1,
         last_used_at = NOW()
       RETURNING *`,
-      [text.trim(), category || null, severity || null, userId || null]
+      [text.trim(), category || null, severity || null, userId || null, tenantAdminId(req.user)]
     );
 
     res.json(result.rows[0]);
@@ -210,10 +222,11 @@ router.post('/diagnosis', async (req, res) => {
         recovery_success_rate,
         avg_recovery_time_hours,
         use_count,
-        created_by
+        created_by,
+        tenant_id
       )
-      VALUES ($1, $2, $3, $4, 1, $5)
-      ON CONFLICT (text) DO UPDATE
+      VALUES ($1, $2, $3, $4, 1, $5, $6)
+      ON CONFLICT (tenant_id, text) DO UPDATE
       SET
         use_count = diagnosis_history.use_count + 1,
         last_used_at = NOW(),
@@ -226,6 +239,7 @@ router.post('/diagnosis', async (req, res) => {
         recoverySuccessRate || null,
         avgRecoveryTimeHours || null,
         userId || null,
+        tenantAdminId(req.user),
       ]
     );
 
@@ -243,8 +257,9 @@ router.get('/problems/categories', async (req, res) => {
       SELECT DISTINCT category
       FROM problem_history
       WHERE category IS NOT NULL
+      ${!isSuperAdmin(req.user) ? 'AND tenant_id = $1' : ''}
       ORDER BY category
-    `);
+    `, !isSuperAdmin(req.user) ? [tenantAdminId(req.user)] : []);
 
     res.json(result.rows.map((r) => r.category));
   } catch (e) {
