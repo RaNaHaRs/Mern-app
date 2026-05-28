@@ -195,7 +195,7 @@ router.post('/',
         client_id, device_brand, device_model, storage_model_id, serial_number,
         capacity_gb, interface: iface, form_factor, failure_type, symptoms,
         symptom_notes, initial_diagnosis, priority, deadline_at, internal_notes,
-        assigned_engineer
+        assigned_engineer, quotation_amount, advance_amount
       } = req.body;
       if (client_id && !isSuperAdmin(req.user) && !(await verifyClientAccess(client_id, req.user))) {
         return res.status(404).json({ error: 'Client not found' });
@@ -247,6 +247,33 @@ router.post('/',
         [result.rows[0].id, req.user.id]
       );
 
+      // Create quotation if quotation_amount is provided
+      let quotation = null;
+      if (quotation_amount) {
+        const quotValue = parseFloat(quotation_amount);
+        const advanceValue = parseFloat(advance_amount || 0);
+        const totalAmount = quotValue;
+        const balanceRemaining = Math.max(0, totalAmount - advanceValue);
+
+        const quotRes = await query(
+          `INSERT INTO quotations (
+            case_id, estimated_cost, parts_cost, service_cost, total_amount, 
+            approved_by_client, created_by
+          ) VALUES ($1, $2, 0, 0, $3, true, $4) RETURNING id, case_id, total_amount, created_at`,
+          [result.rows[0].id, quotValue, totalAmount, req.user.id]
+        );
+        quotation = quotRes.rows[0];
+
+        // If advance_amount provided, record it as a payment
+        if (advanceValue > 0) {
+          await query(
+            `INSERT INTO payments (case_id, quotation_id, amount, status, paid_at, recorded_by)
+             VALUES ($1, $2, $3, 'paid', NOW(), $4)`,
+            [result.rows[0].id, quotation.id, advanceValue, req.user.id]
+          );
+        }
+      }
+
       // Update client case count
       // Update client case count if client_id provided
 if (client_id) {
@@ -282,7 +309,16 @@ if (client_id) {
         }
       });
 
-      res.status(201).json(result.rows[0]);
+      const responseData = { ...result.rows[0] };
+      if (quotation) {
+        const advanceValue = parseFloat(advance_amount || 0);
+        responseData.quotation = {
+          ...quotation,
+          balance_remaining: Math.max(0, quotation.total_amount - advanceValue),
+          advance_received: advanceValue
+        };
+      }
+      res.status(201).json(responseData);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -752,6 +788,89 @@ router.delete('/:id/images/:imgId', requireMinRole('junior_engineer'), async (re
     await query('DELETE FROM case_images WHERE id=$1 AND case_id=$2', [req.params.imgId, req.params.id]);
     res.json({ message: 'Image moved to recycle bin' });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── POST /api/cases/:id/collect-payment ──────────────────────────
+router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog('collect_payment', 'case'), async (req, res) => {
+  try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
+
+    // Get current case and quotation data
+    const caseRes = await query(
+      `SELECT c.id, c.case_number, c.client_id FROM cases c WHERE c.id = $1`,
+      [req.params.id]
+    );
+    if (!caseRes.rows.length) return res.status(404).json({ error: 'Case not found' });
+
+    const caseData = caseRes.rows[0];
+
+    // Get latest quotation
+    const quotRes = await query(
+      `SELECT q.id, q.total_amount FROM quotations q WHERE q.case_id = $1 ORDER BY q.created_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+
+    if (!quotRes.rows.length) {
+      return res.status(400).json({ error: 'No quotation found for this case' });
+    }
+
+    const quotation = quotRes.rows[0];
+
+    // Get total paid amount so far
+    const paidRes = await query(
+      `SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE case_id = $1 AND status = 'paid'`,
+      [req.params.id]
+    );
+
+    const totalPaid = parseFloat(paidRes.rows[0].total_paid || 0);
+    const pendingAmount = Math.max(0, quotation.total_amount - totalPaid);
+
+    if (pendingAmount <= 0) {
+      return res.status(400).json({ error: 'No pending amount to collect' });
+    }
+
+    // Create collection payment record
+    const paymentRes = await query(
+      `INSERT INTO payments (case_id, quotation_id, amount, status, paid_at, recorded_by)
+       VALUES ($1, $2, $3, 'collected', NOW(), $4)
+       RETURNING id, amount, paid_at, status`,
+      [req.params.id, quotation.id, pendingAmount, req.user.id]
+    );
+
+    const payment = paymentRes.rows[0];
+
+    // Get updated pending amount (should be 0 now)
+    const updatedPendingRes = await query(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as total_paid
+       FROM payments WHERE case_id = $1`,
+      [req.params.id]
+    );
+
+    const newTotalPaid = parseFloat(updatedPendingRes.rows[0].total_paid || 0);
+    const newPending = Math.max(0, quotation.total_amount - newTotalPaid);
+
+    res.json({
+      success: true,
+      message: 'Payment collected successfully',
+      payment: {
+        id: payment.id,
+        amount: parseFloat(payment.amount),
+        collected_at: payment.paid_at,
+        status: payment.status
+      },
+      case: {
+        id: caseData.id,
+        case_number: caseData.case_number,
+        quotation_total: parseFloat(quotation.total_amount),
+        total_paid: newTotalPaid,
+        pending_amount: newPending
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

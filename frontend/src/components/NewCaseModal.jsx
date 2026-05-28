@@ -1929,6 +1929,8 @@ export default function NewCaseModal({ onClose, onCreated }) {
         capacity_gb: parseCapacityGb(form.capacity_gb ?? form.capacity),
         failure_type: form.failure_type || (form.failure_types?.[0] ?? "unknown"),
         symptom_notes: form.problem_description?.trim() || undefined,
+        quotation_amount: form.quotation_amount ? parseFloat(form.quotation_amount) : undefined,
+        advance_amount: form.advance_amount ? parseFloat(form.advance_amount) : undefined,
       };
       if (payload.capacity === "__others__" && form.selected_custom_capacity) {
         payload.capacity = form.selected_custom_capacity;

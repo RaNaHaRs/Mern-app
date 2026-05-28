@@ -486,12 +486,12 @@ export default function AccountingPage() {
           {/* KPI Cards */}
           <div className="stats-grid" style={{ marginBottom: 24 }}>
             {[
-              { icon: '💰', label: 'Total Revenue', value: fmt(summary.totalRevenue), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
-              { icon: '⏳', label: 'Pending', value: fmt(summary.pendingRevenue), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
-              { icon: '🔴', label: 'Overdue', value: fmt(summary.overdueRevenue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
-              { icon: '💸', label: 'Total Expenses', value: fmt(summary.totalExpenses), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
-              { icon: '📈', label: 'Net Profit', value: fmt(summary.netProfit), color: summary.netProfit >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: summary.netProfit >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
-              { icon: '🎯', label: 'Profit Margin', value: `${summary.profitMargin}%`, color: 'var(--accent-primary)', bg: 'rgba(0,212,255,0.1)' },
+              { icon: '💰', label: 'Total Revenue (Invoice)', value: fmt(summary.total_collected), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
+              { icon: '💼', label: 'Case Revenue (Paid)', value: fmt(summary.case_total_paid), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
+              { icon: '⏳', label: 'Case Pending', value: fmt(summary.case_total_pending), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
+              { icon: '🔴', label: 'Overdue (30+ days)', value: fmt(summary.case_total_pending_overdue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
+              { icon: '💸', label: 'Total Expenses', value: fmt(summary.total_expenses), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
+              { icon: '📈', label: 'Net Profit (Month)', value: fmt(summary.profit_month), color: summary.profit_month >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: summary.profit_month >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
             ].map(stat => (
               <div key={stat.label} className="stat-card" style={{ '--stat-color': stat.color, '--stat-bg': stat.bg }}>
                 <div className="stat-icon">{stat.icon}</div>

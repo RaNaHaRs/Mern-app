@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { clientsApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
+import CollectPaymentModal from '../components/CollectPaymentModal';
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -232,6 +233,8 @@ export default function ClientDetail() {
   const [showCourier, setShowCourier] = useState(false);
   const [showComm, setShowComm] = useState(false);
   const [company, setCompany] = useState(null);
+  const [showCollectPayment, setShowCollectPayment] = useState(false);
+  const [selectedCaseForCollection, setSelectedCaseForCollection] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -266,6 +269,10 @@ export default function ClientDetail() {
           <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
             <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Paid</div>
             <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.total_paid||0).toLocaleString('en-IN')}</div>
+          </div>
+          <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+            <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Pending</div>
+            <div style={{ fontSize:'1.1rem',fontWeight:800,color:parseFloat(cl.paymentSummary?.pending||0)>0?'var(--danger)':'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.paymentSummary?.pending||0).toLocaleString('en-IN')}</div>
           </div>
           <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
             <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Cases</div>
@@ -328,18 +335,36 @@ export default function ClientDetail() {
       {tab === 'cases' && (
         <div className="table-container">
           <table>
-            <thead><tr><th>Case #</th><th>Device</th><th>Stage</th><th>Failure</th><th>Date</th></tr></thead>
+            <thead><tr><th>Case #</th><th>Device</th><th>Stage</th><th>Failure</th><th>Quotation</th><th>Paid</th><th>Pending</th><th>Date</th><th>Action</th></tr></thead>
             <tbody>
               {(cl.cases||[]).map(c => (
-                <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)} style={{ cursor:'pointer' }}>
-                  <td><span className="font-mono text-xs text-accent">{c.case_number}</span></td>
-                  <td>{c.device_brand} {c.device_model}</td>
-                  <td><span className={`badge badge-${c.stage}`}>{c.stage?.replace(/_/g,' ')}</span></td>
-                  <td>{c.failure_type && <span className={`badge badge-${c.failure_type}`}>{c.failure_type}</span>}</td>
-                  <td className="text-xs text-muted">{new Date(c.created_at).toLocaleDateString('en-IN')}</td>
+                <tr key={c.id} style={{ cursor:'pointer' }}>
+                  <td onClick={() => navigate(`/cases/${c.id}`)}><span className="font-mono text-xs text-accent">{c.case_number}</span></td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)}>{c.device_brand} {c.device_model}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)}><span className={`badge badge-${c.stage}`}>{c.stage?.replace(/_/g,' ')}</span></td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)}>{c.failure_type && <span className={`badge badge-${c.failure_type}`}>{c.failure_type}</span>}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs">₹{parseFloat(c.quotation_total||0).toLocaleString('en-IN')}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs" style={{color:'var(--status-success)'}}>₹{parseFloat(c.total_paid||0).toLocaleString('en-IN')}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs" style={{color:parseFloat(c.pending_amount||0)>0?'var(--danger)':'var(--status-success)',fontWeight:700}}>₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)} className="text-xs text-muted">{new Date(c.created_at).toLocaleDateString('en-IN')}</td>
+                  <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                    {parseFloat(c.pending_amount || 0) > 0 ? (
+                      <button
+                        className="btn btn-primary btn-xs"
+                        onClick={() => {
+                          setSelectedCaseForCollection(c);
+                          setShowCollectPayment(true);
+                        }}
+                      >
+                        💰 Collect
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
-              {!cl.cases?.length && <tr><td colSpan={5}><div className="empty-state" style={{ padding:30 }}><div className="empty-desc">No cases for this client</div></div></td></tr>}
+              {!cl.cases?.length && <tr><td colSpan={9}><div className="empty-state" style={{ padding:30 }}><div className="empty-desc">No cases for this client</div></div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -372,6 +397,21 @@ export default function ClientDetail() {
       {showEdit && <EditClientModal client={cl} onClose={() => setShowEdit(false)} onSaved={load} />}
       {showCourier && <CourierSlip client={cl} company={company} onClose={() => setShowCourier(false)} />}
       {showComm && <AddCommModal clientId={id} onClose={() => setShowComm(false)} onDone={load} />}
+      {showCollectPayment && selectedCaseForCollection && (
+        <CollectPaymentModal
+          isOpen={showCollectPayment}
+          onClose={() => {
+            setShowCollectPayment(false);
+            setSelectedCaseForCollection(null);
+          }}
+          caseData={selectedCaseForCollection}
+          clientName={`${cl.first_name} ${cl.last_name}`}
+          onSuccess={(updatedCase) => {
+            // Refresh client data to get updated pending amounts
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
