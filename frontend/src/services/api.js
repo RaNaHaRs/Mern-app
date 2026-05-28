@@ -127,6 +127,7 @@ export const casesApi = {
   get: (id) => api.get(`/cases/${id}`),
   create: (data) => api.post('/cases', data),
   update: (id, data) => api.put(`/cases/${id}`, data),
+  delete: (id) => api.delete(`/cases/${id}`),
   transition: (id, data) => api.patch(`/cases/${id}/stage`, data),
   smartAssist: (id) => api.get(`/cases/${id}/smart-assist`),
   donors: (id) => api.get(`/cases/${id}/donors`),

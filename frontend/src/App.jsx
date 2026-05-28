@@ -64,7 +64,6 @@ function Sidebar({ open, onClose }) {
   const intelItems = isSuperAdmin ? [] : [
     ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '', label: 'Inventory', to: '/inventory' }] : []),
     ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '', label: 'Donor Drive', to: '/donors' }] : []),
-    ...(hasPermission('inventory', 'view') || isAdmin ? [{ icon: '', label: 'Transferred Items', to: '/transferred-items' }] : []),
     ...(hasPermission('knowledge_base', 'view') || isAdmin ? [{ icon: '', label: 'Knowledge Base', to: '/solutions' }] : []),
     ...(isAdmin ? [{ icon: '', label: 'Marketing', to: '/marketing' }] : []),
   ];

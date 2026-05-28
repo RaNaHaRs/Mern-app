@@ -18,7 +18,7 @@ function getSettings(key, def) {
 
 export default function CasesPage() {
   const navigate = useNavigate();
-  const { canAccess } = useAuth();
+  const { canAccess, hasPermission } = useAuth();
   const [cases, setCases] = useState([]);
   const [pagination, setPagination] = useState({});
   const [loading, setLoading] = useState(true);
@@ -26,6 +26,8 @@ export default function CasesPage() {
   const [filters, setFilters] = useState({ stage: '', search: '', priority: '', failure_type: '' });
   const [page, setPage] = useState(1);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [deletingIds, setDeletingIds] = useState(new Set());
+  const canDeleteCases = hasPermission('cases', 'delete');
 
   const checkStale = (c) => {
     if (c.stage === 'delivered' || c.stage === 'failed' || c.stage === 'completed' || c.stage === 'rejected') return false;
@@ -61,6 +63,24 @@ export default function CasesPage() {
       .catch(() => {})
       .finally(() => setSettingsLoaded(true));
   }, []);
+
+  const deleteCase = async (caseId) => {
+    if (!window.confirm('Send this case to the Recycle Bin?')) return;
+    setDeletingIds((prev) => new Set(prev).add(caseId));
+    try {
+      await casesApi.delete(caseId);
+      await loadCases();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Unable to delete case.');
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(caseId);
+        return next;
+      });
+    }
+  };
 
   return (
     <div>
@@ -129,6 +149,7 @@ export default function CasesPage() {
                   <th>Transfer to Client</th>
                   <th>Engineer</th>
                   <th>Received</th>
+                  {canDeleteCases && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -167,10 +188,25 @@ export default function CasesPage() {
                     </td>
                     <td className="text-xs text-muted">{c.engineer_name || '—'}</td>
                     <td className="text-xs text-muted font-mono">{new Date(c.received_at||c.created_at).toLocaleDateString('en-IN')}</td>
+                    {canDeleteCases && (
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          disabled={deletingIds.has(c.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteCase(c.id);
+                          }}
+                        >
+                          {deletingIds.has(c.id) ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {!cases.length && (
-                  <tr><td colSpan={10}>
+                  <tr><td colSpan={canDeleteCases ? 11 : 10}>
                     <div className="empty-state">
                       <div className="empty-icon">📂</div>
                       <div className="empty-title">No cases found</div>
