@@ -112,6 +112,7 @@ export default function ClientsPage() {
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [showNew, setShowNew] = useState(false);
+  const [collectingIds, setCollectingIds] = useState(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -137,6 +138,27 @@ export default function ClientsPage() {
   const renderSortIcon = (field) => {
     if (sortField !== field) return '↕';
     return sortOrder === 'asc' ? '↑' : '↓';
+  };
+
+  const handleCollect = async (client) => {
+    if (!client?.id) return;
+    const pending = parseFloat(client.pending_amount || 0);
+    if (pending <= 0) return;
+
+    setCollectingIds((prev) => new Set(prev).add(client.id));
+    try {
+      await clientsApi.collectPending(client.id);
+      await load();
+      alert(`✅ Collected pending amount for ${client.first_name} ${client.last_name}.`);
+    } catch (err) {
+      alert(err.message || 'Failed to collect pending amount');
+    } finally {
+      setCollectingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(client.id);
+        return next;
+      });
+    }
   };
 
   return (
@@ -199,6 +221,7 @@ export default function ClientsPage() {
                     Joined <span style={{fontSize:'0.75rem',opacity:0.8}}>{renderSortIcon('created_at')}</span>
                   </button>
                 </th>
+                <th>Collect</th>
               </tr></thead>
               <tbody>
                 {clients.map(cl => (
@@ -223,10 +246,20 @@ export default function ClientsPage() {
                       </div>
                     </td>
                     <td className="text-xs text-muted">{new Date(cl.created_at).toLocaleDateString('en-IN')}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${parseFloat(cl.pending_amount || 0) > 0 ? 'btn-primary' : 'btn-secondary'}`}
+                        disabled={parseFloat(cl.pending_amount || 0) <= 0 || collectingIds.has(cl.id)}
+                        onClick={() => handleCollect(cl)}
+                      >
+                        {collectingIds.has(cl.id) ? 'Collecting...' : 'Collect'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {!clients.length && (
-                  <tr><td colSpan={9}>
+                  <tr><td colSpan={10}>
                     <div className="empty-state">
                       <div className="empty-icon">👥</div>
                       <div className="empty-title">No clients found</div>

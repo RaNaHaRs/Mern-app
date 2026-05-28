@@ -245,4 +245,70 @@ router.post('/:id/communications', requireMinRole('staff'), async (req, res) => 
   }
 });
 
+// ─── POST /api/clients/:id/collect-pending ────────────────────────
+router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_client_pending', 'payment'), async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const pendingCases = await query(
+      `SELECT
+         c.id AS case_id,
+         c.case_number,
+         q.id AS quotation_id,
+         COALESCE(q.total_amount, 0) AS quotation_total,
+         COALESCE(paid.total_paid, 0) AS total_paid,
+         GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0) AS pending_amount
+       FROM cases c
+       LEFT JOIN LATERAL (
+         SELECT q.id, q.total_amount
+         FROM quotations q
+         WHERE q.case_id = c.id
+         ORDER BY q.created_at DESC
+         LIMIT 1
+       ) q ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS total_paid
+         FROM payments p
+         WHERE p.case_id = c.id
+       ) paid ON TRUE
+       WHERE c.client_id = $1`,
+      [req.params.id]
+    );
+
+    const toCollect = pendingCases.rows.filter((row) => parseFloat(row.pending_amount || 0) > 0);
+    if (!toCollect.length) {
+      return res.json({
+        ok: true,
+        message: 'No pending amount to collect.',
+        collected_amount: 0,
+        updated_cases: 0,
+      });
+    }
+
+    let collectedAmount = 0;
+    for (const row of toCollect) {
+      const amount = parseFloat(row.pending_amount || 0);
+      await query(
+        `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
+         VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
+        [row.case_id, row.quotation_id || null, amount, 'Collected from Clients page', req.user.id]
+      );
+      collectedAmount += amount;
+    }
+
+    await query('UPDATE clients SET total_paid = total_paid + $1, updated_at = NOW() WHERE id = $2', [collectedAmount, req.params.id]);
+
+    res.json({
+      ok: true,
+      message: `Collected ₹${collectedAmount.toLocaleString('en-IN')} successfully.`,
+      collected_amount: collectedAmount,
+      updated_cases: toCollect.length,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
