@@ -22,7 +22,9 @@ router.get('/summary', async (req, res) => {
     const quoteScope = tenantScope(req);
     const invoiceScope = tenantScope(req);
     const expenseScope = tenantScope(req);
-    const [qStats, invStats, expStats] = await Promise.all([
+    const caseScope = tenantScope(req, 'c');
+
+    const [qStats, invStats, expStats, casePaymentStats] = await Promise.all([
       query(`SELECT
         COUNT(*) as total_quotes,
         COUNT(*) FILTER (WHERE status IN ('accepted','invoiced')) as accepted_quotes,
@@ -43,10 +45,41 @@ router.get('/summary', async (req, res) => {
         COALESCE(SUM(total) FILTER (WHERE date >= NOW() - INTERVAL '30 days'), 0) as expenses_month
         FROM accounting_expenses${expenseScope.clause ? ` WHERE ${expenseScope.clause}` : ''}`,
         expenseScope.params),
+      query(`SELECT
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) AS total_paid,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'pending'), 0) AS total_pending,
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid' AND p.paid_at >= NOW() - INTERVAL '30 days'), 0) AS revenue_month
+        FROM payments p
+        JOIN cases c ON p.case_id = c.id
+        ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}`,
+        caseScope.params),
     ]);
+
+    const pendingQuotes = await query(
+      `SELECT
+        COALESCE(SUM(GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0)), 0) AS pending_amount,
+        COALESCE(SUM(CASE WHEN GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0) > 0
+              AND q.created_at <= NOW() - INTERVAL '30 days' THEN GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0) ELSE 0 END), 0) AS overdue_amount
+         FROM cases c
+         LEFT JOIN LATERAL (
+           SELECT q.total_amount, q.created_at
+           FROM quotations q
+           WHERE q.case_id = c.id
+           ORDER BY q.created_at DESC LIMIT 1
+         ) q ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS total_paid
+           FROM payments p
+           WHERE p.case_id = c.id
+         ) paid ON TRUE
+         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}`,
+      caseScope.params
+    );
 
     const inv = invStats.rows[0];
     const exp = expStats.rows[0];
+    const caseStats = casePaymentStats.rows[0];
+    const pendingStats = pendingQuotes.rows[0];
     const profit_month = parseFloat(inv.collected_month) - parseFloat(exp.expenses_month);
 
     res.json({
@@ -54,6 +87,15 @@ router.get('/summary', async (req, res) => {
       ...inv,
       ...exp,
       profit_month,
+      totalRevenue: parseFloat(caseStats.total_paid),
+      pendingRevenue: parseFloat(pendingStats.pending_amount),
+      overdueRevenue: parseFloat(pendingStats.overdue_amount),
+      revenue_month: parseFloat(caseStats.revenue_month),
+      case_total_paid: parseFloat(caseStats.total_paid),
+      case_total_pending: parseFloat(pendingStats.pending_amount),
+      case_total_pending_overdue: parseFloat(pendingStats.overdue_amount),
+      accounting_total_collected: parseFloat(inv.total_collected),
+      accounting_outstanding: parseFloat(inv.outstanding),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

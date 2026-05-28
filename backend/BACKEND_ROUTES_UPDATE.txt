@@ -1,0 +1,19 @@
+-- Add new endpoints to cases.js for soft-delete and recycle bin functionality
+-- This migration adds the necessary backend routes and updates
+
+-- First, let's ensure the cases table has the necessary columns from the previous migration
+-- The columns: pending_amount, deleted_at, is_recycle were added in migration 016
+
+-- Add these new endpoints to the cases.js file:
+
+-- 1. GET /api/cases/recycle-bin (list deleted cases)
+-- 2. GET /api/cases/:id/recycle-bin (get case in recycle bin)
+-- 3. POST /api/cases/:id/delete (soft-delete/move to recycle bin)
+-- 4. POST /api/cases/:id/restore (restore from recycle bin)
+-- 5. DELETE /api/cases/:id/permanent-delete (permanent deletion)
+
+-- Also need to update:
+-- 1. GET /api/cases to filter out deleted cases (WHERE deleted_at IS NULL)
+-- 2. GET /api/cases/:id to include pending_amount
+-- 3. POST /api/cases/:id/collect endpoint (already added above in cases endpoint update)
+-- 4. GET /api/accounting/summary to include pending amounts

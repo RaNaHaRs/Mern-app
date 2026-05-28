@@ -141,8 +141,23 @@ router.get('/:id', async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Client not found' });
 
     const cases = await query(
-      `SELECT id, case_number, stage, priority, failure_type, device_brand, device_model, created_at, completed_at
-       FROM cases WHERE client_id = $1 ORDER BY created_at DESC`,
+      `SELECT c.id, c.case_number, c.stage, c.priority, c.failure_type, c.device_brand, c.device_model, c.created_at, c.completed_at,
+              COALESCE(q.total_amount, 0) AS quotation_total,
+              COALESCE(paid.total_paid, 0) AS total_paid,
+              GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0) AS pending_amount
+       FROM cases c
+       LEFT JOIN LATERAL (
+         SELECT q.total_amount
+         FROM quotations q
+         WHERE q.case_id = c.id
+         ORDER BY q.created_at DESC LIMIT 1
+       ) q ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS total_paid
+         FROM payments p
+         WHERE p.case_id = c.id
+       ) paid ON TRUE
+       WHERE c.client_id = $1 ORDER BY c.created_at DESC`,
       [req.params.id]
     );
 
@@ -154,12 +169,41 @@ router.get('/:id', async (req, res) => {
     );
 
     const payments = await query(
-      `SELECT SUM(amount) as total_paid, COUNT(*) as payment_count FROM payments p
-       JOIN cases c ON p.case_id = c.id WHERE c.client_id = $1 AND p.status = 'paid'`,
+      `SELECT COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) as total_paid,
+              COUNT(p.*) as payment_count
+       FROM payments p
+       JOIN cases c ON p.case_id = c.id
+       WHERE c.client_id = $1`,
       [req.params.id]
     );
 
-    res.json({ ...result.rows[0], cases: cases.rows, communications: comms.rows, paymentSummary: payments.rows[0] });
+    const pendingSummary = await query(
+      `SELECT COALESCE(SUM(GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0)), 0) AS pending
+       FROM cases c
+       LEFT JOIN LATERAL (
+         SELECT q.total_amount
+         FROM quotations q
+         WHERE q.case_id = c.id
+         ORDER BY q.created_at DESC LIMIT 1
+       ) q ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS total_paid
+         FROM payments p
+         WHERE p.case_id = c.id
+       ) paid ON TRUE
+       WHERE c.client_id = $1`,
+      [req.params.id]
+    );
+
+    res.json({
+      ...result.rows[0],
+      cases: cases.rows,
+      communications: comms.rows,
+      paymentSummary: {
+        ...payments.rows[0],
+        pending: pendingSummary.rows[0].pending,
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

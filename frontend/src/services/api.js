@@ -130,6 +130,7 @@ export const casesApi = {
   transition: (id, data) => api.patch(`/cases/${id}/stage`, data),
   smartAssist: (id) => api.get(`/cases/${id}/smart-assist`),
   donors: (id) => api.get(`/cases/${id}/donors`),
+  collectPayment: (id) => api.post(`/cases/${id}/collect-payment`, {}),
   // Solution
   getSolution: (id) => api.get(`/cases/${id}/solution`),
   saveSolutionNote: (id, textNote) => api.put(`/cases/${id}/solution`, { textNote }),
