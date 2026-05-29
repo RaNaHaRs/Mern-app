@@ -4,6 +4,7 @@ import { inventoryApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
 import InventoryHddFields from '../components/InventoryHddFields';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
+import { loadInventoryFields } from '../utils/inventoryFieldSettings';
 import {
   FORM_INV_CATEGORIES, isHddCategoryKey, getCategoryMeta, normalizeCategoryKey,
 } from '../constants/inventoryConfig';
@@ -80,6 +81,7 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState(() => editItem?.custom_field_values || {});
+  const [inventoryFields, setInventoryFields] = useState(() => loadInventoryFields(editItem ? normalizeCategoryKey(editItem.ui_category || editItem.category) : 'hdd'));
 
   const companies = hddCompanies?.length ? hddCompanies : ['Western Digital', 'Seagate', 'Other'];
   const isHDD = isHddCategoryKey(form.category, formCategories);
@@ -88,6 +90,38 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
   const isOther = form.category === 'other';
   const showStockNumber = !isPcb;
   const showDynamicFields = isHDD && !isPcb;
+
+  useEffect(() => {
+    setInventoryFields(loadInventoryFields(form.category));
+  }, [form.category]);
+
+  const RESERVED_INVENTORY_KEYS = new Set([
+    'stock_number', 'category', 'company', 'brand', 'model', 'name', 'serial_number', 'pcb_number',
+    'capacity', 'interface', 'form_factor', 'firmware', 'site_code', 'date_code', 'head_map', 'family',
+    'condition', 'status', 'quantity', 'min_quantity', 'unit_cost', 'location', 'notes', 'description',
+  ]);
+
+  const renderInventorySettingsField = (field) => {
+    const value = form[field.key] ?? '';
+    const onChange = (e) => setForm(prev => ({ ...prev, [field.key]: e.target.value }));
+    return (
+      <div key={field.key} className="form-group" style={{ margin: 0 }}>
+        <label className="form-label">{field.label}</label>
+        {field.type === 'select' ? (
+          <select className="form-select" value={value} onChange={onChange}>
+            <option value="">Select…</option>
+            {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        ) : field.type === 'textarea' ? (
+          <textarea className="form-textarea" style={{ minHeight: 56 }} value={value} onChange={onChange} />
+        ) : (
+          <input className="form-input" type={field.type === 'number' ? 'number' : 'text'} value={value} onChange={onChange} />
+        )}
+      </div>
+    );
+  };
+
+  const customInventoryFields = inventoryFields.filter(f => !RESERVED_INVENTORY_KEYS.has(f.key));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -206,6 +240,17 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
                 customFieldValues={customFieldValues}
                 setCustomFieldValues={setCustomFieldValues}
               />
+            )}
+
+            {customInventoryFields.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: 10 }}>
+                  Inventory settings fields — {form.category?.replace(/_/g, ' ') || 'Category'}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  {customInventoryFields.map(renderInventorySettingsField)}
+                </div>
+              </div>
             )}
 
             {isHDD && (
