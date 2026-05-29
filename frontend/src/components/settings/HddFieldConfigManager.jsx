@@ -1,12 +1,43 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fieldConfigApi } from '../../services/fieldConfigApi';
-import { useInventoryConfig } from '../../hooks/useInventoryConfig';
 import { categoryToConfigKey } from '../../constants/inventoryConfig';
 
 const STATUS_OPTIONS = [
   { key: 'mandatory', label: 'Mandatory', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
   { key: 'optional', label: 'Optional', color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
   { key: 'hidden', label: 'Hidden', color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
+];
+
+const DEFAULT_HDD_DEVICE_TYPES = ['WD 2.5"','WD 3.5"','Seagate 2.5"','Seagate 3.5"','Others 2.5"','Others 3.5"'];
+
+// Builtin field definitions for HDD, SSD, PCB, and other categories
+const BUILTIN_FIELD_DEFINITIONS = [
+  // HDD Fields
+  { field_key: 'capacity', field_label: 'Capacity', field_type: 'select' },
+  { field_key: 'interface', field_label: 'Interface', field_type: 'select' },
+  { field_key: 'form_factor', field_label: 'Form Factor', field_type: 'select' },
+  { field_key: 'rpm', field_label: 'RPM', field_type: 'select' },
+  { field_key: 'rom_family', field_label: 'ROM Family', field_type: 'text' },
+  { field_key: 'firmware', field_label: 'Firmware', field_type: 'text' },
+  { field_key: 'heads', field_label: 'Heads', field_type: 'text' },
+  { field_key: 'condition', field_label: 'Condition', field_type: 'select' },
+  { field_key: 'mfg_country', field_label: 'Manufacturing Country', field_type: 'select' },
+  // SSD Fields
+  { field_key: 'ssd_type', field_label: 'SSD Type', field_type: 'select' },
+  { field_key: 'nand_type', field_label: 'NAND Type', field_type: 'select' },
+  { field_key: 'controller', field_label: 'Controller', field_type: 'text' },
+  // PCB Fields
+  { field_key: 'pcb_name', field_label: 'PCB Name', field_type: 'text' },
+  { field_key: 'pcb_number', field_label: 'PCB Number', field_type: 'text' },
+  { field_key: 'pcb_problem', field_label: 'PCB Problem', field_type: 'select' },
+  { field_key: 'pcb_type', field_label: 'PCB Type', field_type: 'select' },
+  { field_key: 'compatible_with', field_label: 'Compatible With', field_type: 'text' },
+  // Other Fields
+  { field_key: 'item_type', field_label: 'Item Type', field_type: 'select' },
+  { field_key: 'voltage', field_label: 'Voltage', field_type: 'text' },
+  { field_key: 'serial_number', field_label: 'Serial Number', field_type: 'text' },
+  { field_key: 'model', field_label: 'Model', field_type: 'text' },
+  { field_key: 'date_code', field_label: 'Date Code', field_type: 'text' },
 ];
 
 function readFieldStatus(hddFields, categoryKey, fieldKey) {
@@ -19,17 +50,20 @@ function readCustomFields(customFields, categoryKey) {
 }
 
 /** Settings → Field Config: map fields per inventory category (WD 3.5", PCB, SSD, Phone, …) */
-export default function HddFieldConfigManager() {
-  const { activeCategories, loading: catsLoading } = useInventoryConfig();
+export default function HddFieldConfigManager({ deviceTypes = [] }) {
   const [config, setConfig] = useState({ hdd_fields: {}, custom_fields: {}, sections: {} });
   const [fieldDefs, setFieldDefs] = useState([]);
-  const [activeCategory, setActiveCategory] = useState('wd_35');
+  const [activeDeviceType, setActiveDeviceType] = useState(null);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [savedMsg, setSavedMsg] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const activeConfigKey = categoryToConfigKey(activeCategory);
+  const resolvedDeviceTypes = [
+    ...DEFAULT_HDD_DEVICE_TYPES,
+    ...((deviceTypes || []).filter((type) => !DEFAULT_HDD_DEVICE_TYPES.includes(type))),
+  ];
+  const activeConfigKey = categoryToConfigKey(activeDeviceType);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,7 +76,21 @@ export default function HddFieldConfigManager() {
         sections: data.sections || {},
       };
       setConfig(cfg);
-      setFieldDefs(data.fieldDefinitions || []);
+
+      let defs = data.fieldDefinitions || data.fields || [];
+      if (!defs.length) {
+        try {
+          const fallback = await fieldConfigApi.getHddFields();
+          defs = fallback.fields || [];
+        } catch (fallbackErr) {
+          console.warn('[HddFieldConfigManager] failed to load HDD field definitions fallback', fallbackErr);
+        }
+      }
+      // If still empty, use builtin defaults
+      if (!defs.length) {
+        defs = BUILTIN_FIELD_DEFINITIONS;
+      }
+      setFieldDefs(defs);
       localStorage.setItem('crm_field_config', JSON.stringify(cfg));
     } catch (e) {
       setError(e.message);
@@ -62,10 +110,14 @@ export default function HddFieldConfigManager() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (activeCategories.length && !activeCategories.find(c => c.key === activeCategory)) {
-      setActiveCategory(activeCategories[0].key);
+    if (!resolvedDeviceTypes || !resolvedDeviceTypes.length) {
+      setActiveDeviceType(null);
+      return;
     }
-  }, [activeCategories, activeCategory]);
+    if (!activeDeviceType || !resolvedDeviceTypes.includes(activeDeviceType)) {
+      setActiveDeviceType(resolvedDeviceTypes[0]);
+    }
+  }, [resolvedDeviceTypes, activeDeviceType]);
 
   const flashSaved = () => {
     setSavedMsg(true);
@@ -107,6 +159,19 @@ export default function HddFieldConfigManager() {
 
   const customFields = (catKey) => readCustomFields(config.custom_fields, catKey);
 
+  const allFieldKeys = (() => {
+    const standard = fieldDefs.map((f) => {
+      const key = f.field_key || f.key;
+      return { key, label: f.field_label || f.label || key };
+    }).filter((f) => f.key);
+    const mapped = Object.keys(config.hdd_fields?.[activeConfigKey] || {}).map((key) => ({ key, label: key }));
+    const combined = [...standard];
+    mapped.forEach((entry) => {
+      if (!combined.find((item) => item.key === entry.key)) combined.push(entry);
+    });
+    return combined;
+  })();
+
   const addCustomField = async () => {
     if (!newFieldLabel.trim() || !activeConfigKey) return;
     try {
@@ -131,14 +196,18 @@ export default function HddFieldConfigManager() {
   const removeCustomField = async (catKey, cf) => {
     try {
       if (cf.id) await fieldConfigApi.deleteCustomField(cf.id);
-      const cfg = JSON.parse(JSON.stringify(config));
-      if (cfg.custom_fields?.[catKey]) {
-        cfg.custom_fields[catKey] = cfg.custom_fields[catKey].filter(
-          f => (f.id || f.key) !== (cf.id || cf.key)
-        );
-      }
-      setConfig(cfg);
-      localStorage.setItem('crm_field_config', JSON.stringify(cfg));
+      // Refresh authoritative config from server into localStorage and state
+      const refreshed = await fieldConfigApi.loadToLocalStorage();
+      console.debug('[HddFieldConfigManager] refreshed config from server:', refreshed);
+      const normalized = {
+        hdd_fields: refreshed.hdd_fields || refreshed.hddFields || {},
+        custom_fields: refreshed.custom_fields || refreshed.customFields || {},
+        sections: refreshed.sections || {},
+      };
+      setConfig(normalized);
+      localStorage.setItem('crm_field_config', JSON.stringify(normalized));
+      // Notify other components (Add Case form) to reload schema/cache
+      try { window.dispatchEvent(new Event('crm_field_config_updated')); } catch (e) { /* ignore */ }
       flashSaved();
     } catch (e) {
       setError(e.message);
@@ -149,29 +218,33 @@ export default function HddFieldConfigManager() {
     if (!window.confirm('Remove this field from this category?')) return;
     try {
       await fieldConfigApi.deleteFieldFromCategory(catKey, fieldKey);
-      const cfg = JSON.parse(JSON.stringify(config));
-      if (!cfg.hdd_fields) cfg.hdd_fields = {};
-      if (!cfg.hdd_fields[catKey]) cfg.hdd_fields[catKey] = {};
-      cfg.hdd_fields[catKey][fieldKey] = 'hidden';
-      setConfig(cfg);
-      localStorage.setItem('crm_field_config', JSON.stringify(cfg));
+      const refreshed = await fieldConfigApi.loadToLocalStorage();
+      console.debug('[HddFieldConfigManager] refreshed config from server:', refreshed);
+      const normalized = {
+        hdd_fields: refreshed.hdd_fields || refreshed.hddFields || {},
+        custom_fields: refreshed.custom_fields || refreshed.customFields || {},
+        sections: refreshed.sections || {},
+      };
+      setConfig(normalized);
+      localStorage.setItem('crm_field_config', JSON.stringify(normalized));
+      // Notify other components to reload schema/cache
+      try { window.dispatchEvent(new Event('crm_field_config_updated')); } catch (e) { /* ignore */ }
       flashSaved();
     } catch (e) {
       setError(e.message);
     }
   };
 
-  const allFieldKeys = fieldDefs.map(f => ({ key: f.field_key, label: f.field_label }));
-  const activeCatLabel = activeCategories.find(c => c.key === activeCategory)?.label || activeCategory;
+  const activeDeviceTypeLabel = activeDeviceType || 'No device type selected';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {error && <div className="alert alert-warning"><span className="alert-icon">⚠</span> {error}</div>}
-      {(loading || catsLoading) && <div className="text-muted text-sm">Loading…</div>}
+      {loading && <div className="text-muted text-sm">Loading…</div>}
 
       <div className="alert alert-info" style={{ marginBottom: 0 }}>
         <span className="alert-icon">💡</span>
-        Map fields per <strong>inventory category</strong> (same options as Add Stock Item → Category: WD 3.5", PCB, SSD, Phone, etc.).
+        Map fields per <strong>device type</strong> (same options as Case Settings → Devices → HDD / Device Types).
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -192,19 +265,19 @@ export default function HddFieldConfigManager() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>📂 Field mapping per category</div>
+        <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>📂 Field mapping per device type</div>
 
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {activeCategories.map(c => (
-            <button key={c.key} type="button" onClick={() => setActiveCategory(c.key)}
+          {(resolvedDeviceTypes || []).map((type) => (
+            <button key={type} type="button" onClick={() => setActiveDeviceType(type)}
               style={{
                 padding: '6px 14px', borderRadius: 6, border: '1px solid', fontSize: '0.78rem', cursor: 'pointer',
-                borderColor: activeCategory === c.key ? (c.color || 'var(--accent-primary)') : 'var(--border-default)',
-                background: activeCategory === c.key ? `${c.color || 'var(--accent-primary)'}18` : 'transparent',
-                color: activeCategory === c.key ? (c.color || 'var(--accent-primary)') : 'var(--text-secondary)',
-                fontWeight: activeCategory === c.key ? 700 : 400,
+                borderColor: activeDeviceType === type ? 'var(--accent-primary)' : 'var(--border-default)',
+                background: activeDeviceType === type ? 'rgba(59,130,246,0.12)' : 'transparent',
+                color: activeDeviceType === type ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                fontWeight: activeDeviceType === type ? 700 : 400,
               }}>
-              {c.icon} {c.label}
+              {type}
             </button>
           ))}
         </div>
@@ -253,13 +326,13 @@ export default function HddFieldConfigManager() {
             );
           })}
           {!allFieldKeys.length && !loading && (
-            <div className="text-muted text-sm">Add fields under HDD Types → Stock Form Fields first.</div>
+            <div className="text-muted text-sm">No fields available for this device type. Add custom fields to configure this category.</div>
           )}
         </div>
 
         <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', padding: 14 }}>
           <div style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: 10 }}>
-            ➕ Custom fields for {activeCatLabel}
+            ➕ Custom fields for {activeDeviceTypeLabel}
           </div>
           {customFields(activeConfigKey).map(cf => (
             <div key={cf.id || cf.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: 'rgba(99,102,241,0.08)', borderRadius: 6, marginBottom: 6 }}>
@@ -277,7 +350,7 @@ export default function HddFieldConfigManager() {
 
       {savedMsg && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#22c55e', color: '#fff', padding: '10px 18px', borderRadius: 8, fontWeight: 700, zIndex: 9999 }}>
-          ✓ Saved for {activeCatLabel}
+          ✓ Saved for {activeDeviceTypeLabel}
         </div>
       )}
     </div>

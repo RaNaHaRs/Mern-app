@@ -9,6 +9,24 @@ const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
 const router = express.Router();
 router.use(authenticate);
 
+function normalizeLegacyHddType(hddType) {
+  const legacyMap = {
+    wd_3_5: 'wd_35',
+    wd_2_5: 'wd_25',
+    seagate_3_5: 'seagate_35',
+    seagate_2_5: 'seagate_25',
+    others_3_5: 'others_35',
+    others_2_5: 'others_25',
+    wd_35: 'wd_3_5',
+    wd_25: 'wd_2_5',
+    seagate_35: 'seagate_3_5',
+    seagate_25: 'seagate_2_5',
+    others_35: 'others_3_5',
+    others_25: 'others_2_5',
+  };
+  return legacyMap[hddType] || null;
+}
+
 function currentTenantId(req) {
   return tenantAdminId(req.user);
 }
@@ -76,6 +94,7 @@ router.get('/', async (req, res) => {
     customResult.rows.forEach(row => {
       if (!customFields[row.hdd_type]) customFields[row.hdd_type] = [];
       customFields[row.hdd_type].push({
+        id: row.id,
         key: row.field_key,
         label: row.field_label,
         type: row.field_type,
@@ -254,7 +273,7 @@ router.get('/hdd-fields', async (req, res) => {
 router.post(
   '/hdd-fields',
   requireMinRole('admin'),
-  [body('fieldLabel').notEmpty(), body('fieldType').optional().isIn(['text', 'textarea', 'date', 'number'])],
+  [body('fieldLabel').notEmpty(), body('fieldType').optional().isIn(['text', 'textarea', 'date', 'number', 'select', 'checkbox'])],
   auditLog('create_hdd_field', 'field_config'),
   async (req, res) => {
     const errors = validationResult(req);
@@ -345,7 +364,7 @@ router.put(
     if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
 
     try {
-      const { hddType, fieldKey, status } = req.body;
+      const {   hddType, fieldKey, status } = req.body;
 
       const result = await query(
         `INSERT INTO field_configs (tenant_id, hdd_type, field_key, field_status)
@@ -462,7 +481,9 @@ router.get('/schema/:hddType', async (req, res) => {
     const rawType = decodeURIComponent(req.params.hddType);
     const customBrand = req.query.customBrand || '';
     const hddType = resolveConfigKey(rawType, customBrand) || rawType;
+    const aliasType = normalizeLegacyHddType(hddType);
     const tenantId = currentTenantId(req);
+    const hddTypes = aliasType ? [hddType, aliasType] : [hddType];
 
     const standardFields = await query(
       `SELECT fm.field_key, fm.field_label, fm.field_type,
@@ -471,22 +492,22 @@ router.get('/schema/:hddType', async (req, res) => {
        FROM hdd_field_mappings fm
        LEFT JOIN field_configs fc
          ON fc.field_key = fm.field_key
-        AND fc.hdd_type = $1
+          AND fc.hdd_type = ANY($1)
         ${!isSuperAdmin(req.user) ? 'AND fc.tenant_id = $2' : ''}
        WHERE fm.is_standard = true
-         ${!isSuperAdmin(req.user) ? 'AND (fm.tenant_id IS NULL OR fm.tenant_id = $2)' : ''}
-         AND COALESCE(fc.field_status, 'optional') != 'hidden'
+           ${!isSuperAdmin(req.user) ? 'AND (fm.tenant_id IS NULL OR fm.tenant_id = $2)' : ''}
+           AND COALESCE(fc.field_status, 'optional') != 'hidden'
        ORDER BY COALESCE(fc.field_order, fm.field_order, 0), fm.field_label`,
-      !isSuperAdmin(req.user) ? [hddType, tenantId] : [hddType]
+        !isSuperAdmin(req.user) ? [hddTypes, tenantId] : [hddTypes]
     );
 
     const customFields = await query(
       `SELECT id, field_key, field_label, field_type, is_mandatory, field_order
        FROM custom_fields
-       WHERE hdd_type = $1 AND is_active = true
+         WHERE hdd_type = ANY($1) AND is_active = true
        ${!isSuperAdmin(req.user) ? 'AND tenant_id = $2' : ''}
        ORDER BY field_order`,
-      !isSuperAdmin(req.user) ? [hddType, tenantId] : [hddType]
+        !isSuperAdmin(req.user) ? [hddTypes, tenantId] : [hddTypes]
     );
 
     res.json({

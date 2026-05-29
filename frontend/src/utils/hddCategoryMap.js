@@ -1,3 +1,5 @@
+import { categoryToConfigKey } from '../constants/inventoryConfig';
+
 export const INV_TO_CONFIG = {
   wd_35: 'wd_3_5',
   wd_25: 'wd_2_5',
@@ -20,7 +22,7 @@ export const HDD_INV_KEYS = new Set(Object.keys(INV_TO_CONFIG));
 
 export function inventoryToConfigKey(uiCategory) {
   if (!uiCategory) return null;
-  return INV_TO_CONFIG[uiCategory] || uiCategory.replace(/\./g, '_').replace(/-/g, '_');
+  return INV_TO_CONFIG[uiCategory] || categoryToConfigKey(uiCategory);
 }
 
 export function isInventoryHddCategory(category) {

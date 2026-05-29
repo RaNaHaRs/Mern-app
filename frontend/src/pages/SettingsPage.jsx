@@ -369,7 +369,7 @@ const CASE_SETTINGS_DEFAULTS = {
   interfaces: ['SATA','NVMe','SAS','IDE','USB','PCIe','M.2','eSATA'],
   capacities: ['160GB','250GB','320GB','500GB','750GB','1TB','1.5TB','2TB','3TB','4TB','6TB','8TB','10TB','12TB','14TB','16TB','18TB','20TB'],
   payment_methods: ['Cash','UPI','Card (Debit/Credit)','Bank Transfer','NEFT','RTGS','IMPS','Cheque','Online (Razorpay)','PayPal'],
-  hdd_types: [],
+  hdd_types: ['WD 2.5"','WD 3.5"','Seagate 2.5"','Seagate 3.5"','Others 2.5"','Others 3.5"'],
 };
 
 function loadCaseSettingsFromLocalStorage() {
@@ -2116,7 +2116,7 @@ export default function SettingsPage() {
               <p style={{ fontSize:'0.82rem',color:'var(--text-muted)',marginBottom:20 }}>
                 Fields used in the HDD fields step. Manage which dynamic fields are required for each HDD/device type.
               </p>
-              <HddFieldConfigManager />
+              <HddFieldConfigManager deviceTypes={caseSettings?.hdd_types || []} />
             </div>
           )}
 
@@ -2177,9 +2177,9 @@ export default function SettingsPage() {
             <div className="card">
               <div className="card-title" style={{ marginBottom: 4 }}>🔧 Field Config</div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
-                Control which fields appear on the Add Stock form per inventory category and set each field's visibility status.
+                Control which fields appear on the Add Case form per HDD / Device Type and set each field's visibility status.
               </div>
-              <HddFieldConfigManager />
+              <HddFieldConfigManager deviceTypes={caseSettings?.hdd_types || []} />
             </div>
           )}
 

@@ -38,7 +38,9 @@ class ModalErrorBoundary extends React.Component {
 }
 import { casesApi, clientsApi, usersApi, suggestionsApi } from "../services/api";
 import { fieldConfigApi } from "../services/fieldConfigApi";
+import { HddFieldsImproved } from "./HddFieldsImproved";
 import { TextareaAutocomplete } from "./FormComponents";
+import { categoryToConfigKey } from '../constants/inventoryConfig';
 
 function getCustomProblemDescriptions() {
   try {
@@ -133,28 +135,36 @@ const HDD_TYPES = [
   { key: "others_3.5", label: 'Others 3.5"', brand: "" },
 ];
 
-// Dynamic HDD types: prefer admin-configured list from Case Settings (backend)
-// Falls back to localStorage ('custom_hdd_types') and then built-in `HDD_TYPES`.
+// Combine predefined HDD types with custom device types from Case Settings
+// Always shows default types + any admin-created custom types (no replacement)
 function resolveDynamicHddTypes(caseSettings) {
   try {
+    // Start with predefined types
+    const result = [...HDD_TYPES];
+    
+    // Add custom types from Case Settings (backend config)
     const fromSettings = caseSettings?.hdd_types;
     if (Array.isArray(fromSettings) && fromSettings.length) {
-      return fromSettings.map((label) => {
-        const existing = HDD_TYPES.find((h) => h.label === label);
-        if (existing) return existing;
+      fromSettings.forEach((label) => {
+        // Skip if already in predefined list
+        if (result.find((h) => h.label === label)) return;
         const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-        return { key, label, brand: '' };
+        result.push({ key, label, brand: '' });
       });
     }
 
+    // Also check localStorage for custom types (offline fallback)
     const stored = JSON.parse(localStorage.getItem('custom_hdd_types') || 'null');
-    const labels = Array.isArray(stored) && stored.length ? stored : HDD_TYPES.map((h) => h.label);
-    return labels.map((label) => {
-      const existing = HDD_TYPES.find((h) => h.label === label);
-      if (existing) return existing;
-      const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-      return { key, label, brand: '' };
-    });
+    if (Array.isArray(stored) && stored.length) {
+      stored.forEach((label) => {
+        // Skip if already in list
+        if (result.find((h) => h.label === label)) return;
+        const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        result.push({ key, label, brand: '' });
+      });
+    }
+
+    return result;
   } catch {
     return HDD_TYPES;
   }
@@ -814,213 +824,6 @@ function FileUploadArea({ files, onChange }) {
   );
 }
 
-// ── HDD Dynamic Fields ─────────────────────────────────────────────────────
-// ── HDD Dynamic Fields ─────────────────────────────────────────────────────
-function HddFields({ hddKey, form, setForm, stepErrors, showStepErrors, caseSettings }) {
-  const normKey = hddKey.replace(/\./g, "_").replace(/-/g, "_");
-
-  const fields = useMemo(() => {
-    return HDD_FIELDS[normKey] || [];
-  }, [normKey]);
-
-  const isSeagate = useMemo(() => {
-    return hddKey.includes("seagate");
-  }, [hddKey]);
-
-  const cfg = getFieldConfig();
-
-  const customs = useMemo(() => {
-    return customFieldsFor(cfg, normKey);
-  }, [cfg, normKey]);
-
-  const visibleFields = useMemo(() => {
-    return fields.filter(
-      (f) => fieldStatus(cfg, normKey, f) !== "hidden",
-    );
-  }, [fields, cfg, normKey]);
-
-  const handleFieldChange = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-
-    // Auto parse Seagate date code
-    if (field === "date_code" && isSeagate) {
-      parseDateCode(value);
-    }
-  };
-
-  const parseDateCode = (code) => {
-    if (!code || !isSeagate) return;
-
-    const yr = parseInt(code.substring(0, 2));
-    const wk = parseInt(code.substring(2, 4));
-
-    if (!isNaN(yr) && !isNaN(wk)) {
-      const d = new Date(2000 + yr, 0, 1 + (wk - 1) * 7);
-
-      setForm((prev) => ({
-        ...prev,
-        manufacture_date: d.toISOString().split("T")[0],
-      }));
-    }
-  };
-
-  const invalidFieldStyle = (field) =>
-    stepErrors?.[field]
-      ? {
-          borderColor: "var(--danger)",
-          boxShadow: "0 0 0 2px rgba(239,68,68,0.12)",
-        }
-      : {};
-
-  if (!visibleFields.length && !customs.length) {
-    return (
-      <div
-        style={{
-          padding: "14px",
-          textAlign: "center",
-          color: "var(--text-muted)",
-          fontSize: "0.8rem",
-          background: "var(--bg-elevated)",
-          borderRadius: 8,
-        }}
-      >
-        All fields for this HDD type are hidden.
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))",
-          gap: 14,
-        }}
-      >
-        {visibleFields.map((field) => {
-          const isMandatory = isHddFieldRequired(field);
-
-          return (
-            <div
-              key={field}
-              className="form-group"
-              style={{ margin: 0 }}
-            >
-              <label className="form-label">
-                {FIELD_LABELS[field] || field}
-
-                {isMandatory && (
-                  <span
-                    style={{
-                      color: "var(--danger)",
-                      marginLeft: 4,
-                    }}
-                  >
-                    *
-                  </span>
-                )}
-
-                {field === "date_code" && isSeagate && (
-                  <a
-                    href="https://seagate.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      marginLeft: 6,
-                      fontSize: "0.62rem",
-                      color: "var(--accent-primary)",
-                      textDecoration: "none",
-                    }}
-                  >
-                    📎 Decode Guide
-                  </a>
-                )}
-              </label>
-
-              {field === "manufacture_date" ? (
-                <input
-                  type="date"
-                  className="form-input"
-                  value={form[field] || ""}
-                  onChange={(e) =>
-                    handleFieldChange(field, e.target.value)
-                  }
-                  style={{ ...invalidFieldStyle(field) }}
-                  aria-invalid={!!stepErrors?.[field]}
-                />
-              ) : field === "manufacture_country" ? (
-                <select
-                  className="form-select"
-                  value={form[field] || ""}
-                  onChange={(e) => handleFieldChange(field, e.target.value)}
-                  style={{ ...invalidFieldStyle(field) }}
-                  aria-invalid={!!stepErrors?.[field]}
-                >
-                  <option value="">Select Manufacturing Country...</option>
-                  {getCaseSettingsList(caseSettings, "manufacture_countries", ["Thailand","China","Malaysia","Philippines"]).map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  className="form-input"
-                  value={form[field] || ""}
-                  onChange={(e) =>
-                    handleFieldChange(field, e.target.value)
-                  }
-                  style={{ ...invalidFieldStyle(field) }}
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-invalid={!!stepErrors?.[field]}
-                />
-              )}
-              {showStepErrors && stepErrors && stepErrors[field] && (
-                <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-                  {stepErrors[field]}
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {/* Custom Fields */}
-        {customs.map((cf) => (
-          <div
-            key={cf.key}
-            className="form-group"
-            style={{ margin: 0 }}
-          >
-            <label
-              className="form-label"
-              style={{
-                color: "var(--accent-secondary)",
-              }}
-            >
-              ✦ {cf.label}
-            </label>
-
-            <input
-              type="text"
-              className="form-input"
-              value={form[cf.key] || ""}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  [cf.key]: e.target.value,
-                }))
-              }
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 // ── Inline New Client Mini Form ────────────────────────────────────────────
 function NewClientForm({ onCreated, onCancel }) {
   const [form, setForm] = useState({
@@ -1623,7 +1426,7 @@ function StepDeviceCustomInput({ form, setForm, inputStyle, stepErrors }) {
   );
 }
 
-function StepHddFieldsView({ form, setForm, stepErrors, showStepErrors, hddTypes, caseSettings }) {
+function StepHddFieldsView({ form, setForm, stepErrors, showStepErrors, hddTypes, caseSettings, customFieldValues, setCustomFieldValues }) {
   return (
     <div>
       {form.hdd_type ? (
@@ -1631,7 +1434,14 @@ function StepHddFieldsView({ form, setForm, stepErrors, showStepErrors, hddTypes
           <div style={{ marginBottom: 12, padding: "8px 12px", background: "var(--accent-glow)", borderRadius: 6, fontSize: "0.8rem", color: "var(--accent-primary)", fontWeight: 600 }}>
             🔧 Fields for: {hddTypes.find((h) => h.key === form.hdd_type)?.label}
           </div>
-          <HddFields hddKey={form.hdd_type} form={form} setForm={setForm} stepErrors={stepErrors} showStepErrors={showStepErrors} caseSettings={caseSettings} />
+          <HddFieldsImproved
+            hddKey={form.hdd_type}
+            form={form}
+            setForm={setForm}
+            customFieldValues={customFieldValues}
+            setCustomFieldValues={setCustomFieldValues}
+            caseSettings={caseSettings}
+          />
         </>
       ) : (
         <div style={{ padding: "30px", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
@@ -1802,6 +1612,8 @@ export default function NewCaseModal({ onClose, onCreated }) {
   const [stepErrors, setStepErrors] = useState({});
   const [stepValid, setStepValid] = useState(false);
   const [showStepErrors, setShowStepErrors] = useState(false);
+  const [customFieldValues, setCustomFieldValues] = useState({});
+  const [hddSchema, setHddSchema] = useState(null);
 
   const validateStepIndex = (idx) => {
     const errs = {};
@@ -1826,12 +1638,32 @@ export default function NewCaseModal({ onClose, onCreated }) {
       if (!form.hdd_type) {
         errs.hdd_type = "Select HDD Type in Device step";
       } else {
-        const normKey = (form.hdd_type || "").replace(/\./g, "_").replace(/-/g, "_");
-        const fields = HDD_FIELDS[normKey] || [];
-        fields.forEach((f) => {
-          if (!isHddFieldRequired(f)) return;
-          if (!form[f] && form[f] !== 0) errs[f] = `${FIELD_LABELS[f] || f} is required`;
-        });
+        if (hddSchema?.standardFields?.length) {
+          hddSchema.standardFields.forEach((field) => {
+            if (!field.status || field.status === "hidden") return;
+            if (!field.is_mandatory) return;
+            const fieldKey = field.field_key || field.name;
+            if (!fieldKey) return;
+            if (!form[fieldKey] && form[fieldKey] !== 0) {
+              errs[fieldKey] = `${field.field_label || field.field_key || fieldKey} is required`;
+            }
+          });
+          if (hddSchema.customFields?.length) {
+            hddSchema.customFields.forEach((cf) => {
+              if (!cf.is_mandatory) return;
+              if (!customFieldValues[cf.id] && customFieldValues[cf.id] !== 0) {
+                errs[`customField_${cf.id}`] = `${cf.field_label || cf.field_key} is required`;
+              }
+            });
+          }
+        } else {
+          const normKey = categoryToConfigKey(form.hdd_type);
+          const fields = HDD_FIELDS[normKey] || [];
+          fields.forEach((f) => {
+            if (!isHddFieldRequired(f)) return;
+            if (!form[f] && form[f] !== 0) errs[f] = `${FIELD_LABELS[f] || f} is required`;
+          });
+        }
       }
     }
 
@@ -1883,6 +1715,20 @@ export default function NewCaseModal({ onClose, onCreated }) {
       .then((s) => setCaseSettings(s || null))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const hddType = form.hdd_type;
+    if (!hddType) {
+      setHddSchema(null);
+      return;
+    }
+
+    const normalizedKey = categoryToConfigKey(hddType);
+    setCustomFieldValues({});
+    fieldConfigApi.getSchema(normalizedKey)
+      .then((schema) => setHddSchema(schema || null))
+      .catch(() => setHddSchema(null));
+  }, [form.hdd_type]);
 
   useEffect(() => {
     const refreshCaseSettings = (next) => {
@@ -1995,20 +1841,30 @@ export default function NewCaseModal({ onClose, onCreated }) {
     }
     // Validate mandatory HDD fields
     if (form.hdd_type) {
-      const fCfg = getFieldConfig();
-      const normKey = form.hdd_type.replace(/\./g, "_").replace(/-/g, "_");
-      const fields = HDD_FIELDS[normKey] || [];
-      const missingMandatory = fields.filter(
-        (f) =>
-          isHddFieldRequired(f) &&
-          fieldStatus(fCfg, normKey, f) === "mandatory" &&
-          !form[f],
-      );
+      const missingMandatory = [];
+
+      if (hddSchema?.standardFields?.length) {
+        hddSchema.standardFields.forEach((field) => {
+          if (!field.status || field.status === "hidden") return;
+          if (!field.is_mandatory) return;
+          const fieldKey = field.field_key || field.name;
+          if (!fieldKey) return;
+          if (!form[fieldKey] && form[fieldKey] !== 0) {
+            missingMandatory.push(`${field.field_label || fieldKey}`);
+          }
+        });
+      } else {
+        const fCfg = getFieldConfig();
+        const normKey = categoryToConfigKey(form.hdd_type);
+        const fields = HDD_FIELDS[normKey] || [];
+        fields.forEach((f) => {
+          if (!isHddFieldRequired(f) || fieldStatus(fCfg, normKey, f) !== "mandatory") return;
+          if (!form[f] && form[f] !== 0) missingMandatory.push(FIELD_LABELS[f] || f);
+        });
+      }
+
       if (missingMandatory.length > 0) {
-        const labels = missingMandatory
-          .map((f) => FIELD_LABELS[f] || f)
-          .join(", ");
-        setError(`Mandatory fields missing: ${labels}`);
+        setError(`Mandatory fields missing: ${missingMandatory.join(", ")}`);
         setStep(2);
         return;
       }
@@ -2035,6 +1891,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
         symptom_notes: form.problem_description?.trim() || undefined,
         quotation_amount: form.quotation_amount ? parseFloat(form.quotation_amount) : undefined,
         advance_amount: form.advance_amount ? parseFloat(form.advance_amount) : undefined,
+        customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
       };
       if (payload.capacity === "__others__" && form.selected_custom_capacity) {
         payload.capacity = form.selected_custom_capacity;
@@ -2130,6 +1987,8 @@ export default function NewCaseModal({ onClose, onCreated }) {
       showStepErrors={showStepErrors}
       hddTypes={DYN_HDD_TYPES}
       caseSettings={caseSettings}
+      customFieldValues={customFieldValues}
+      setCustomFieldValues={setCustomFieldValues}
     />,
     <StepProblemView
       form={form}

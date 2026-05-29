@@ -96,8 +96,12 @@ export function getCategoryMeta(key, categories = FORM_INV_CATEGORIES) {
   return categories.find(c => c.key === norm) || categories.find(c => c.key === key) || { key: norm, label: norm.toUpperCase(), icon: '📦', color: '#64748b' };
 }
 
-/** Field Config + dynamic form fields use inventory category key (wd_35, pcb, ssd, …) */
+/** Field Config + dynamic form fields use normalized config keys for categories and device types */
 export function categoryToConfigKey(categoryKey) {
   if (!categoryKey) return null;
-  return String(categoryKey).trim().replace(/\./g, '_').replace(/-/g, '_');
+  return String(categoryKey)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
