@@ -1334,22 +1334,55 @@ function AccountsTab() {
 function ActivityLogsTab() {
   const [logs, setLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(true);
-  const [filter, setFilter] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
   const SEV_COLORS = { success: '#10b981', info: 'var(--accent-primary)', warn: '#f59e0b', danger: '#ef4444' };
 
-  useEffect(() => {
-    saApi.get('/audit-log').then(d => { setLogs(d.logs || []); setLogsLoading(false); }).catch(() => setLogsLoading(false));
+  const loadLogs = useCallback(async (opts = {}) => {
+    setLogsLoading(true);
+    try {
+      const d = await saApi.get('/audit-logs' + (opts.q ? `?q=${encodeURIComponent(opts.q)}` : ''));
+      // Normalize rows to a shape frontend expects
+      const normalized = (d.logs || []).map(r => ({
+        id: r.id || r.request_id || Math.random().toString(36).slice(2, 9),
+        action: r.action || r.title || '',
+        detail: r.description || r.detail || r.title || '',
+        user: r.full_name || r.username || r.user_name || r.user || 'System',
+        at: r.created_at || r.at || new Date().toISOString(),
+        severity: r.severity || 'info',
+      }));
+      setLogs(normalized);
+    } catch (e) {
+      console.error('Failed to load audit logs', e && e.message);
+    } finally {
+      setLogsLoading(false);
+    }
   }, []);
 
-  const filtered = logs.filter(l => !filter || l.action.toUpperCase().includes(filter.toUpperCase()) || l.detail.toLowerCase().includes(filter.toLowerCase()));
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  const filtered = logs.filter(l => {
+    const matchesSearch = !searchTerm || (l.action + ' ' + l.detail + ' ' + l.user).toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesAction = !actionFilter || l.action.toUpperCase().includes(actionFilter.toUpperCase());
+    return matchesSearch && matchesAction;
+  });
+
+  const stats = React.useMemo(() => {
+    const total = logs.length;
+    const byAction = logs.reduce((acc, cur) => { acc[cur.action] = (acc[cur.action] || 0) + 1; return acc; }, {});
+    const topAction = Object.entries(byAction).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
+    const last24 = logs.filter(l => new Date(l.at) > Date.now() - 24 * 3600 * 1000).length;
+    return { total, topAction: topAction[0], last24 };
+  }, [logs]);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: 200 }}>
-          <input className="search-input" placeholder="Search logs..." value={filter} onChange={e => setFilter(e.target.value)} />
+        <div className="search-bar" style={{ flex: 1, minWidth: 220 }}>
+          <input className="search-input" placeholder="Search logs (action, detail, user)" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
-        <select className="form-select" style={{ width: 'auto' }} value={filter} onChange={e => setFilter(e.target.value)}>
+
+        <select className="form-select" style={{ width: 'auto' }} value={actionFilter} onChange={e => setActionFilter(e.target.value)}>
           <option value="">All Events</option>
           <option value="TENANT">Subscriber Events</option>
           <option value="PAYMENT">Payment Events</option>
@@ -1357,8 +1390,24 @@ function ActivityLogsTab() {
           <option value="LOGIN">Login Events</option>
           <option value="COUPON">Coupon Events</option>
         </select>
-        <button className="btn btn-secondary btn-sm" onClick={() => { setLogsLoading(true); saApi.get('/audit-log').then(d => { setLogs(d.logs || []); setLogsLoading(false); }).catch(() => setLogsLoading(false)); }}>Refresh</button>
-        <button className="btn btn-secondary btn-sm" onClick={() => alert('[Demo] Exporting activity logs as CSV...')}>Export CSV</button>
+
+        <button className="btn btn-secondary btn-sm" onClick={() => loadLogs()}>Refresh</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => { window.location.href = `${BASE_URL}/super-admin/audit-logs/export`; }}>Export CSV</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flexWrap: 'wrap' }}>
+        <div className="card" style={{ padding: 12, minWidth: 160 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Logs</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{stats.total}</div>
+        </div>
+        <div className="card" style={{ padding: 12, minWidth: 160 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Last 24h</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{stats.last24}</div>
+        </div>
+        <div className="card" style={{ padding: 12, minWidth: 220 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Top Action</div>
+          <div style={{ fontSize: '1rem', fontWeight: 700 }}>{stats.topAction} <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>·</span></div>
+        </div>
       </div>
 
       {logsLoading ? (
@@ -1369,19 +1418,20 @@ function ActivityLogsTab() {
 
       <div style={{ display: 'grid', gap: 8 }}>
         {!logsLoading && filtered.map(log => (
-          <div key={log.id} style={{ display: 'flex', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderLeft: `4px solid ${SEV_COLORS[log.severity]}`, borderRadius: 'var(--radius-md)' }}>
+          <div key={log.id} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderLeft: `4px solid ${SEV_COLORS[log.severity]}`, borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
             <div style={{ minWidth: 12, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: SEV_COLORS[log.severity] }} />
+              <div style={{ width: 10, height: 10, borderRadius: '50%', background: SEV_COLORS[log.severity] }} />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                <span style={{ fontSize: '0.7rem', padding: '1px 7px', borderRadius: 4, background: `${SEV_COLORS[log.severity]}15`, color: SEV_COLORS[log.severity], fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{log.action}</span>
-                <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>by {log.user}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: '0.78rem', padding: '3px 8px', borderRadius: 6, background: `${SEV_COLORS[log.severity]}15`, color: SEV_COLORS[log.severity], fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{log.action}</span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>by <strong>{log.user}</strong></span>
               </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{log.detail}</div>
+              <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{log.detail}</div>
             </div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', marginTop: 2 }}>
-              {new Date(log.at).toLocaleDateString('en-IN')} {new Date(log.at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+            <div style={{ textAlign: 'right', minWidth: 145 }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtDate(log.at)}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>{fmtTime(log.at)}</div>
             </div>
           </div>
         ))}
