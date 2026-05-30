@@ -1336,6 +1336,11 @@ function ActivityLogsTab() {
   const [logsLoading, setLogsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [userQuery, setUserQuery] = useState('');
+  const [userMatches, setUserMatches] = useState([]);
+  const [userLoading, setUserLoading] = useState(false);
+  const [userLogs, setUserLogs] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50);
   const [total, setTotal] = useState(0);
@@ -1384,6 +1389,54 @@ function ActivityLogsTab() {
   useEffect(() => {
     loadLogs({ page: 1, limit: 50, q: '', action: '' });
   }, []);
+
+  // Search users by name/email (super-admin helper)
+  const searchUsers = async (q) => {
+    if (!q || !q.trim()) return setUserMatches([]);
+    setUserLoading(true);
+    try {
+      const res = await saApi.get(`/users/search?name=${encodeURIComponent(q.trim())}`);
+      setUserMatches(res.users || []);
+    } catch (e) {
+      console.error('User search failed', e && e.message);
+      setUserMatches([]);
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const fetchUserLogs = async (user) => {
+    if (!user) return;
+    setSelectedUser(user);
+    setUserLoading(true);
+    try {
+      const res = await saApi.get(`/audit-logs?user_id=${encodeURIComponent(user.id)}&limit=500`);
+      setUserLogs(res.logs || []);
+    } catch (e) {
+      console.error('Failed to fetch user logs', e && e.message);
+      setUserLogs([]);
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const exportUserLogsPdf = (user) => {
+    const rows = userLogs || [];
+    if (!rows.length) { alert('No logs to export for this user'); return; }
+    const title = `Activity logs - ${user.full_name || user.username || user.email}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+      <style>body{font-family:Arial,Helvetica,sans-serif;padding:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;font-size:12px}th{background:#f4f4f4}</style>
+      </head><body><h1>${title}</h1><table><thead><tr><th>Timestamp</th><th>Action</th><th>Detail</th><th>Module</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${new Date(r.created_at || r.at || r.at).toLocaleString()}</td><td>${(r.action||r.action||'')}</td><td>${(r.description||r.detail||r.detail||'')}</td><td>${r.module||r.resource_type||''}</td></tr>`).join('')}
+      </tbody></table></body></html>`;
+
+    const w = window.open('', '_blank');
+    if (!w) { alert('Popup blocked. Allow popups to export PDF.'); return; }
+    w.document.write(html);
+    w.document.close();
+    // Give the window a moment to render
+    setTimeout(() => w.print(), 500);
+  };
 
   const handleApplyFilters = () => {
     const nextPage = 1;
@@ -1455,6 +1508,27 @@ function ActivityLogsTab() {
         <button className="btn btn-secondary btn-sm" onClick={() => { window.location.href = `${BASE_URL}/super-admin/audit-logs/export${buildQuery({ page, limit, q: searchTerm, action: actionFilter })}`; }}>Export CSV</button>
       </div>
 
+      {/* User-specific search & PDF export (below filters) */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+        <input className="form-input" placeholder="Search user by name or email" value={userQuery} onChange={e => { setUserQuery(e.target.value); }} style={{ minWidth: 220 }} />
+        <button className="btn btn-primary btn-sm" onClick={() => searchUsers(userQuery)} disabled={userLoading}>{userLoading ? 'Searching...' : 'Find User'}</button>
+        {userMatches.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            {userMatches.slice(0,5).map(u => (
+              <button key={u.id} className="btn btn-sm" style={{ fontSize: '0.78rem' }} onClick={() => fetchUserLogs(u)} title={u.email || ''}>
+                Go: {u.full_name || u.username || u.email}
+              </button>
+            ))}
+          </div>
+        )}
+        {selectedUser && (
+          <>
+            <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginLeft: 8 }}>Selected: <strong>{selectedUser.full_name || selectedUser.username || selectedUser.email}</strong></div>
+            <button className="btn btn-secondary btn-sm" onClick={() => exportUserLogsPdf(selectedUser)}>Export PDF</button>
+          </>
+        )}
+      </div>
+
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flexWrap: 'wrap' }}>
         <div className="card" style={{ padding: 12, minWidth: 160 }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Logs</div>
@@ -1508,6 +1582,32 @@ function ActivityLogsTab() {
           </div>
         ))}
       </div>
+
+      {selectedUser && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <div className="card-title" style={{ marginBottom: 10 }}>Activity — {selectedUser.full_name || selectedUser.username || selectedUser.email}</div>
+          {userLoading ? (
+            <div style={{ textAlign: 'center', padding: 20 }}><div className="spinner" style={{ width: 20, height: 20, margin: '0 auto' }} /></div>
+          ) : userLogs.length === 0 ? (
+            <div className="empty-state" style={{ padding: 20 }}><div className="empty-desc">No activity logs for this user</div></div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {userLogs.map(l => (
+                <div key={l.id || l.request_id || Math.random()} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderLeft: `4px solid ${SEV_COLORS[l.severity || 'info']}`, borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700 }}>{l.action || l.title}</div>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{l.description || l.detail || l.title}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', minWidth: 140 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{fmtDate(l.created_at || l.at)}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>{fmtTime(l.created_at || l.at)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 8 }}>
         {pageButtons.map(pageNumber => (

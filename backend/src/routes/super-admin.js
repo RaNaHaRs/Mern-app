@@ -827,6 +827,24 @@ router.webhookHandler = handleRazorpayWebhook;
 // G. AUDIT LOGS
 // ═══════════════════════════════════════════════════════════════
 
+// GET /api/super-admin/users/search?name=...  — simple user search for Super Admin
+router.get('/users/search', async (req, res) => {
+  try {
+    const name = (req.query.name || '').trim();
+    if (!name) return res.json({ users: [] });
+
+    const q = `%${name}%`;
+    const result = await query(
+      `SELECT id, username, full_name, email FROM users WHERE username ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1 ORDER BY created_at DESC LIMIT 20`,
+      [q]
+    );
+
+    res.json({ users: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/super-admin/audit-logs?page=1&limit=50&action=&user_id=&from=&to=
 router.get('/audit-logs', async (req, res) => {
   try {
