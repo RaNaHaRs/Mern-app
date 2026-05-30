@@ -1336,13 +1336,31 @@ function ActivityLogsTab() {
   const [logsLoading, setLogsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(50);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
   const SEV_COLORS = { success: '#10b981', info: 'var(--accent-primary)', warn: '#f59e0b', danger: '#ef4444' };
 
-  const loadLogs = useCallback(async (opts = {}) => {
+  const buildQuery = (opts = {}) => {
+    const params = new URLSearchParams();
+    const currentPage = opts.page ?? page;
+    const currentLimit = opts.limit ?? limit;
+    const query = opts.q ?? searchTerm;
+    const action = opts.action ?? actionFilter;
+
+    if (query) params.set('q', query);
+    if (action) params.set('action', action);
+    params.set('page', currentPage);
+    params.set('limit', currentLimit);
+    return params.toString() ? `?${params.toString()}` : '';
+  };
+
+  const loadLogs = async ({ page: p = 1, limit: l = 50, q = '', action = '' } = {}) => {
     setLogsLoading(true);
     try {
-      const d = await saApi.get('/audit-logs' + (opts.q ? `?q=${encodeURIComponent(opts.q)}` : ''));
-      // Normalize rows to a shape frontend expects
+      const queryString = buildQuery({ page: p, limit: l, q, action });
+      const d = await saApi.get(`/audit-logs${queryString}`);
       const normalized = (d.logs || []).map(r => ({
         id: r.id || r.request_id || Math.random().toString(36).slice(2, 9),
         action: r.action || r.title || '',
@@ -1352,28 +1370,69 @@ function ActivityLogsTab() {
         severity: r.severity || 'info',
       }));
       setLogs(normalized);
+      setTotal(d.total || 0);
+      setPages(d.pages || Math.max(1, Math.ceil((d.total || normalized.length) / l)));
+      setPage(p);
+      setLimit(l);
     } catch (e) {
       console.error('Failed to load audit logs', e && e.message);
     } finally {
       setLogsLoading(false);
     }
+  };
+
+  useEffect(() => {
+    loadLogs({ page: 1, limit: 50, q: '', action: '' });
   }, []);
 
-  useEffect(() => { loadLogs(); }, [loadLogs]);
+  const handleApplyFilters = () => {
+    const nextPage = 1;
+    setPage(nextPage);
+    loadLogs({ page: nextPage, limit, q: searchTerm, action: actionFilter });
+  };
 
-  const filtered = logs.filter(l => {
-    const matchesSearch = !searchTerm || (l.action + ' ' + l.detail + ' ' + l.user).toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesAction = !actionFilter || l.action.toUpperCase().includes(actionFilter.toUpperCase());
-    return matchesSearch && matchesAction;
-  });
+  const handleLimitChange = (value) => {
+    const nextPage = 1;
+    setLimit(value);
+    setPage(nextPage);
+    loadLogs({ page: nextPage, limit: value, q: searchTerm, action: actionFilter });
+  };
+
+  const goToPage = (pageNumber) => {
+    if (pageNumber === page || logsLoading) return;
+    setPage(pageNumber);
+    loadLogs({ page: pageNumber, limit, q: searchTerm, action: actionFilter });
+  };
+
+  const pageButtons = React.useMemo(() => {
+    const visible = [];
+    const left = Math.max(1, page - 2);
+    const right = Math.min(pages, page + 2);
+
+    if (left > 1) {
+      visible.push(1);
+      if (left > 2) visible.push('start-ellipsis');
+    }
+
+    for (let i = left; i <= right; i += 1) {
+      visible.push(i);
+    }
+
+    if (right < pages) {
+      if (right < pages - 1) visible.push('end-ellipsis');
+      visible.push(pages);
+    }
+
+    return visible;
+  }, [page, pages]);
 
   const stats = React.useMemo(() => {
-    const total = logs.length;
+    const totalLogs = total;
     const byAction = logs.reduce((acc, cur) => { acc[cur.action] = (acc[cur.action] || 0) + 1; return acc; }, {});
     const topAction = Object.entries(byAction).sort((a, b) => b[1] - a[1])[0] || ['—', 0];
     const last24 = logs.filter(l => new Date(l.at) > Date.now() - 24 * 3600 * 1000).length;
-    return { total, topAction: topAction[0], last24 };
-  }, [logs]);
+    return { totalLogs, topAction: topAction[0], last24 };
+  }, [logs, total]);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -1391,14 +1450,15 @@ function ActivityLogsTab() {
           <option value="COUPON">Coupon Events</option>
         </select>
 
-        <button className="btn btn-secondary btn-sm" onClick={() => loadLogs()}>Refresh</button>
-        <button className="btn btn-secondary btn-sm" onClick={() => { window.location.href = `${BASE_URL}/super-admin/audit-logs/export`; }}>Export CSV</button>
+        <button className="btn btn-secondary btn-sm" onClick={handleApplyFilters}>Filter</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => loadLogs({ page: 1, limit, q: searchTerm, action: actionFilter })}>Refresh</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => { window.location.href = `${BASE_URL}/super-admin/audit-logs/export${buildQuery({ page, limit, q: searchTerm, action: actionFilter })}`; }}>Export CSV</button>
       </div>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'stretch', flexWrap: 'wrap' }}>
         <div className="card" style={{ padding: 12, minWidth: 160 }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Total Logs</div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{stats.total}</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{stats.totalLogs}</div>
         </div>
         <div className="card" style={{ padding: 12, minWidth: 160 }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Last 24h</div>
@@ -1410,14 +1470,26 @@ function ActivityLogsTab() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Showing page {page} of {pages} ({logs.length} records on this page)</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Rows per page</label>
+          <select className="form-select" style={{ width: 110 }} value={limit} onChange={e => handleLimitChange(Number(e.target.value))}>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+      </div>
+
       {logsLoading ? (
         <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" style={{ width: 28, height: 28, margin: '0 auto' }} /></div>
-      ) : filtered.length === 0 ? (
+      ) : logs.length === 0 ? (
         <div className="empty-state" style={{ padding: 30 }}><div className="empty-icon"></div><div className="empty-title">No log entries</div><div className="empty-desc">Platform activity will appear here</div></div>
       ) : null}
 
       <div style={{ display: 'grid', gap: 8 }}>
-        {!logsLoading && filtered.map(log => (
+        {!logsLoading && logs.map(log => (
           <div key={log.id} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderLeft: `4px solid ${SEV_COLORS[log.severity]}`, borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
             <div style={{ minWidth: 12, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: SEV_COLORS[log.severity] }} />
@@ -1434,6 +1506,24 @@ function ActivityLogsTab() {
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4 }}>{fmtTime(log.at)}</div>
             </div>
           </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+        {pageButtons.map(pageNumber => (
+          pageNumber === 'start-ellipsis' || pageNumber === 'end-ellipsis' ? (
+            <span key={pageNumber} style={{ padding: '0 10px', color: 'var(--text-muted)' }}>…</span>
+          ) : (
+            <button
+              key={pageNumber}
+              className="btn btn-sm"
+              style={{ minWidth: 36, fontWeight: pageNumber === page ? 700 : 500, background: pageNumber === page ? 'var(--accent-primary)' : 'var(--bg-card)', color: pageNumber === page ? '#fff' : 'var(--text-primary)' }}
+              onClick={() => goToPage(pageNumber)}
+              disabled={logsLoading}
+            >
+              {pageNumber}
+            </button>
+          )
         ))}
       </div>
     </div>

@@ -1,4 +1,5 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
+import { useTheme } from '../store/ThemeContext';
 import { Chart as ChartJS, ArcElement, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { Doughnut, Pie, Line, Bar } from 'react-chartjs-2';
 
@@ -13,13 +14,31 @@ const STAGE_COLORS_HEX = {
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: true,
-  plugins: {
-    legend: { display: true, position: 'bottom', labels: { font: { size: 11, family: 'var(--font-mono)' }, color: () => {
-      const theme = document.documentElement.getAttribute('data-theme') || 'dark';
-      return theme === 'dark' ? '#f8fafc' : '#0f172a';
-    }, padding: 12, usePointStyle: true } },
-    tooltip: { backgroundColor: 'rgba(0,0,0,0.8)', titleFont: { size: 12 }, bodyFont: { size: 11 }, padding: 10, borderRadius: 6, cornerRadius: 4 },
-  },
+    plugins: {
+      legend: {
+        display: true,
+        position: 'bottom',
+        labels: {
+          font: { size: 11, family: 'var(--font-mono)' },
+          // scriptable: choose color based on document theme
+          color: (ctx) => (document.documentElement.getAttribute('data-theme') === 'dark' ? '#f8fafc' : '#0f172a'),
+          padding: 12,
+          usePointStyle: true,
+        },
+      },
+      tooltip: {
+        // scriptable tooltip colors for theme contrast
+        backgroundColor: (ctx) => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'rgba(0,0,0,0.8)' : '#ffffff'),
+        titleColor: (ctx) => (document.documentElement.getAttribute('data-theme') === 'dark' ? '#f8fafc' : '#0f172a'),
+        bodyColor: (ctx) => (document.documentElement.getAttribute('data-theme') === 'dark' ? '#f8fafc' : '#0f172a'),
+        borderColor: (ctx) => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)'),
+        titleFont: { size: 12 },
+        bodyFont: { size: 11 },
+        padding: 10,
+        borderRadius: 6,
+        cornerRadius: 4,
+      },
+    },
 };
 
 export function StageDistributionChart({ data = [] }) {
@@ -38,26 +57,33 @@ export function StageDistributionChart({ data = [] }) {
     }],
   };
 
-  const options = {
-    ...chartOptions,
-    plugins: {
-      ...chartOptions.plugins,
-      tooltip: {
-        ...chartOptions.plugins.tooltip,
-        callbacks: {
-          label: (context) => {
-            const count = context.parsed;
-            const pct = ((count / total) * 100).toFixed(1);
-            return `${count} cases (${pct}%)`;
-          },
-        },
-      },
-    },
-  };
+  const { theme } = useTheme();
+  const chartRef = useRef(null);
+  const options = useMemo(() => {
+    const themeIsDark = theme !== 'light';
+    const base = JSON.parse(JSON.stringify(chartOptions));
+    if (base.plugins?.legend?.labels) base.plugins.legend.labels.color = themeIsDark ? '#f8fafc' : '#0f172a';
+    if (base.plugins?.tooltip) {
+      base.plugins.tooltip.backgroundColor = themeIsDark ? 'rgba(0,0,0,0.8)' : '#ffffff';
+      base.plugins.tooltip.titleColor = themeIsDark ? '#f8fafc' : '#0f172a';
+      base.plugins.tooltip.bodyColor = themeIsDark ? '#f8fafc' : '#0f172a';
+      base.plugins.tooltip.borderColor = themeIsDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)';
+    }
+    base.plugins = { ...base.plugins, tooltip: { ...base.plugins.tooltip, callbacks: { label: (context) => {
+      const count = context.parsed;
+      const pct = ((count / total) * 100).toFixed(1);
+      return `${count} cases (${pct}%)`;
+    } } } };
+    return base;
+  }, [theme, total]);
+
+  useEffect(() => {
+    if (chartRef.current && chartRef.current.update) chartRef.current.update();
+  }, [theme]);
 
   return (
     <div style={{ position: 'relative', height: 220 }}>
-      <Doughnut data={chartData} options={options} />
+      <Doughnut ref={chartRef} data={chartData} options={options} />
     </div>
   );
 }
@@ -83,25 +109,30 @@ export function RevenueTrendChart({ data = [] }) {
     }],
   };
 
-  const options = {
-    ...chartOptions,
-    scales: {
-      y: { beginAtZero: true, ticks: { callback: (v) => `₹${(v / 1000).toFixed(0)}k` } },
-    },
-    plugins: {
-      ...chartOptions.plugins,
-      tooltip: {
-        ...chartOptions.plugins.tooltip,
-        callbacks: {
-          label: (context) => `₹${parseFloat(context.parsed.y).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
-        },
-      },
-    },
-  };
+  const { theme } = useTheme();
+  const chartRef = useRef(null);
+  const options = useMemo(() => {
+    const themeIsDark = theme !== 'light';
+    const base = JSON.parse(JSON.stringify(chartOptions));
+    if (base.plugins?.legend?.labels) base.plugins.legend.labels.color = themeIsDark ? '#f8fafc' : '#0f172a';
+    if (base.plugins?.tooltip) {
+      base.plugins.tooltip.backgroundColor = themeIsDark ? 'rgba(0,0,0,0.8)' : '#ffffff';
+      base.plugins.tooltip.titleColor = themeIsDark ? '#f8fafc' : '#0f172a';
+      base.plugins.tooltip.bodyColor = themeIsDark ? '#f8fafc' : '#0f172a';
+      base.plugins.tooltip.borderColor = themeIsDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)';
+    }
+    base.scales = { y: { beginAtZero: true, ticks: { callback: (v) => `₹${(v / 1000).toFixed(0)}k` } } };
+    base.plugins = { ...base.plugins, tooltip: { ...base.plugins.tooltip, callbacks: { label: (context) => `₹${parseFloat(context.parsed.y).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` } } };
+    return base;
+  }, [theme]);
+
+  useEffect(() => {
+    if (chartRef.current && chartRef.current.update) chartRef.current.update();
+  }, [theme]);
 
   return (
     <div style={{ position: 'relative', height: 220 }}>
-      <Line data={chartData} options={options} />
+      <Line ref={chartRef} data={chartData} options={options} />
     </div>
   );
 }
