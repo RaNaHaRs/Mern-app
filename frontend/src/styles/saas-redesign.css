@@ -628,20 +628,24 @@
 /* Modals */
 .saas-app .modal-overlay {
   background: var(--bg-overlay) !important;
-  backdrop-filter: blur(2px) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
   z-index: 1000 !important;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 20px !important;
+  animation: fade-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  transition: background 220ms ease !important; backdrop-filter : 220ms ease !important;
 }
 
 .saas-app .modal {
   background: var(--bg-surface) !important;
   border: 1px solid var(--border-default) !important;
-  border-radius: var(--radius-md) !important;
-  box-shadow: var(--shadow-lg) !important;
-  animation: none !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.20) !important;
+  animation: modal-pop-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  transform-origin: center center !important;
   width: auto !important;
   min-width: 320px !important;
   max-width: min(680px, 100%) !important;
@@ -657,9 +661,9 @@
 .saas-app .modal-xl { max-width: min(880px, 100%) !important; }
 
 .saas-app .modal-header {
-  border-bottom: 1px solid var(--border-default) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
   background: var(--bg-base) !important;
-  padding: 16px 20px !important;
+  padding: 20px 22px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: space-between !important;
@@ -671,20 +675,21 @@
   font-weight: 600 !important;
   font-size: 0.95rem !important;
   margin: 0 !important;
+  letter-spacing: -0.02em !important;
 }
 
 .saas-app .modal-body {
-  padding: 18px 20px !important;
+  padding: 20px 22px !important;
   overflow-y: auto !important;
   flex: 1 !important;
   min-height: 0 !important;
-  max-height: calc(90vh - 140px) !important;
+  max-height: calc(90vh - 170px) !important;
 }
 
 .saas-app .modal-footer {
-  border-top: 1px solid var(--border-default) !important;
+  border-top: 1px solid rgba(148, 163, 184, 0.12) !important;
   background: var(--bg-base) !important;
-  padding: 14px 20px !important;
+  padding: 16px 22px !important;
   display: flex !important;
   justify-content: flex-end !important;
   gap: 10px !important;

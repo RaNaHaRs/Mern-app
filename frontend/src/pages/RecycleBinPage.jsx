@@ -120,6 +120,273 @@ function ConfirmDeleteModal({ item, onConfirm, onClose }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Case Details Modal
+// ═══════════════════════════════════════════════════════════════════════
+function CaseDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Case Details</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{ paddingBottom: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px', fontSize: '0.8rem' }}>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Case Number</div>
+              <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>{item.case_number}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Priority</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.priority || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Client Name</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.client_name || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Engineer</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.engineer || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Device Type</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.device_type || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Brand</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.brand || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Model</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.model || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Capacity</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.capacity || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Failure Type</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.failure_type || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Stage at Deletion</div>
+              <span style={{ fontSize: '0.68rem', padding: '2px 7px', borderRadius: 999, background: 'rgba(100,116,139,0.12)', color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>{item.status || item.stage || '—'}</span>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Total Amount</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>₹{(item.total_amount || 0).toLocaleString('en-IN')}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Pending Amount</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>₹{(item.pending_amount || 0).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+          {item.notes && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(100,116,139,0.2)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes</div>
+              <div style={{ fontSize: '0.78rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.notes}</div>
+            </div>
+          )}
+          {item.diagnosis && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(100,116,139,0.2)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Diagnosis</div>
+              <div style={{ fontSize: '0.78rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.diagnosis}</div>
+            </div>
+          )}
+          {item.solution_summary && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(100,116,139,0.2)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Solution Summary</div>
+              <div style={{ fontSize: '0.78rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.solution_summary}</div>
+            </div>
+          )}
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(100,116,139,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: '0.75rem' }}>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Created Date</div>
+              <div style={{ fontWeight: 600 }}>{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Deleted Date</div>
+              <div style={{ fontWeight: 600 }}>{item.deleted_at ? new Date(item.deleted_at).toLocaleDateString('en-IN') : '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Deleted By</div>
+              <div style={{ fontWeight: 600 }}>{item.deleted_by_name || '—'}</div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={onRestore}>Restore</button>
+          {isSuperAdmin && (
+            <button className="btn btn-danger" onClick={onDelete}>Permanent Delete</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Inventory Details Modal
+// ═══════════════════════════════════════════════════════════════════════
+function InventoryDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) {
+  const cat = getCategoryMeta(item.ui_category || item.category);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Inventory Item Details</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{ paddingBottom: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px', fontSize: '0.8rem' }}>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Item Number</div>
+              <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '0.85rem' }}>{item.stock_number || item.sku || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Category</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{cat.icon} {cat.label}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Manufacturer</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.brand || item.manufacturer || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Model</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.model || item.name || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Capacity</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.capacity || item.size || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Quantity</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.quantity || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Status</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.status || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Location</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.location || item.storage_location || '—'}</div>
+            </div>
+            {item.pcb_number && (
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>PCB Number</div>
+                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{item.pcb_number}</div>
+              </div>
+            )}
+            {item.purchase_date && (
+              <div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Purchase Date</div>
+                <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{new Date(item.purchase_date).toLocaleDateString('en-IN')}</div>
+              </div>
+            )}
+          </div>
+          {item.notes && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(100,116,139,0.2)' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Notes</div>
+              <div style={{ fontSize: '0.78rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.notes}</div>
+            </div>
+          )}
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(100,116,139,0.2)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: '0.75rem' }}>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Created Date</div>
+              <div style={{ fontWeight: 600 }}>{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Deleted Date</div>
+              <div style={{ fontWeight: 600 }}>{item.deleted_at ? new Date(item.deleted_at).toLocaleDateString('en-IN') : '—'}</div>
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Deleted By</div>
+              <div style={{ fontWeight: 600 }}>{item.deleted_by_name || '—'}</div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={onRestore}>Restore</button>
+          {isSuperAdmin && (
+            <button className="btn btn-danger" onClick={onDelete}>Permanent Delete</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Media Details Modal
+// ═══════════════════════════════════════════════════════════════════════
+function MediaDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }}>
+        <div className="modal-header">
+          <h3 className="modal-title">Media File Details</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-body" style={{ paddingBottom: 0 }}>
+          <div style={{ marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid rgba(100,116,139,0.2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <span style={{ fontSize: '2rem' }}>{fileTypeIcon(item)}</span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', wordBreak: 'break-word' }}>{item.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{formatFileSize(item.size)}</div>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px', fontSize: '0.8rem' }}>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>File Type</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.mime_type || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>File Size</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{formatFileSize(item.size)}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Source Module</div>
+              <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)' }}>{item.source_label || '—'}</span>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Related To</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.parent_label || item.parent_id || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Uploaded By</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.uploaded_by_name || '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Uploaded Date</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Deleted Date</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.deleted_at ? new Date(item.deleted_at).toLocaleDateString('en-IN') : '—'}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Deleted By</div>
+              <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.deleted_by_name || '—'}</div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+          <button className="btn btn-primary" onClick={onRestore}>Restore</button>
+          {isSuperAdmin && (
+            <button className="btn btn-danger" onClick={onDelete}>Permanent Delete</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RecycleBinPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -130,6 +397,7 @@ export default function RecycleBinPage() {
   const [loading, setLoading] = useState(true);
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [detailsModal, setDetailsModal] = useState(null); // { type: 'cases'|'inventory'|'media', item: {...} }
   const isSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const loadCases = useCallback(async () => {
@@ -175,6 +443,22 @@ export default function RecycleBinPage() {
       name: item.case_number || item.model || item.name || 'item',
       type
     });
+  };
+
+  const showDetails = (item, type) => {
+    setDetailsModal({ type, item });
+  };
+
+  const handleDetailsRestore = () => {
+    if (!detailsModal) return;
+    triggerRestore(detailsModal.item, detailsModal.type);
+    setDetailsModal(null);
+  };
+
+  const handleDetailsDelete = () => {
+    if (!detailsModal) return;
+    triggerDelete(detailsModal.item, detailsModal.type);
+    setDetailsModal(null);
   };
 
   const executeRestore = async () => {
@@ -278,7 +562,7 @@ export default function RecycleBinPage() {
             <thead><tr><th>File</th><th>Type</th><th>Source</th><th>Location</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
             <tbody>
               {mediaItems.map(item => (
-                <tr key={item.id}>
+                <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => showDetails(item, 'media')}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span>{fileTypeIcon(item)}</span>
@@ -293,7 +577,7 @@ export default function RecycleBinPage() {
                   <td className="text-xs">{item.parent_label || item.parent_id}</td>
                   <td className="text-xs text-muted">{item.deleted_by_name || '—'}</td>
                   <td className="text-xs text-muted">{daysAgo(item.deleted_at)}</td>
-                  <td>
+                  <td onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'media')}>Restore</button>
                       {isSuperAdmin && (
@@ -314,14 +598,14 @@ export default function RecycleBinPage() {
               {invItems.map(item => {
                 const cat = getCategoryMeta(item.ui_category || item.category);
                 return (
-                  <tr key={item.id}>
+                  <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => showDetails(item, 'inventory')}>
                     <td className="font-mono text-xs">{item.stock_number || item.sku || '—'}</td>
                     <td>{cat.icon} {cat.label}</td>
                     <td>{item.model || item.name || '—'}</td>
                     <td className="font-mono text-xs">{item.pcb_number || '—'}</td>
                     <td className="text-xs text-muted">{item.deleted_by_name || '—'}</td>
                     <td className="text-xs text-muted">{item.deleted_at ? daysAgo(item.deleted_at) : '—'}</td>
-                    <td>
+                    <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'inventory')}>Restore</button>
                         {isSuperAdmin && (
@@ -341,7 +625,7 @@ export default function RecycleBinPage() {
             <thead><tr><th>Case #</th><th>Client</th><th>Device</th><th>Status at Deletion</th><th>Deleted By</th><th>Deleted</th></tr></thead>
             <tbody>
               {items.map(item => (
-                <tr key={item.id} style={{ opacity:0.85 }}>
+                <tr key={item.id} style={{ cursor: 'pointer', opacity: 0.85 }} onClick={() => showDetails(item, 'cases')}>
                   <td><span className="font-mono text-xs" style={{ color:'var(--text-muted)' }}>{item.case_number}</span></td>
                   <td><div style={{ fontWeight:600 }}>{item.client_name}</div></td>
                   <td className="text-xs">{[item.device_type,item.brand,item.model].filter(Boolean).join(' · ')}</td>
@@ -349,7 +633,7 @@ export default function RecycleBinPage() {
                   <td className="text-xs text-muted">{item.deleted_by_name || 'Admin'}</td>
                   <td className="text-xs text-muted" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <span>{daysAgo(item.deleted_at)}</span>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                       <button className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'cases')}> Restore</button>
                       {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'cases')} style={{ fontSize: '0.72rem' }}> Delete</button>}
                     </div>
@@ -374,6 +658,34 @@ export default function RecycleBinPage() {
           </div>
         </div>
       </div>
+
+      {detailsModal && detailsModal.type === 'cases' && (
+        <CaseDetailsModal
+          item={detailsModal.item}
+          onRestore={handleDetailsRestore}
+          onDelete={handleDetailsDelete}
+          onClose={() => setDetailsModal(null)}
+          isSuperAdmin={isSuperAdmin}
+        />
+      )}
+      {detailsModal && detailsModal.type === 'inventory' && (
+        <InventoryDetailsModal
+          item={detailsModal.item}
+          onRestore={handleDetailsRestore}
+          onDelete={handleDetailsDelete}
+          onClose={() => setDetailsModal(null)}
+          isSuperAdmin={isSuperAdmin}
+        />
+      )}
+      {detailsModal && detailsModal.type === 'media' && (
+        <MediaDetailsModal
+          item={detailsModal.item}
+          onRestore={handleDetailsRestore}
+          onDelete={handleDetailsDelete}
+          onClose={() => setDetailsModal(null)}
+          isSuperAdmin={isSuperAdmin}
+        />
+      )}
 
       {restoreTarget && (
         <ConfirmRestoreModal item={restoreTarget} onConfirm={executeRestore} onClose={() => setRestoreTarget(null)} />

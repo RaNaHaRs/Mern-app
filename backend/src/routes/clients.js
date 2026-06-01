@@ -286,7 +286,7 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
 
     const toCollect = pendingCases.rows.filter((row) => parseFloat(row.pending_amount || 0) > 0);
     if (!toCollect.length) {
-      return res.json({ ok: true, message: 'No pending amount to collect.', collected_amount: 0, updated_cases: 0 });
+      return res.json({ ok: true, message: 'No pending amount to collect.', collected_amount: 0, updated_cases: 0, allocation_details: [] });
     }
 
     const totalPending = toCollect.reduce((s, r) => s + parseFloat(r.pending_amount || 0), 0);
@@ -294,20 +294,38 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       return res.status(400).json({ error: 'Amount exceeds total pending amount', total_pending: totalPending });
     }
 
+    // ✅ CRITICAL FIX: Sort by pending_amount DESC (highest first) for intelligent allocation
+    // This ensures payment is allocated to the case with the highest outstanding balance first
+    const sortedByPending = toCollect.sort((a, b) => parseFloat(b.pending_amount || 0) - parseFloat(a.pending_amount || 0));
+
     // Run inserts/updates inside a transaction
     const result = await require('../config/database').transaction(async (client) => {
       let remaining = amountRequested;
       let updatedCases = 0;
-      for (const row of toCollect) {
+      const allocationDetails = [];
+      
+      for (const row of sortedByPending) {
         if (remaining <= 0) break;
         const pendingAmt = parseFloat(row.pending_amount || 0);
         if (pendingAmt <= 0) continue;
+        
         const pay = Math.min(pendingAmt, remaining);
+        
         await client.query(
           `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
            VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
           [row.case_id, row.quotation_id || null, pay, notes, req.user.id]
         );
+        
+        // Track allocation for response
+        allocationDetails.push({
+          case_id: row.case_id,
+          case_number: row.case_number,
+          allocated_amount: pay,
+          previous_pending: pendingAmt,
+          new_pending: Math.max(0, pendingAmt - pay)
+        });
+        
         remaining -= pay;
         updatedCases += 1;
       }
@@ -317,10 +335,16 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
         await client.query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2', [collected, req.params.id]);
       }
 
-      return { collected, updatedCases };
+      return { collected, updatedCases, allocationDetails };
     });
 
-    res.json({ ok: true, message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`, collected_amount: result.collected, updated_cases: result.updatedCases });
+    res.json({ 
+      ok: true, 
+      message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`, 
+      collected_amount: result.collected, 
+      updated_cases: result.updatedCases,
+      allocation_details: result.allocationDetails || []
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

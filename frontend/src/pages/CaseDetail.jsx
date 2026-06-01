@@ -1688,7 +1688,13 @@ export default function CaseDetail() {
         <div>
           {/* Quick payment button */}
           <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:16 }}>
-            <button className="btn btn-primary" onClick={() => setShowPayment(true)}> Collect Payment</button>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowPayment(true)}
+              disabled={parseFloat(caseData?.balance_due ?? caseData?.pending_amount ?? 0) <= 0}
+            >
+              Collect Payment
+            </button>
           </div>
           {caseInvoices.length > 0 && (
             <div className="card" style={{marginBottom:16}}>
@@ -1811,7 +1817,12 @@ export default function CaseDetail() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header"><h3 className="modal-title"> Collect Payment — {caseData.case_number}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowPayment(false)}>✕</button></div>
             <div className="modal-body">
-              <CollectPaymentForm caseId={id} onClose={() => setShowPayment(false)} onDone={() => { casesApi.get(id).then(setCaseData); setShowPayment(false); }} />
+              <CollectPaymentForm
+                caseId={id}
+                caseData={caseData}
+                onClose={() => setShowPayment(false)}
+                onDone={() => { casesApi.get(id).then(setCaseData); setShowPayment(false); }}
+              />
             </div>
           </div>
         </div>
@@ -2048,9 +2059,22 @@ function CommunicationLogPanel({ caseId, caseData }) {
 }
 
 // Collect Payment Form
-function CollectPaymentForm({ caseId, onClose, onDone }) {
-  const [form, setForm] = useState({ amount:'', discount_type:'none', discount_value:'', method:'UPI', reference:'', notes:'' });
+function CollectPaymentForm({ caseId, caseData, onClose, onDone }) {
+  const quotationAmount = parseFloat(caseData?.quotations?.[0]?.total_amount || caseData?.quotations?.[0]?.estimated_cost || 0);
+  const totalCollected = parseFloat(caseData?.total_paid || 0);
+  const remainingBalance = parseFloat(caseData?.balance_due ?? caseData?.pending_amount ?? Math.max(0, quotationAmount - totalCollected));
+  const defaultAmount = remainingBalance > 0 ? remainingBalance : quotationAmount || 0;
+
+  const [form, setForm] = useState({
+    amount: defaultAmount ? defaultAmount.toFixed(2) : '',
+    discount_type:'none',
+    discount_value:'',
+    method:'UPI',
+    reference:'',
+    notes:'',
+  });
   const [loading, setLoading] = useState(false);
+  const [validationError, setValidationError] = useState('');
   const companyData = (() => { try { return JSON.parse(localStorage.getItem('crm_company')) || {}; } catch { return {}; }})();
   const PAY_METHODS = (() => {
     try { const c = JSON.parse(localStorage.getItem('custom_payment_methods')); if (c && c.length) return c; } catch {}
@@ -2061,25 +2085,59 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
   const discountAmt = form.discount_type === 'flat'
     ? Math.min(parseFloat(form.discount_value) || 0, grossAmount)
     : form.discount_type === 'percent'
-    ? grossAmount * (Math.min(parseFloat(form.discount_value) || 0, 100) / 100)
-    : 0;
+      ? grossAmount * (Math.min(parseFloat(form.discount_value) || 0, 100) / 100)
+      : 0;
   const finalAmount = Math.max(0, grossAmount - discountAmt);
 
+  const formatCurrency = (value) => `₹${parseFloat(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+  const validateForm = () => {
+    if (remainingBalance <= 0) {
+      return 'This case is already fully paid. No payment can be collected.';
+    }
+    if (!form.amount || grossAmount <= 0) {
+      return 'Enter a valid gross amount to collect.';
+    }
+    if (grossAmount < 0) {
+      return 'Amount cannot be negative.';
+    }
+    if (finalAmount <= 0) {
+      return 'Final collection amount must be greater than zero after discount.';
+    }
+    if (finalAmount > remainingBalance) {
+      return `Amount cannot exceed remaining balance of ${formatCurrency(remainingBalance)}.`;
+    }
+    return '';
+  };
+
   const handle = async () => {
-    if (finalAmount <= 0) { alert('Enter an amount greater than zero'); return; }
+    const error = validateForm();
+    setValidationError(error);
+    if (error) return;
+
     setLoading(true);
     try {
       await fetch(`${BASE_URL}/cases/${caseId}/payments`, {
         method:'POST',
         headers:{ Authorization:`Bearer ${getToken()}`, 'Content-Type':'application/json' },
-        body: JSON.stringify({ ...form, amount: finalAmount, gross_amount: grossAmount, discount_amount: discountAmt }),
+        body: JSON.stringify({
+          ...form,
+          amount: finalAmount,
+          gross_amount: grossAmount,
+          discount_amount: discountAmt,
+        }),
       });
       onDone();
-    } catch(e){ alert(e.message); } finally{ setLoading(false); }
+    } catch(e) {
+      setValidationError(e?.message || 'Unable to record payment for this case.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const generateLink = async () => {
-    if (!finalAmount) { alert('Enter amount first'); return; }
+    const error = validateForm();
+    if (error) { setValidationError(error); return; }
     try {
       const res = await fetch(`${BASE_URL}/razorpay/payment-link`, {
         method: 'POST',
@@ -2097,24 +2155,43 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
     }
   };
 
+  const clientName = `${caseData?.first_name || ''} ${caseData?.last_name || ''}`.trim() || 'Client';
+  const formError = validationError || validateForm();
+
   return (
     <div>
+      <div style={{ display:'grid', gap:12, marginBottom:16 }}>
+        <div className="tech-data-table" style={{ padding:12, border:'1px solid var(--border-subtle)', borderRadius:'var(--radius-md)', background:'var(--bg-elevated)' }}>
+          <div className="tech-data-cell"><div className="tech-data-label">Case</div><div className="tech-data-value font-mono">{caseData?.case_number || '—'}</div></div>
+          <div className="tech-data-cell"><div className="tech-data-label">Client</div><div className="tech-data-value">{clientName}</div></div>
+          <div className="tech-data-cell"><div className="tech-data-label">Quotation</div><div className="tech-data-value">{quotationAmount > 0 ? formatCurrency(quotationAmount) : '—'}</div></div>
+          <div className="tech-data-cell"><div className="tech-data-label">Collected</div><div className="tech-data-value" style={{ color: 'var(--status-success)' }}>{formatCurrency(totalCollected)}</div></div>
+          <div className="tech-data-cell"><div className="tech-data-label">Remaining</div><div className="tech-data-value" style={{ color: remainingBalance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>{formatCurrency(remainingBalance)}</div></div>
+        </div>
+
+        {formError && (
+          <div style={{ padding:12, borderRadius:'var(--radius-sm)', background: formError.startsWith('Unable') ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.08)', border: `1px solid ${formError.startsWith('Unable') ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.25)'}`, color: formError.startsWith('Unable') ? 'var(--status-danger)' : 'var(--status-warning)', fontSize:'0.9rem' }}>
+            {formError}
+          </div>
+        )}
+      </div>
+
       {/* Amount + discount */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
         <div className="form-group" style={{margin:0}}>
           <label className="form-label required">Gross Amount (₹)</label>
-          <input type="number" className="form-input" value={form.amount} onChange={e=>setForm(p=>({...p,amount:e.target.value}))} placeholder="0.00" />
+          <input type="number" className="form-input" value={form.amount} onChange={e => { setValidationError(''); setForm(p => ({ ...p, amount: e.target.value })); }} placeholder="0.00" />
         </div>
         <div className="form-group" style={{margin:0}}>
           <label className="form-label">Discount</label>
           <div style={{ display:'flex', gap:6 }}>
-            <select className="form-select" style={{width:110}} value={form.discount_type} onChange={e=>setForm(p=>({...p,discount_type:e.target.value,discount_value:''}))}>
+            <select className="form-select" style={{width:110}} value={form.discount_type} onChange={e => { setValidationError(''); setForm(p => ({ ...p, discount_type: e.target.value, discount_value: '' })); }}>
               <option value="none">No Discount</option>
               <option value="flat">Flat (₹)</option>
               <option value="percent">Percent (%)</option>
             </select>
             {form.discount_type !== 'none' && (
-              <input type="number" className="form-input" style={{flex:1}} placeholder={form.discount_type==='percent'?'0–100':'Amount'} value={form.discount_value} onChange={e=>setForm(p=>({...p,discount_value:e.target.value}))} />
+              <input type="number" className="form-input" style={{flex:1}} placeholder={form.discount_type==='percent'?'0–100':'Amount'} value={form.discount_value} onChange={e => { setValidationError(''); setForm(p => ({ ...p, discount_value: e.target.value })); }} />
             )}
           </div>
         </div>
@@ -2133,15 +2210,15 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
 
       <div className="form-row form-row-2" style={{marginTop:8}}>
         <div className="form-group"><label className="form-label">Payment Method</label>
-          <select className="form-select" value={form.method} onChange={e=>setForm(p=>({...p,method:e.target.value}))}>
+          <select className="form-select" value={form.method} onChange={e => { setValidationError(''); setForm(p => ({ ...p, method: e.target.value })); }}>
             {PAY_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
           </select>
         </div>
         <div className="form-group"><label className="form-label">Reference / Transaction ID</label>
-          <input className="form-input" value={form.reference} onChange={e=>setForm(p=>({...p,reference:e.target.value}))} placeholder="UPI ref, cheque no, transaction ID..." />
+          <input className="form-input" value={form.reference} onChange={e => { setValidationError(''); setForm(p => ({ ...p, reference: e.target.value })); }} placeholder="UPI ref, cheque no, transaction ID..." />
         </div>
       </div>
-      <div className="form-group"><label className="form-label">Notes</label><input className="form-input" value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} /></div>
+      <div className="form-group"><label className="form-label">Notes</label><input className="form-input" value={form.notes} onChange={e => { setValidationError(''); setForm(p => ({ ...p, notes: e.target.value })); }} /></div>
 
       <div className="payment-link-box" style={{ marginTop:12, display:'flex', gap:12, padding:'12px 14px', background:'rgba(0,212,255,0.05)', borderRadius:'var(--radius-sm)', border:'1px solid rgba(0,212,255,0.15)', alignItems:'center' }}>
         <div style={{ fontSize:'1.4rem' }}>🔗</div>
@@ -2154,7 +2231,7 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
 
       <div style={{ display:'flex',gap:10,justifyContent:'flex-end',marginTop:20 }}>
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" disabled={loading || !(finalAmount > 0)} onClick={handle}>{loading?<><div className="spinner" style={{width:14,height:14}}/> Recording…</>:' Record Payment'}</button>
+        <button className="btn btn-primary" disabled={loading || !!formError} onClick={handle}>{loading?<><div className="spinner" style={{width:14,height:14}}/> Recording…</>:' Record Payment'}</button>
       </div>
     </div>
   );

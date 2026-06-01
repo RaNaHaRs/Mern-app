@@ -446,8 +446,19 @@ router.get('/:id', async (req, res) => {
       [req.params.id]
     );
 
+    // Calculate case-level payment metrics (per-case tracking)
+    const latestQuotation = quotations.rows[0];
+    const quotationTotal = latestQuotation ? parseFloat(latestQuotation.total_amount || 0) : 0;
+    const totalPaid = payments.rows.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+    const balanceDue = Math.max(0, quotationTotal - totalPaid);
+    const pendingAmount = balanceDue;
+
     res.json({
       ...caseData,
+      quotation_total: quotationTotal,
+      total_paid: totalPaid,
+      balance_due: balanceDue,
+      pending_amount: pendingAmount,
       workflowLogs: logs.rows,
       files: files.rows,
       payments: payments.rows,
@@ -975,34 +986,76 @@ router.post('/:id/payments', requireMinRole('junior_engineer'), auditLog('record
       return res.status(404).json({ error: 'Case not found' });
     }
 
-    const { amount, quotation_id, method, reference_number, notes } = req.body;
+    const { amount, gross_amount, discount_amount, quotation_id, method, reference_number, notes } = req.body;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ error: 'A valid payment amount is required' });
     }
 
     const paymentRes = await transaction(async client => {
+      // Get case and quotation data
+      const caseResult = await client.query(
+        'SELECT id, case_number, client_id FROM cases WHERE id = $1',
+        [req.params.id]
+      );
+      if (!caseResult.rows.length) throw new Error('Case not found');
+
+      const caseRow = caseResult.rows[0];
+
+      // Get latest quotation for this case
+      const quotRes = await client.query(
+        `SELECT q.id, q.total_amount FROM quotations q WHERE q.case_id = $1 ORDER BY q.created_at DESC LIMIT 1`,
+        [req.params.id]
+      );
+      const quotation = quotRes.rows[0];
+
+      // Insert payment record
       const insertRes = await client.query(
         `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
          VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
-        [req.params.id, quotation_id || null, parsedAmount, method || null, reference_number || null, notes || null, req.user.id]
+        [req.params.id, quotation?.id || quotation_id || null, parsedAmount, method || null, reference_number || null, notes || null, req.user.id]
       );
 
-      const caseClient = await client.query(
-        'SELECT client_id FROM cases WHERE id = $1',
-        [req.params.id]
-      );
-      if (caseClient.rows.length && caseClient.rows[0].client_id) {
+      // Update client total_paid (for historical tracking)
+      if (caseRow.client_id) {
         await client.query(
           'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = $2',
-          [parsedAmount, caseClient.rows[0].client_id]
+          [parsedAmount, caseRow.client_id]
         );
       }
 
       return insertRes.rows[0];
     });
 
-    res.status(201).json({ payment: paymentRes });
+    // Get updated case payment metrics
+    const payments = await query(
+      `SELECT p.*, q.total_amount as quoted_amount
+       FROM payments p
+       LEFT JOIN quotations q ON p.quotation_id = q.id
+       WHERE p.case_id = $1 ORDER BY p.created_at DESC`,
+      [req.params.id]
+    );
+    
+    const quotations = await query(
+      'SELECT * FROM quotations WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [req.params.id]
+    );
+
+    const latestQuotation = quotations.rows[0];
+    const quotationTotal = latestQuotation ? parseFloat(latestQuotation.total_amount || 0) : 0;
+    const totalPaid = payments.rows.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+    const balanceDue = Math.max(0, quotationTotal - totalPaid);
+
+    res.status(201).json({ 
+      payment: paymentRes,
+      case_payment_status: {
+        case_id: req.params.id,
+        quotation_total: quotationTotal,
+        total_paid: totalPaid,
+        balance_due: balanceDue,
+        pending_amount: balanceDue
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1046,7 +1099,7 @@ router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog(
     const pendingAmount = Math.max(0, quotation.total_amount - totalPaid);
 
     if (pendingAmount <= 0) {
-      return res.status(400).json({ error: 'No pending amount to collect' });
+      return res.status(400).json({ error: 'This case is already fully paid. No pending amount to collect.' });
     }
 
     // Create collection payment record
@@ -1059,6 +1112,7 @@ router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog(
 
     const payment = paymentRes.rows[0];
 
+    // Update client total_paid for historical tracking
     await query(
       'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = $2',
       [pendingAmount, caseData.client_id]
@@ -1088,6 +1142,7 @@ router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog(
         case_number: caseData.case_number,
         quotation_total: parseFloat(quotation.total_amount),
         total_paid: newTotalPaid,
+        balance_due: newPending,
         pending_amount: newPending
       }
     });
