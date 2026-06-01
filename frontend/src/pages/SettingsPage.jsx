@@ -404,18 +404,27 @@ const CASE_SETTINGS_DEFAULTS = {
   hdd_types: ['WD 2.5"','WD 3.5"','Seagate 2.5"','Seagate 3.5"','Others 2.5"','Others 3.5"'],
 };
 
+function readLocalSettingsList(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return Array.isArray(value) && value.length ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function loadCaseSettingsFromLocalStorage() {
   try {
     return {
-      stages: JSON.parse(localStorage.getItem('custom_stages')) || CASE_SETTINGS_DEFAULTS.stages,
-      symptoms: JSON.parse(localStorage.getItem('custom_symptoms')) || CASE_SETTINGS_DEFAULTS.symptoms,
-      failure_types: JSON.parse(localStorage.getItem('custom_failure_types')) || CASE_SETTINGS_DEFAULTS.failure_types,
-      brands: JSON.parse(localStorage.getItem('custom_brands')) || CASE_SETTINGS_DEFAULTS.brands,
-      manufacture_countries: JSON.parse(localStorage.getItem('custom_manufacture_countries')) || CASE_SETTINGS_DEFAULTS.manufacture_countries,
-      interfaces: JSON.parse(localStorage.getItem('custom_interfaces')) || CASE_SETTINGS_DEFAULTS.interfaces,
-      capacities: JSON.parse(localStorage.getItem('custom_capacities')) || CASE_SETTINGS_DEFAULTS.capacities,
-      payment_methods: JSON.parse(localStorage.getItem('custom_payment_methods')) || CASE_SETTINGS_DEFAULTS.payment_methods,
-      hdd_types: JSON.parse(localStorage.getItem('custom_hdd_types')) || CASE_SETTINGS_DEFAULTS.hdd_types,
+      stages: readLocalSettingsList('custom_stages', CASE_SETTINGS_DEFAULTS.stages),
+      symptoms: readLocalSettingsList('custom_symptoms', CASE_SETTINGS_DEFAULTS.symptoms),
+      failure_types: readLocalSettingsList('custom_failure_types', CASE_SETTINGS_DEFAULTS.failure_types),
+      brands: readLocalSettingsList('custom_brands', CASE_SETTINGS_DEFAULTS.brands),
+      manufacture_countries: readLocalSettingsList('custom_manufacture_countries', CASE_SETTINGS_DEFAULTS.manufacture_countries),
+      interfaces: readLocalSettingsList('custom_interfaces', CASE_SETTINGS_DEFAULTS.interfaces),
+      capacities: readLocalSettingsList('custom_capacities', CASE_SETTINGS_DEFAULTS.capacities),
+      payment_methods: readLocalSettingsList('custom_payment_methods', CASE_SETTINGS_DEFAULTS.payment_methods),
+      hdd_types: readLocalSettingsList('custom_hdd_types', CASE_SETTINGS_DEFAULTS.hdd_types),
     };
   } catch {
     return { ...CASE_SETTINGS_DEFAULTS };
@@ -1211,10 +1220,26 @@ export default function SettingsPage() {
   const [caseSettings, setCaseSettings] = useState(() => loadCaseSettingsFromLocalStorage());
   const [settingsSyncing, setSettingsSyncing] = useState(false);
 
+  function normalizeCaseSettings(data) {
+    if (!data || typeof data !== 'object') return { ...CASE_SETTINGS_DEFAULTS };
+    return {
+      ...CASE_SETTINGS_DEFAULTS,
+      stages: Array.isArray(data.stages) && data.stages.length ? data.stages : CASE_SETTINGS_DEFAULTS.stages,
+      symptoms: Array.isArray(data.symptoms) && data.symptoms.length ? data.symptoms : CASE_SETTINGS_DEFAULTS.symptoms,
+      failure_types: Array.isArray(data.failure_types) && data.failure_types.length ? data.failure_types : CASE_SETTINGS_DEFAULTS.failure_types,
+      brands: Array.isArray(data.brands) && data.brands.length ? data.brands : CASE_SETTINGS_DEFAULTS.brands,
+      manufacture_countries: Array.isArray(data.manufacture_countries) && data.manufacture_countries.length ? data.manufacture_countries : CASE_SETTINGS_DEFAULTS.manufacture_countries,
+      interfaces: Array.isArray(data.interfaces) && data.interfaces.length ? data.interfaces : CASE_SETTINGS_DEFAULTS.interfaces,
+      capacities: Array.isArray(data.capacities) && data.capacities.length ? data.capacities : CASE_SETTINGS_DEFAULTS.capacities,
+      payment_methods: Array.isArray(data.payment_methods) && data.payment_methods.length ? data.payment_methods : CASE_SETTINGS_DEFAULTS.payment_methods,
+      hdd_types: Array.isArray(data.hdd_types) && data.hdd_types.length ? data.hdd_types : CASE_SETTINGS_DEFAULTS.hdd_types,
+    };
+  }
+
   useEffect(() => {
     fieldConfigApi.getCaseSettings()
       .then((data) => {
-        const merged = { ...CASE_SETTINGS_DEFAULTS, ...data };
+        const merged = normalizeCaseSettings(data);
         setCaseSettings(merged);
         persistCaseSettingsToLocalStorage(merged);
       })
@@ -1229,7 +1254,7 @@ export default function SettingsPage() {
     try {
       setSettingsSyncing(true);
       const result = await fieldConfigApi.saveCaseSettings(patch);
-      const saved = { ...CASE_SETTINGS_DEFAULTS, ...(result?.settings || next) };
+      const saved = normalizeCaseSettings(result?.settings || next);
       setCaseSettings(saved);
       persistCaseSettingsToLocalStorage(saved);
       window.dispatchEvent(new CustomEvent('caseSettingsUpdated', { detail: saved }));
@@ -1327,10 +1352,21 @@ export default function SettingsPage() {
   };
 
   const handleToggleUser = async (userId, currentState) => {
+    const action = currentState ? 'Deactivate' : 'Activate';
+    if (!confirm(`${action} this user account?`)) return;
     try {
-      await usersApi.update(userId, { is_active: !currentState });
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentState } : u));
-    } catch (err) { alert(err.message); }
+      const result = await usersApi.deactivate(userId);
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+      if (result && result.id) {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: result.is_active } : u));
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (err) {
+      alert(err.message || 'Unable to update user status');
+    }
   };
 
   // Super Admin only sees their own profile, password change, and app info.

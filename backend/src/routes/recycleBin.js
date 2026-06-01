@@ -39,11 +39,12 @@ router.get('/', async (req, res) => {
     const result = await query(
       `SELECT cr.id, cr.case_id, cr.case_number, cr.client_id, cr.client_name,
               cr.deleted_by, cr.deleted_at, cr.deletion_reason, cr.can_restore,
-              c.device_type, c.device_brand AS brand, c.device_model AS model,
-              c.stage AS status, c.serial_number,
+              c.device_brand, c.device_model, c.stage, c.serial_number,
+              cl.first_name, cl.last_name, cl.company,
               u.full_name AS deleted_by_name
        FROM cases_recycle_bin cr
        LEFT JOIN cases c ON c.id = cr.case_id
+       LEFT JOIN clients cl ON cr.client_id = cl.id
        LEFT JOIN users u ON u.id = cr.deleted_by
        ${where}
        ORDER BY cr.deleted_at DESC
@@ -127,6 +128,23 @@ router.delete('/:id/permanent-delete', requireMinRole('admin'), auditLog('perman
         );
         if (!accessResult.rows.length) return null;
       }
+
+      // Safe cascade queries to clean up case dependencies and avoid foreign key violations:
+      await client.query('UPDATE inventory_items SET reserved_for_case = NULL WHERE reserved_for_case = $1', [caseId]);
+      await client.query('UPDATE inventory_items SET source_case_id = NULL WHERE source_case_id = $1', [caseId]);
+      await client.query('DELETE FROM payments WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM inventory_transactions WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM transferred_items WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_workflow_logs WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_engineer_sessions WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_files WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_images WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_solutions WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_solution_media WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_solution_notes WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM case_custom_field_values WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM quotations WHERE case_id = $1', [caseId]);
+      await client.query('DELETE FROM cases_recycle_bin WHERE case_id = $1', [caseId]);
 
       const deleteResult = await client.query(
         `DELETE FROM cases WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id`,

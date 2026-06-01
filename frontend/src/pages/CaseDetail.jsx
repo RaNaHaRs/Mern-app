@@ -16,9 +16,9 @@ const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
 
 const STAGE_ICONS = {
-  received:'📥', inspection:'🔍', diagnosis:'🧪', quotation:'💰',
-  approved:'✅', rejected:'❌', recovery_in_progress:'⚙️', imaging:'💿',
-  data_extraction:'📤', verification:'🔬', completed:'🏆', delivered:'📦', failed:'💔',
+  received:'', inspection:'', diagnosis:'', quotation:'',
+  approved:'', rejected:'', recovery_in_progress:'', imaging:'',
+  data_extraction:'', verification:'', completed:'', delivered:'', failed:'',
 };
 
 const ALL_STAGES = [
@@ -37,7 +37,7 @@ const getLocalList = (key, fallback) => {
 };
 
 const renderStageLabel = (stage) => {
-  const icon = STAGE_ICONS[stage] || '➡️';
+  const icon = STAGE_ICONS[stage] || '';
   return `${icon} ${stage.replace(/_/g,' ').toUpperCase()}`;
 };
 
@@ -94,7 +94,7 @@ function DropZoneUpload({ onUpload, accept = 'image/*,video/*', multiple = true,
         </div>
       ) : (
         <>
-          <div style={{fontSize:'1.8rem',marginBottom:8}}>{dragging ? '📂' : '📎'}</div>
+          <div style={{fontSize:'1.8rem',marginBottom:8}}>{dragging ? '' : ''}</div>
           <div style={{fontSize:'0.82rem',color:'var(--text-secondary)',fontWeight:600}}>{label}</div>
           <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginTop:4}}>or click to browse</div>
         </>
@@ -193,7 +193,7 @@ function SolutionPanel({ caseId, caseStage }) {
     <div>
       {!isSolved && (
         <div className="alert alert-warning" style={{marginBottom:20}}>
-          <span className="alert-icon">ℹ️</span>
+          <span className="alert-icon"></span>
           <div>
             <div className="alert-title">Case not yet solved</div>
             <div>Solution documentation is available for cases in <strong>Completed</strong> or <strong>Delivered</strong> stage. You can still add notes for reference.</div>
@@ -203,7 +203,7 @@ function SolutionPanel({ caseId, caseStage }) {
 
       {isSolved && (
         <div className="alert alert-success" style={{marginBottom:20}}>
-          <span className="alert-icon">🏆</span>
+          <span className="alert-icon"></span>
           <div>
             <div className="alert-title">Case Solved — Document the Solution</div>
             <div>Add text notes, photos, and videos to document exactly how this case was recovered. This knowledge helps engineers handle similar cases in future.</div>
@@ -213,11 +213,11 @@ function SolutionPanel({ caseId, caseStage }) {
 
       <div className="card" style={{marginBottom:16}}>
         <div className="card-header">
-          <div className="card-title">📝 Solution Notes</div>
+          <div className="card-title"> Solution Notes</div>
           {canEdit && (
             <button className={`btn btn-sm ${saved ? 'btn-secondary' : 'btn-primary'}`}
               disabled={saving || !textNote.trim()} onClick={handleSaveNote}>
-              {saving ? <><div className="spinner" style={{width:12,height:12}} /> Saving…</> : saved ? '✓ Saved' : '💾 Save Note'}
+              {saving ? <><div className="spinner" style={{width:12,height:12}} /> Saving…</> : saved ? '✓ Saved' : ' Save Note'}
             </button>
           )}
         </div>
@@ -263,7 +263,7 @@ function SolutionPanel({ caseId, caseStage }) {
             onClick={() => setMediaOpen(o => !o)}
             aria-expanded={mediaOpen}
           >
-            🎬 Solution Media
+             Solution Media
             {(solution.mediaFiles?.length || 0) > 0 && (
               <span style={{ marginLeft: 6, opacity: 0.85 }}>({solution.mediaFiles.length})</span>
             )}
@@ -340,7 +340,7 @@ function CasePhotosPanel({ caseId }) {
   return (
     <div className="card">
       <div className="card-header">
-        <div className="card-title">📷 Device Photos</div>
+        <div className="card-title"> Device Photos</div>
         <span style={{fontSize:'0.72rem',color:'var(--text-muted)'}}>{images.length} photo(s)</span>
       </div>
       <p style={{fontSize:'0.78rem',color:'var(--text-muted)',marginBottom:12}}>
@@ -363,7 +363,7 @@ function CasePhotosPanel({ caseId }) {
       ) : (
         !uploading && (
           <div className="empty-state" style={{padding:30}}>
-            <div className="empty-icon">📷</div>
+            <div className="empty-icon"></div>
             <div className="empty-title">No photos uploaded</div>
             <div className="empty-desc">Upload photos of the device to document its physical condition</div>
           </div>
@@ -418,7 +418,7 @@ function SmartAssistPanel({ caseId }) {
 
       {data.warnings?.length > 0 && (
         <div className="alert alert-danger" style={{marginBottom:12}}>
-          <span className="alert-icon">🚨</span>
+          <span className="alert-icon"></span>
           <div>
             <div className="alert-title">WARNING</div>
             {data.warnings.map((w, i) => <div key={i} style={{marginTop:2}}>{w}</div>)}
@@ -544,12 +544,12 @@ function DonorPanel({ caseId, caseData }) {
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {d.isVerified && (
             <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(0,212,255,0.12)', color: 'var(--accent-primary)', border: '1px solid rgba(0,212,255,0.3)' }}>
-              ✓ Verified
+               Verified
             </span>
           )}
           {d.isInStock ? (
             <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(16,185,129,0.12)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}>
-              ✅ In Stock ({d.quantity})
+               In Stock ({d.quantity})
             </span>
           ) : (
             <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>
@@ -586,14 +586,14 @@ function DonorPanel({ caseId, caseData }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Manual stock number search */}
       <div className="card" style={{ padding: 14 }}>
-        <div style={{ fontWeight: 700, marginBottom: 10, fontSize: '0.85rem' }}>🔢 Search by Stock Number</div>
+        <div style={{ fontWeight: 700, marginBottom: 10, fontSize: '0.85rem' }}> Search by Stock Number</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input className="form-input" style={{ flex: 1, fontFamily: 'var(--font-mono)' }}
             placeholder="Enter Stock Number (e.g. STK-042, WD-001)"
             value={manualStockNo} onChange={e => setManualStockNo(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleManualSearch()} />
           <button className="btn btn-primary btn-sm" disabled={searching} onClick={handleManualSearch}>
-            {searching ? <div className="spinner" style={{ width: 14, height: 14 }} /> : '🔍 Find'}
+            {searching ? <div className="spinner" style={{ width: 14, height: 14 }} /> : ' Find'}
           </button>
         </div>
         {manualError && <div style={{ color: 'var(--status-danger)', fontSize: '0.78rem', marginTop: 6 }}>{manualError}</div>}
@@ -602,14 +602,14 @@ function DonorPanel({ caseId, caseData }) {
 
       {/* Auto-matched donors */}
       <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-        🤖 Auto-Matched from Stock — {loading ? '…' : `${donors.length} found`}
+         Auto-Matched from Stock — {loading ? '…' : `${donors.length} found`}
       </div>
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 32 }}><div className="spinner" /></div>
       ) : donors.length === 0 ? (
         <div className="empty-state" style={{ padding: 24 }}>
-          <div className="empty-icon">🔄</div>
+          <div className="empty-icon"></div>
           <div className="empty-title">No matching donors found</div>
           <div className="empty-desc">Enter a stock number above, or add matching items to inventory</div>
         </div>
@@ -922,7 +922,7 @@ export default function CaseDetail() {
     const refreshStages = () => setCustomStages(getLocalList('custom_stages', ALL_STAGES));
 
     const onCaseSettingsUpdated = (event) => {
-      if (event?.detail?.stages && Array.isArray(event.detail.stages) && event.detail.stages.length) {
+      if (event?.detail?.stages && Array.isArray(event.detail.stages)) {
         setCustomStages(event.detail.stages);
       } else {
         refreshStages();
@@ -1339,7 +1339,7 @@ export default function CaseDetail() {
     <div class="slip-wrap"><div class="slip">
       <div class="slip-header">
         <div>
-          <div class="brand">📦 ${coName}</div>
+          <div class="brand"> ${coName}</div>
           <div class="date-line">Date: ${today}</div>
         </div>
         <div class="ref-no">${ref}</div>
@@ -1399,20 +1399,20 @@ export default function CaseDetail() {
   if (loading) return <div style={{display:'flex',justifyContent:'center',paddingTop:80}}><div className="spinner" style={{width:32,height:32,borderWidth:3}}/></div>;
   if (!caseData) return null;
 
-  const availableStages = Array.isArray(customStages) && customStages.length ? customStages : ALL_STAGES;
+  const availableStages = Array.isArray(customStages) ? customStages : ALL_STAGES;
   const allowedNext = availableStages.filter(s => s !== caseData.stage);
   const isSolved = ['completed', 'delivered'].includes(caseData.stage);
 
   const TABS = [
-    { key: 'overview',     label: '📊 Overview' },
-    { key: 'photos',       label: '📷 Photos' },
-    { key: 'solution',     label: isSolved ? '🏆 Solution' : '📋 Solution' },
-    { key: 'smart-assist', label: '🧠 Smart Assist' },
-    { key: 'comms',        label: '💬 Communication' },
-    { key: 'donors',       label: '🔄 Donors' },
-    { key: 'timeline',     label: '📋 Timeline' },
-    { key: 'files',        label: '📁 Files' },
-    { key: 'payments',     label: '💰 Payments' },
+    { key: 'overview',     label: ' Overview' },
+    { key: 'photos',       label: ' Photos' },
+    { key: 'solution',     label: isSolved ? ' Solution' : ' Solution' },
+    { key: 'smart-assist', label: ' Smart Assist' },
+    { key: 'comms',        label: ' Communication' },
+    { key: 'donors',       label: ' Donors' },
+    { key: 'timeline',     label: ' Timeline' },
+    { key: 'files',        label: ' Files' },
+    { key: 'payments',     label: ' Payments' },
   ];
 
   return (
@@ -1424,7 +1424,7 @@ export default function CaseDetail() {
             <button className="btn btn-ghost btn-sm" onClick={() => navigate('/cases')}>← Back</button>
             <span className="font-mono text-accent" style={{fontSize:'1.1rem',fontWeight:700}}>{caseData.case_number}</span>
             <span className={`badge badge-${caseData.stage}`} style={{fontSize:'0.75rem'}}>
-              {STAGE_ICONS[caseData.stage] || '➡️'} {caseData.stage?.replace(/_/g,' ')}
+              {STAGE_ICONS[caseData.stage] || ''} {caseData.stage?.replace(/_/g,' ')}
             </span>
             {caseData.ai_risk_level && <span className={`badge badge-risk-${caseData.ai_risk_level}`}>{caseData.ai_risk_level?.toUpperCase()} RISK</span>}
             {isSolved && <span style={{fontSize:'0.68rem',padding:'3px 8px',background:'rgba(16,185,129,0.15)',borderRadius:999,color:'var(--status-success)',fontWeight:700,fontFamily:'var(--font-mono)'}}>✓ SOLVED</span>}
@@ -1439,30 +1439,29 @@ export default function CaseDetail() {
 
         {allowedNext.length > 0 && canAccess('junior_engineer') && (
           <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => { const t = prompt('Template: 1=Modern, 2=Classic, 3=Minimal','1'); const map={'1':'standard','2':'classic','3':'minimal'}; printInwardForm(caseData, map[t]||'standard'); }}>🖨 Inward Form</button>
-            <button className="btn btn-secondary btn-sm" onClick={printCourierSlip}>🚚 Courier Slip</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setEditForm({...caseData}); setShowEditCase(true); }}>✏️ Edit</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}>💳 Payment</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setStockTransferItem(true)}>🔄 To Stock</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => { const t = prompt('Template: 1=Modern, 2=Classic, 3=Minimal','1'); const map={'1':'standard','2':'classic','3':'minimal'}; printInwardForm(caseData, map[t]||'standard'); }}> Inward Form</button>
+            <button className="btn btn-secondary btn-sm" onClick={printCourierSlip}> Courier Slip</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setEditForm({...caseData}); setShowEditCase(true); }}> Edit</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}> Payment</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setStockTransferItem(true)}> To Stock</button>
             <button className={`btn btn-sm ${caseData.transfer_to_client ? 'btn-success' : 'btn-secondary'}`} onClick={handleTransferToClient}>
-              {caseData.transfer_to_client ? '✓ Transferred to Client' : '🤝 Transfer to Client'}
+              {caseData.transfer_to_client ? '✓ Transferred to Client' : ' Transfer to Client'}
             </button>
             <button className="btn btn-primary btn-sm" onClick={() => setShowTransition(true)}>Stages</button>
-            {caseData.stage === 'delivered' && (
-              <button className="btn btn-primary btn-sm" onClick={() => setShowInvoiceModal(true)}>🖨 Print Invoice</button>
-            )}
+            <button className="btn btn-primary btn-sm" onClick={() => setShowInvoiceModal(true)}>🖨 Print Invoice</button>
           </div>
         )}
         {!allowedNext.length && canAccess('junior_engineer') && (
           <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
-            <button className="btn btn-secondary btn-sm" onClick={printInwardForm}>🖨 Inward Form</button>
-            <button className="btn btn-secondary btn-sm" onClick={printCourierSlip}>🚚 Courier Slip</button>
+            <button className="btn btn-secondary btn-sm" onClick={printInwardForm}> Inward Form</button>
+            <button className="btn btn-secondary btn-sm" onClick={printCourierSlip}> Courier Slip</button>
             <button className="btn btn-secondary btn-sm" onClick={() => { setEditForm({...caseData}); setShowEditCase(true); }}>✏️ Edit</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}>💳 Payment</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => setStockTransferItem(true)}>🔄 To Stock</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}> Payment</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setStockTransferItem(true)}> To Stock</button>
             <button className={`btn btn-sm ${caseData.transfer_to_client ? 'btn-success' : 'btn-secondary'}`} onClick={handleTransferToClient}>
-              {caseData.transfer_to_client ? '✓ Transferred to Client' : '🤝 Transfer to Client'}
+              {caseData.transfer_to_client ? '✓ Transferred to Client' : ' Transfer to Client'}
             </button>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowInvoiceModal(true)}>🖨 Print Invoice</button>
           </div>
         )}
       </div>
@@ -1484,7 +1483,7 @@ export default function CaseDetail() {
         <div className="grid-2">
           <div>
             <div className="card" style={{marginBottom:16}}>
-              <div className="card-title" style={{marginBottom:14}}>🖥 Device Information</div>
+              <div className="card-title" style={{marginBottom:14}}>Device Information</div>
               <div className="tech-data-table">
                 <div className="tech-data-cell"><div className="tech-data-label">Brand</div><div className="tech-data-value">{caseData.device_brand||'—'}</div></div>
                 <div className="tech-data-cell"><div className="tech-data-label">Model</div><div className="tech-data-value">{caseData.device_model||'—'}</div></div>
@@ -1498,7 +1497,7 @@ export default function CaseDetail() {
 
           <div>
             <div className="card" style={{marginBottom:16}}>
-              <div className="card-title" style={{marginBottom:14}}>🔍 Diagnosis</div>
+              <div className="card-title" style={{marginBottom:14}}> Diagnosis</div>
               <div style={{marginBottom:10}}>
                 <div className="tech-data-label">Failure Types</div>
                 <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:4}}>
@@ -1532,7 +1531,7 @@ export default function CaseDetail() {
             </div>
 
             <div className="card" style={{marginBottom:16}}>
-              <div className="card-title" style={{marginBottom:14}}>⏱ Recovery Progress</div>
+              <div className="card-title" style={{marginBottom:14}}> Recovery Progress</div>
               <div style={{marginBottom:8}}>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.78rem',marginBottom:6}}>
                   <span className="text-muted">Overall Progress</span>
@@ -1559,13 +1558,13 @@ export default function CaseDetail() {
               <div className="card" style={{marginBottom:16,border:'1px solid rgba(245,158,11,0.25)',background:'rgba(245,158,11,0.04)'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
                   <div>
-                    <div className="card-title" style={{marginBottom:2}}>💰 Payment Summary</div>
+                    <div className="card-title" style={{marginBottom:2}}> Payment Summary</div>
                     <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>
                       Collected: <strong style={{color:'var(--status-success)'}}>₹{parseFloat(caseData.total_paid||0).toLocaleString('en-IN')}</strong>
                       {caseData.balance_due > 0 && <> &nbsp;·&nbsp; <span style={{color:'var(--status-danger)'}}>₹{parseFloat(caseData.balance_due||0).toLocaleString('en-IN')} due</span></>}
                     </div>
                   </div>
-                  <button className="btn btn-primary btn-sm" onClick={()=>setShowPayment(true)}>💳 Collect Payment</button>
+                  <button className="btn btn-primary btn-sm" onClick={()=>setShowPayment(true)}> Collect Payment</button>
                 </div>
               </div>
             )}
@@ -1584,8 +1583,8 @@ export default function CaseDetail() {
       {activeTab === 'donors' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div className="card-title" style={{ marginBottom: 0 }}>🔬 Compatible Donor Drives</div>
-            <button className="btn btn-secondary btn-sm" onClick={() => window.open('/inventory', '_self')}>📦 Browse Inventory →</button>
+            <div className="card-title" style={{ marginBottom: 0 }}> Compatible Donor Drives</div>
+            <button className="btn btn-secondary btn-sm" onClick={() => window.open('/inventory', '_self')}> Browse Inventory →</button>
           </div>
           <DonorPanel caseId={id} caseData={caseData} />
         </div>
@@ -1593,7 +1592,7 @@ export default function CaseDetail() {
 
       {activeTab === 'timeline' && (
         <div className="card">
-          <div className="card-title" style={{marginBottom:16}}>📋 Workflow Timeline</div>
+          <div className="card-title" style={{marginBottom:16}}> Workflow Timeline</div>
           {/* Add manual note */}
           <div style={{ marginBottom:20, padding:'14px 16px', background:'var(--bg-elevated)', borderRadius:'var(--radius-md)', border:'1px solid var(--border-subtle)' }}>
             <div className="form-label" style={{ marginBottom:8 }}>Add Timeline Note</div>
@@ -1601,7 +1600,7 @@ export default function CaseDetail() {
               placeholder="Add a manual note, observation, or update to the timeline…"
               value={timelineNote} onChange={e => setTimelineNote(e.target.value)} />
             <button className="btn btn-primary btn-sm" disabled={savingNote || !timelineNote.trim()} onClick={handleAddTimelineNote}>
-              {savingNote?<><div className="spinner" style={{width:12,height:12}}/> Adding…</>:'➕ Add Note'}
+              {savingNote?<><div className="spinner" style={{width:12,height:12}}/> Adding…</>:'Add Note'}
             </button>
           </div>
           <div className="timeline">
@@ -1651,10 +1650,10 @@ export default function CaseDetail() {
       {activeTab === 'files' && (
         <div className="card">
           <div className="card-header">
-            <div className="card-title">📁 Case Files</div>
+            <div className="card-title"> Case Files</div>
             <div style={{ display:'flex',gap:8 }}>
               <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploadingFiles}>
-                {uploadingFiles?<><div className="spinner" style={{width:12,height:12}}/> Uploading…</>:'📎 Upload File'}
+                {uploadingFiles?<><div className="spinner" style={{width:12,height:12}}/> Uploading…</>:' Upload File'}
               </button>
               <input ref={fileInputRef} type="file" multiple style={{ display:'none' }} onChange={e=>handleUploadFiles(e.target.files)} />
             </div>
@@ -1662,7 +1661,7 @@ export default function CaseDetail() {
           <div onDrop={e=>{e.preventDefault();handleUploadFiles(e.dataTransfer.files);}} onDragOver={e=>e.preventDefault()}
             style={{ border:'2px dashed var(--border-default)',borderRadius:'var(--radius-md)',padding:20,textAlign:'center',marginBottom:16,cursor:'pointer',fontSize:'0.8rem',color:'var(--text-muted)' }}
             onClick={() => fileInputRef.current?.click()}>
-            📂 Drag & drop any files here (images, PDFs, logs, videos)
+             Drag & drop any files here (images, PDFs, logs, videos)
           </div>
           {caseData.files?.length > 0 ? (
             <table>
@@ -1680,7 +1679,7 @@ export default function CaseDetail() {
               </tbody>
             </table>
           ) : (
-            <div className="empty-state"><div className="empty-icon">📁</div><div className="empty-title">No files uploaded</div><div className="empty-desc">Upload any relevant files for this case</div></div>
+            <div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No files uploaded</div><div className="empty-desc">Upload any relevant files for this case</div></div>
           )}
         </div>
       )}
@@ -1689,11 +1688,11 @@ export default function CaseDetail() {
         <div>
           {/* Quick payment button */}
           <div style={{ display:'flex',justifyContent:'flex-end',marginBottom:16 }}>
-            <button className="btn btn-primary" onClick={() => setShowPayment(true)}>💳 Collect Payment</button>
+            <button className="btn btn-primary" onClick={() => setShowPayment(true)}> Collect Payment</button>
           </div>
           {caseInvoices.length > 0 && (
             <div className="card" style={{marginBottom:16}}>
-              <div className="card-title" style={{marginBottom:14}}>🧾 Invoices</div>
+              <div className="card-title" style={{marginBottom:14}}> Invoices</div>
               {caseInvoices.map(inv => (
                 <div key={inv.id} style={{ padding:'12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)',marginBottom:10,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
                   <div>
@@ -1706,7 +1705,7 @@ export default function CaseDetail() {
                     <button className="btn btn-secondary btn-sm" onClick={() => setViewPdf(inv)}>👁 View PDF</button>
                     {inv.status !== 'paid' && (
                       <button className="btn btn-primary btn-sm" onClick={() => generatePaymentLink(inv)} style={{background:'rgba(0,212,255,0.1)',color:'var(--accent-primary)',borderColor:'rgba(0,212,255,0.3)'}}>
-                        🔗 Payment Link
+                         Payment Link
                       </button>
                     )}
                   </div>
@@ -1716,7 +1715,7 @@ export default function CaseDetail() {
           )}
           {caseData.quotations?.length > 0 && (
             <div className="card" style={{marginBottom:16}}>
-              <div className="card-title" style={{marginBottom:14}}>💵 Quotations</div>
+              <div className="card-title" style={{marginBottom:14}}> Quotations</div>
               {caseData.quotations.map(q => (
                 <div key={q.id} style={{padding:'12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)',marginBottom:10}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -1734,7 +1733,7 @@ export default function CaseDetail() {
             </div>
           )}
           <div className="card">
-            <div className="card-title" style={{marginBottom:14}}>💳 Payments</div>
+            <div className="card-title" style={{marginBottom:14}}> Payments</div>
             {caseData.payments?.length > 0 ? (
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
                 {caseData.payments.map(p => (
@@ -1751,7 +1750,7 @@ export default function CaseDetail() {
                 ))}
               </div>
             ) : (
-              <div className="empty-state" style={{padding:24}}><div className="empty-icon">💳</div><div className="empty-title">No payments recorded</div></div>
+              <div className="empty-state" style={{padding:24}}><div className="empty-icon"></div><div className="empty-title">No payments recorded</div></div>
             )}
           </div>
         </div>
@@ -1810,7 +1809,7 @@ export default function CaseDetail() {
       {showPayment && (
         <div className="modal-overlay" onClick={() => setShowPayment(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><h3 className="modal-title">💳 Collect Payment — {caseData.case_number}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowPayment(false)}>✕</button></div>
+            <div className="modal-header"><h3 className="modal-title"> Collect Payment — {caseData.case_number}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowPayment(false)}>✕</button></div>
             <div className="modal-body">
               <CollectPaymentForm caseId={id} onClose={() => setShowPayment(false)} onDone={() => { casesApi.get(id).then(setCaseData); setShowPayment(false); }} />
             </div>
@@ -1896,12 +1895,12 @@ export default function CaseDetail() {
 
 // ─── Communication Log Panel ──────────────────────────────────────
 const COMM_TYPES = [
-  { key:'call',      icon:'📞', label:'Phone Call', color:'#3b82f6' },
-  { key:'whatsapp',  icon:'💬', label:'WhatsApp',   color:'#25d366' },
-  { key:'email',     icon:'📧', label:'Email',       color:'#f59e0b' },
-  { key:'visit',     icon:'🏢', label:'Walk-In Visit', color:'#8b5cf6' },
-  { key:'sms',       icon:'💌', label:'SMS',         color:'#64748b' },
-  { key:'note',      icon:'📝', label:'Internal Note', color:'#6366f1' },
+  { key:'call',      icon:'', label:'Phone Call', color:'#3b82f6' },
+  { key:'whatsapp',  icon:'', label:'WhatsApp',   color:'#25d366' },
+  { key:'email',     icon:'', label:'Email',       color:'#f59e0b' },
+  { key:'visit',     icon:'', label:'Walk-In Visit', color:'#8b5cf6' },
+  { key:'sms',       icon:'', label:'SMS',         color:'#64748b' },
+  { key:'note',      icon:'', label:'Internal Note', color:'#6366f1' },
 ];
 
 function CommunicationLogPanel({ caseId, caseData }) {
@@ -1940,7 +1939,7 @@ function CommunicationLogPanel({ caseId, caseData }) {
   return (
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <div className="card-title">💬 Communication History</div>
+        <div className="card-title"> Communication History</div>
         <div style={{display:'flex',gap:8}}>
           <select className="form-select" style={{width:'auto',fontSize:'0.78rem',padding:'5px 10px'}}
             value={filter} onChange={e=>setFilter(e.target.value)}>
@@ -2037,7 +2036,7 @@ function CommunicationLogPanel({ caseId, caseData }) {
         })}
         {!filtered.length && (
           <div className="empty-state" style={{padding:40}}>
-            <div className="empty-icon">💬</div>
+            <div className="empty-icon"></div>
             <div className="empty-title">No communication logs yet</div>
             <div className="empty-desc">Log calls, WhatsApp messages, emails, and walk-in visits with the client here for a complete history.</div>
             <button className="btn btn-primary" style={{marginTop:12}} onClick={()=>setShowAdd(true)}>+ Log First Entry</button>
@@ -2067,7 +2066,7 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
   const finalAmount = Math.max(0, grossAmount - discountAmt);
 
   const handle = async () => {
-    if (!grossAmount) { alert('Enter amount'); return; }
+    if (finalAmount <= 0) { alert('Enter an amount greater than zero'); return; }
     setLoading(true);
     try {
       await fetch(`${BASE_URL}/cases/${caseId}/payments`, {
@@ -2155,7 +2154,7 @@ function CollectPaymentForm({ caseId, onClose, onDone }) {
 
       <div style={{ display:'flex',gap:10,justifyContent:'flex-end',marginTop:20 }}>
         <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" disabled={loading||!form.amount} onClick={handle}>{loading?<><div className="spinner" style={{width:14,height:14}}/> Recording…</>:'✅ Record Payment'}</button>
+        <button className="btn btn-primary" disabled={loading || !(finalAmount > 0)} onClick={handle}>{loading?<><div className="spinner" style={{width:14,height:14}}/> Recording…</>:' Record Payment'}</button>
       </div>
     </div>
   );

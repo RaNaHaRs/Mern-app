@@ -2738,9 +2738,6 @@ app.get('/api/recycle-bin', authenticate, (req, res) => {
 });
 
 app.post('/api/recycle-bin/:id/restore', authenticate, (req, res) => {
-  const { admin_password } = req.body;
-  // Accept any non-empty password in demo mode
-  if (!admin_password) return res.status(400).json({ error: 'Password required' });
   const idx = DELETED_CASES.findIndex(c => c.id === req.params.id);
   if (idx === -1) return res.status(404).json({ error: 'Item not found in recycle bin' });
   const [restored] = DELETED_CASES.splice(idx, 1);
@@ -2750,8 +2747,6 @@ app.post('/api/recycle-bin/:id/restore', authenticate, (req, res) => {
 });
 
 app.delete('/api/recycle-bin/:id/permanent-delete', authenticate, (req, res) => {
-  const { admin_password } = req.body;
-  if (!admin_password) return res.status(400).json({ error: 'Admin password required' });
   if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
     return res.status(403).json({ error: 'Only Super Admin can permanently delete cases' });
   }
@@ -3043,8 +3038,25 @@ app.post('/api/razorpay/subscription-link', authenticate, async (req, res) => {
   });
 });
 
-// Razorpay Webhook â€” auto-update subscription on payment events
-// Configure in Razorpay Dashboard â†’ Settings â†’ Webhooks â†’ URL: /api/razorpay/webhook
+app.post('/api/recycle-bin/:id/restore', authenticate, requireAdmin, (req, res) => {
+  const idx = RECYCLE_BIN.findIndex(i => i.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Item not in recycle bin' });
+  const [item] = RECYCLE_BIN.splice(idx, 1);
+  const { deleted_at, deleted_by, client_name, device_type, brand, model, status, ...caseData } = item;
+  DEMO_CASES.push({ ...caseData, stage: caseData.stage || status, restored_at: new Date().toISOString() });
+  res.json({ ok: true, message: `Case ${item.case_number} restored successfully.` });
+});
+
+app.delete('/api/recycle-bin/:id/permanent-delete', authenticate, requireSuperAdmin, (req, res) => {
+  const idx = RECYCLE_BIN.findIndex(i => i.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Item not in recycle bin' });
+  const [gone] = RECYCLE_BIN.splice(idx, 1);
+  console.log(`[RecycleBin] PERMANENT DELETE: ${gone.case_number} by ${req.user.username}`);
+  res.json({ ok: true, message: `${gone.case_number} permanently deleted. Cannot be recovered.` });
+});
+
+// Razorpay Webhook — auto-update subscription on payment events
+// Configure in Razorpay Dashboard → Settings → Webhooks → URL: /api/razorpay/webhook
 app.post('/api/razorpay/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   const webhookSecret = COMPANY_SETTINGS.razorpay_webhook_secret || process.env.RAZORPAY_WEBHOOK_SECRET;
 
@@ -3056,7 +3068,7 @@ app.post('/api/razorpay/webhook', express.raw({ type: 'application/json' }), (re
       const expectedSig = crypto.createHmac('sha256', webhookSecret).update(body).digest('hex');
       const receivedSig = req.headers['x-razorpay-signature'];
       if (expectedSig !== receivedSig) {
-        console.warn('[Webhook] Signature mismatch â€” possibly invalid request');
+        console.warn('[Webhook] Signature mismatch — possibly invalid request');
         return res.status(400).json({ error: 'Invalid webhook signature' });
       }
     } catch (e) {

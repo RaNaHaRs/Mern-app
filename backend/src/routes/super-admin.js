@@ -22,6 +22,7 @@ const { query }     = require('../config/database');
 const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 const { auditLog }  = require('../middleware/audit');
 const logger        = require('../config/logger');
+const settingsRoutes = require('./settings');
 
 // Services (lazy-required so server starts even without credentials)
 const razorpayService = require('../services/razorpayService');
@@ -48,6 +49,15 @@ async function saveSuperAdminRoles(roles, userId) {
      ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,
     [ROLE_SETTINGS_KEY, JSON.stringify(roles), userId]
   );
+}
+
+async function loadSavedRazorpayCredentials() {
+  const settings = await settingsRoutes.loadCompanySettings();
+  return {
+    key_id: settings.razorpay_key_id || process.env.RAZORPAY_KEY_ID,
+    key_secret: settings.razorpay_key_secret || process.env.RAZORPAY_KEY_SECRET,
+    webhook_secret: settings.razorpay_webhook_secret || process.env.RAZORPAY_WEBHOOK_SECRET,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -699,11 +709,14 @@ router.post('/razorpay/create-order',
       );
       const purchaseId = purchase.rows[0].id;
 
-      // Create Razorpay order
+      // Load saved Razorpay credentials and create Razorpay order
+      const razorpayCredentials = await loadSavedRazorpayCredentials();
       const order = await razorpayService.createOrder({
         amount,
         receipt:      purchaseId,
         notes: { plan_key, months, purchase_id: purchaseId },
+        keyId:        razorpayCredentials.key_id,
+        keySecret:    razorpayCredentials.key_secret,
       });
 
       // Save order ID
@@ -718,7 +731,7 @@ router.post('/razorpay/create-order',
         purchase_id: purchaseId,
         amount:      order.amount,
         currency:    order.currency,
-        key_id:      process.env.RAZORPAY_KEY_ID,
+        key_id:      razorpayCredentials.key_id,
       });
     } catch (err) {
       logger.error('create-order error', { error: err.message });
@@ -731,10 +744,12 @@ router.post('/razorpay/create-order',
 router.post('/razorpay/verify-payment', async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature, purchase_id } = req.body;
   try {
+    const razorpayCredentials = await loadSavedRazorpayCredentials();
     const valid = razorpayService.verifyPaymentSignature({
       orderId:   razorpay_order_id,
       paymentId: razorpay_payment_id,
       signature: razorpay_signature,
+      keySecret: razorpayCredentials.key_secret,
     });
 
     if (!valid) return res.status(400).json({ success: false, error: 'Invalid payment signature' });
@@ -767,8 +782,9 @@ async function handleRazorpayWebhook(req, res) {
   if (!signature) return res.status(400).json({ error: 'Missing signature' });
 
   try {
+    const razorpayCredentials = await loadSavedRazorpayCredentials();
     const rawBody = req.body; // Buffer from express.raw()
-    const valid   = razorpayService.verifyWebhookSignature(rawBody, signature);
+    const valid   = razorpayService.verifyWebhookSignature(rawBody, signature, razorpayCredentials.webhook_secret);
     if (!valid) {
       logger.warn('Razorpay webhook signature invalid', { ip: req.ip });
       return res.status(400).json({ error: 'Invalid webhook signature' });

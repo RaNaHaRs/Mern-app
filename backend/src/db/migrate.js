@@ -175,6 +175,17 @@ async function migrate() {
     }
 
     try {
+      const softDeleteSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '016_add_pending_amount_soft_delete.sql'),
+        'utf8'
+      );
+      await client.query(softDeleteSchema);
+      console.log('✅ Case soft delete and pending amount migration applied');
+    } catch (softDeleteErr) {
+      console.warn('⚠️  Case soft delete migration warning (non-fatal):', softDeleteErr.message);
+    }
+
+    try {
       const unifiedTenantSchema = fs.readFileSync(
         path.join(__dirname, 'migrations', '016_unified_tenant_id.sql'),
         'utf8'
@@ -194,6 +205,17 @@ async function migrate() {
       console.log('✅ Assigned admin migration applied');
     } catch (assignedAdminErr) {
       console.warn('⚠️  Assigned admin migration warning (non-fatal):', assignedAdminErr.message);
+    }
+
+    try {
+      const caseStageSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '020_case_stage_to_varchar.sql'),
+        'utf8'
+      );
+      await client.query(caseStageSchema);
+      console.log('✅ Case stage enum conversion migration applied');
+    } catch (caseStageErr) {
+      console.warn('⚠️  Case stage migration warning (non-fatal):', caseStageErr.message);
     }
 
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");

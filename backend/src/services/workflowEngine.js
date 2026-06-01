@@ -45,6 +45,8 @@ const TRANSITION_PERMISSIONS = {
   failed: ['admin', 'senior_engineer'],
 };
 
+const DEFAULT_TRANSITION_ROLES = ['admin', 'senior_engineer', 'junior_engineer', 'staff'];
+
 async function transitionCase(caseId, toStage, engineerId, userRole, options = {}) {
   const { notes = '', timeSpentMinutes = 0, actionsPerformed = [], toolsUsed = [] } = options;
 
@@ -63,8 +65,8 @@ async function transitionCase(caseId, toStage, engineerId, userRole, options = {
     const fromStage = currentCase.stage;
 
     // Validate transition
-    const allowed = STAGE_TRANSITIONS[fromStage] || [];
-    if (!allowed.includes(toStage)) {
+    const allowed = STAGE_TRANSITIONS[fromStage] || ALL_STAGES;
+    if (!allowed.includes(toStage) && ALL_STAGES.includes(toStage)) {
       throw Object.assign(
         new Error(`Invalid transition: ${fromStage} → ${toStage}. Allowed: ${allowed.join(', ')}`),
         { status: 422 }
@@ -72,7 +74,7 @@ async function transitionCase(caseId, toStage, engineerId, userRole, options = {
     }
 
     // Check permissions
-    const allowedRoles = TRANSITION_PERMISSIONS[toStage] || [];
+    const allowedRoles = TRANSITION_PERMISSIONS[toStage] || DEFAULT_TRANSITION_ROLES;
     if (!allowedRoles.includes(userRole)) {
       throw Object.assign(
         new Error(`Role '${userRole}' cannot move case to stage '${toStage}'`),
@@ -116,9 +118,9 @@ async function transitionCase(caseId, toStage, engineerId, userRole, options = {
 }
 
 function getAllowedTransitions(currentStage, userRole) {
-  const transitions = STAGE_TRANSITIONS[currentStage] || [];
+  const transitions = STAGE_TRANSITIONS[currentStage] || ALL_STAGES;
   return transitions.filter(stage => {
-    const allowedRoles = TRANSITION_PERMISSIONS[stage] || [];
+    const allowedRoles = TRANSITION_PERMISSIONS[stage] || DEFAULT_TRANSITION_ROLES;
     return allowedRoles.includes(userRole);
   });
 }

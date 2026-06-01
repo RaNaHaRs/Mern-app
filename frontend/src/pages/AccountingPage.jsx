@@ -430,6 +430,49 @@ export default function AccountingPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const dailyRevenue = (() => {
+    const days = Array.from({ length: 7 }, (_, idx) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - idx));
+      const dateKey = d.toISOString().slice(0, 10);
+      return { date: dateKey, label: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), amount: 0 };
+    });
+    const map = Object.fromEntries(days.map(d => [d.date, d]));
+    invoices.forEach(inv => {
+      if (!inv) return;
+      const paidDate = inv.paid_at || inv.updated_at || inv.created_at;
+      const dayKey = paidDate ? paidDate.slice(0, 10) : null;
+      if (!dayKey || !map[dayKey]) return;
+      map[dayKey].amount += parseFloat(inv.amount_paid ?? inv.total ?? 0) || 0;
+    });
+    return days;
+  })();
+
+  const getSummaryNumber = (...keys) => {
+    for (const key of keys) {
+      if (summary?.[key] != null && summary[key] !== '') {
+        const parsed = parseFloat(summary[key]);
+        if (!Number.isNaN(parsed)) return parsed;
+      }
+    }
+    return 0;
+  };
+
+  const totalRevenueValue = getSummaryNumber(
+    'case_total_paid',
+    'caseTotalPaid',
+    'totalRevenue',
+    'total_revenue',
+    'revenue',
+    'total_collected',
+    'accounting_total_collected',
+    'total_invoiced',
+    'totalInvoiced'
+  );
+  const totalExpensesValue = getSummaryNumber('total_expenses', 'totalExpenses', 'expenses', 'total_expenses');
+  const casePendingValue = getSummaryNumber('pendingRevenue', 'pending_revenue', 'case_total_pending', 'caseTotalPending');
+  const overdueValue = getSummaryNumber('case_total_pending_overdue', 'overdueRevenue', 'overdue_revenue');
+  const netProfitValue = getSummaryNumber('netProfit', 'net_profit') || totalRevenueValue - totalExpensesValue;
   // Modals
   const [showQuoteForm, setShowQuoteForm] = useState(false);
   const [editQuote, setEditQuote] = useState(null);
@@ -484,14 +527,13 @@ export default function AccountingPage() {
       {activeTab === 'overview' && summary && (
         <div>
           {/* KPI Cards */}
-          <div className="stats-grid" style={{ marginBottom: 24 }}>
+          <div className="stats-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(5, minmax(180px, 1fr))', overflowX: 'auto' }}>
             {[
-              { icon: '', label: 'Total Revenue (Invoice)', value: fmt(summary.total_collected), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
-              { icon: '', label: 'Case Revenue (Paid)', value: fmt(summary.case_total_paid), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
-              { icon: '', label: 'Case Pending', value: fmt(summary.case_total_pending), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
-              { icon: '', label: 'Overdue (30+ days)', value: fmt(summary.case_total_pending_overdue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
-              { icon: '', label: 'Total Expenses', value: fmt(summary.total_expenses), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
-              { icon: '', label: 'Net Profit (Month)', value: fmt(summary.profit_month), color: summary.profit_month >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: summary.profit_month >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
+              { icon: '', label: 'Total Revenue', value: fmt(totalRevenueValue), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
+              { icon: '', label: 'Pending Amount', value: fmt(casePendingValue), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
+              { icon: '', label: 'Overdue (30+ days)', value: fmt(overdueValue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
+              { icon: '', label: 'Total Expenses', value: fmt(totalExpensesValue), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
+              { icon: '', label: 'Net Profit', value: fmt(netProfitValue), color: netProfitValue >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: netProfitValue >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
             ].map(stat => (
               <div key={stat.label} className="stat-card" style={{ '--stat-color': stat.color, '--stat-bg': stat.bg }}>
                 <div className="stat-icon">{stat.icon}</div>
@@ -524,7 +566,8 @@ export default function AccountingPage() {
             <div className="card">
               <div className="card-title" style={{ marginBottom: 16 }}> Expense Breakdown</div>
               {Object.entries(summary.expenseByCategory || {}).map(([cat, amt]) => {
-                const pct = Math.round(amt / summary.totalExpenses * 100);
+                const totalExpensesValue = summary.total_expenses ?? summary.totalExpenses ?? 0;
+                const pct = totalExpensesValue ? Math.round((amt / totalExpensesValue) * 100) : 0;
                 return (
                   <div key={cat} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 4 }}>
@@ -538,28 +581,48 @@ export default function AccountingPage() {
             </div>
           </div>
 
-          {/* Monthly Chart */}
-          <div className="card">
-            <div className="card-title" style={{ marginBottom: 16 }}> Last 6 Months — Revenue vs Expenses</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 160, padding: '0 8px' }}>
-              {(summary.monthlyRevenue || []).map(m => {
-                const maxVal = Math.max(...summary.monthlyRevenue.map(x => Math.max(x.revenue, x.expenses)), 1);
-                const revH = Math.round((m.revenue / maxVal) * 140);
-                const expH = Math.round((m.expenses / maxVal) * 140);
-                return (
-                  <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 140 }}>
-                      <div title={`Revenue: ${fmt(m.revenue)}`} style={{ width: 14, height: revH || 2, background: 'var(--status-success)', borderRadius: '3px 3px 0 0', transition: 'height 0.5s', opacity: 0.85 }} />
-                      <div title={`Expenses: ${fmt(m.expenses)}`} style={{ width: 14, height: expH || 2, background: '#f472b6', borderRadius: '3px 3px 0 0', transition: 'height 0.5s', opacity: 0.85 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16, marginBottom: 16 }}>
+            <div className="card">
+              <div className="card-title" style={{ marginBottom: 16 }}> Last 6 Months — Revenue vs Expenses</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 160, padding: '0 8px' }}>
+                {(summary.monthlyRevenue || []).map(m => {
+                  const maxVal = Math.max(...summary.monthlyRevenue.map(x => Math.max(x.revenue, x.expenses)), 1);
+                  const revH = Math.round((m.revenue / maxVal) * 140);
+                  const expH = Math.round((m.expenses / maxVal) * 140);
+                  return (
+                    <div key={m.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 140 }}>
+                        <div title={`Revenue: ${fmt(m.revenue)}`} style={{ width: 14, height: revH || 2, background: 'var(--status-success)', borderRadius: '3px 3px 0 0', transition: 'height 0.5s', opacity: 0.85 }} />
+                        <div title={`Expenses: ${fmt(m.expenses)}`} style={{ width: 14, height: expH || 2, background: '#f472b6', borderRadius: '3px 3px 0 0', transition: 'height 0.5s', opacity: 0.85 }} />
+                      </div>
+                      <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{m.month.slice(5)}</div>
                     </div>
-                    <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{m.month.slice(5)}</div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 16, marginTop: 8, justifyContent: 'center' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--status-success)', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: 'var(--status-success)', borderRadius: 2, display: 'inline-block' }} /> Revenue</span>
+                <span style={{ fontSize: '0.7rem', color: '#f472b6', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#f472b6', borderRadius: 2, display: 'inline-block' }} /> Expenses</span>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 16, marginTop: 8, justifyContent: 'center' }}>
-              <span style={{ fontSize: '0.7rem', color: 'var(--status-success)', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: 'var(--status-success)', borderRadius: 2, display: 'inline-block' }} /> Revenue</span>
-              <span style={{ fontSize: '0.7rem', color: '#f472b6', display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 10, height: 10, background: '#f472b6', borderRadius: 2, display: 'inline-block' }} /> Expenses</span>
+            <div className="card">
+              <div className="card-title" style={{ marginBottom: 16 }}> Last 7 Days — Revenue per Day</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 160, padding: '0 8px' }}>
+                {dailyRevenue.map(day => {
+                  const maxVal = Math.max(...dailyRevenue.map(x => x.amount), 1);
+                  const barH = Math.round((day.amount / maxVal) * 140);
+                  return (
+                    <div key={day.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <div title={`${fmt(day.amount)} on ${day.label}`} style={{ width: 12, height: barH || 2, background: 'var(--status-success)', borderRadius: '3px 3px 0 0', transition: 'height 0.5s', opacity: 0.9 }} />
+                      <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>{day.label.slice(0, 2)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                <span>Total</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{fmt(dailyRevenue.reduce((sum, d) => sum + d.amount, 0))}</span>
+              </div>
             </div>
           </div>
         </div>

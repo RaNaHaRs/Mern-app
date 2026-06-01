@@ -633,6 +633,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 20px !important;
 }
 
 .saas-app .modal {
@@ -641,35 +642,53 @@
   border-radius: var(--radius-md) !important;
   box-shadow: var(--shadow-lg) !important;
   animation: none !important;
-  max-width: 90%;
-  max-height: 90vh;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  width: auto !important;
+  min-width: 320px !important;
+  max-width: min(680px, 100%) !important;
+  max-height: 90vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
+
+.saas-app .modal-sm { max-width: min(420px, 100%) !important; }
+.saas-app .modal-md { max-width: min(520px, 100%) !important; }
+.saas-app .modal-lg { max-width: min(720px, 100%) !important; }
+.saas-app .modal-xl { max-width: min(880px, 100%) !important; }
 
 .saas-app .modal-header {
   border-bottom: 1px solid var(--border-default) !important;
   background: var(--bg-base) !important;
-  padding: 14px 20px !important;
+  padding: 16px 20px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
 }
 
 .saas-app .modal-title {
   font-family: var(--font-display);
   font-weight: 600 !important;
   font-size: 0.95rem !important;
+  margin: 0 !important;
 }
 
 .saas-app .modal-body {
-  padding: 20px !important;
-  overflow-y: auto;
-  flex: 1;
+  padding: 18px 20px !important;
+  overflow-y: auto !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  max-height: calc(90vh - 140px) !important;
 }
 
 .saas-app .modal-footer {
   border-top: 1px solid var(--border-default) !important;
   background: var(--bg-base) !important;
-  padding: 12px 20px !important;
+  padding: 14px 20px !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  flex-wrap: wrap !important;
 }
 
 /* ── 6. BUTTONS & UI COMPONENT CONSISTENCY ── */

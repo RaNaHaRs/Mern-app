@@ -101,6 +101,86 @@ function NewClientModal({ onClose, onCreated }) {
   );
 }
 
+function CollectModal({ client, onClose, onCollected }) {
+  const [amount, setAmount] = useState('');
+  const [notes, setNotes] = useState('Collected from Clients page');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  if (!client) return null;
+
+  const pending = parseFloat(client.pending_amount || 0);
+
+  const validate = () => {
+    setError('');
+    const val = parseFloat(amount || 0);
+    if (!amount || isNaN(val)) { setError('Enter a valid amount'); return false; }
+    if (val <= 0) { setError('Amount must be greater than zero'); return false; }
+    if (val > pending) { setError('Amount cannot exceed pending amount'); return false; }
+    return true;
+  };
+
+  const handleCollect = async () => {
+    if (!validate()) return;
+    setLoading(true);
+    try {
+      await clientsApi.collectPending(client.id, { amount: parseFloat(amount), notes });
+      // Refresh parent data
+      if (onCollected) await onCollected();
+      try { window.dispatchEvent(new Event('paymentsUpdated')); } catch (e) { /* ignore */ }
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Failed to collect payment');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-sm" onClick={e => e.stopPropagation()} style={{maxWidth:420}}>
+        <div className="modal-header">
+          <h3 className="modal-title">💳 Collect Payment — {client.first_name} {client.last_name}</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:'0.85rem',color:'var(--text-muted)'}}>Client</div>
+            <div style={{fontWeight:700}}>{client.first_name} {client.last_name} • <span className="font-mono">{client.client_code}</span></div>
+          </div>
+
+          <div style={{display:'flex',gap:12,marginBottom:10}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Total Pending</div>
+              <div style={{fontWeight:800,fontFamily:'var(--font-mono)'}}>₹{pending.toLocaleString('en-IN')}</div>
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Total Paid</div>
+              <div style={{fontWeight:700,fontFamily:'var(--font-mono)'}}>₹{parseFloat(client.total_paid||0).toLocaleString('en-IN')}</div>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label required">Collect Amount (₹)</label>
+            <input type="number" className="form-input" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" min="0" step="0.01" />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Notes</label>
+            <input className="form-input" value={notes} onChange={e=>setNotes(e.target.value)} />
+          </div>
+
+          {error && <div className="alert alert-danger" style={{marginTop:8}}>{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleCollect} disabled={loading}>
+            {loading ? <><div className="spinner" style={{width:14,height:14}}/> Processing...</> : 'Collect Payment'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClientsPage() {
   const navigate = useNavigate();
   const { canAccess } = useAuth();

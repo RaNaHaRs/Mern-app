@@ -230,7 +230,7 @@ CREATE TABLE cases (
   initial_diagnosis TEXT,
   final_diagnosis TEXT,
   -- Workflow
-  stage case_stage DEFAULT 'received',
+  stage VARCHAR(100) DEFAULT 'received',
   priority INTEGER DEFAULT 3 CHECK (priority BETWEEN 1 AND 5),  -- 1=critical,5=low
   assigned_engineer UUID REFERENCES users(id),
   -- Timing
@@ -258,8 +258,8 @@ CREATE TABLE cases (
 CREATE TABLE case_workflow_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
-  from_stage case_stage,
-  to_stage case_stage NOT NULL,
+  from_stage VARCHAR(100),
+  to_stage VARCHAR(100) NOT NULL,
   engineer_id UUID REFERENCES users(id),
   notes TEXT,
   time_spent_minutes INTEGER DEFAULT 0,
@@ -276,7 +276,7 @@ CREATE TABLE case_engineer_sessions (
   ended_at TIMESTAMPTZ,
   duration_minutes INTEGER,
   work_description TEXT,
-  stage case_stage
+  stage VARCHAR(100)
 );
 
 -- ============================================================
@@ -456,16 +456,69 @@ CREATE TRIGGER trg_storage_models_updated BEFORE UPDATE ON storage_models FOR EA
 CREATE TRIGGER trg_inventory_updated BEFORE UPDATE ON inventory_items FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_quotations_updated BEFORE UPDATE ON quotations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- Auto-generate case number
+-- Use a sequence for case numbers to avoid race conditions that cause duplicates
+CREATE SEQUENCE IF NOT EXISTS case_number_seq;
+
+CREATE OR REPLACE FUNCTION format_sequence_string(format TEXT, seq_num BIGINT)
+RETURNS TEXT AS $$
+DECLARE
+  formatted TEXT := COALESCE(format, '');
+  found TEXT[];
+  token TEXT;
+  width INT;
+  padded TEXT := seq_num::TEXT;
+BEGIN
+  IF formatted = '' THEN
+    RETURN padded;
+  END IF;
+
+  formatted := REPLACE(formatted, '{YYYY}', TO_CHAR(NOW(), 'YYYY'));
+  formatted := REPLACE(formatted, '{YY}', TO_CHAR(NOW(), 'YY'));
+  formatted := REPLACE(formatted, '{MM}', TO_CHAR(NOW(), 'MM'));
+
+  LOOP
+    found := regexp_matches(formatted, '\{(N+)\}');
+    EXIT WHEN found IS NULL;
+    token := found[1];
+    width := CHAR_LENGTH(token);
+    IF width > 1 THEN
+      formatted := regexp_replace(formatted, '\{N+\}', LPAD(padded, width, '0'), '');
+    ELSE
+      formatted := regexp_replace(formatted, '\{N+\}', padded, '');
+    END IF;
+  END LOOP;
+
+  RETURN formatted;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
 CREATE OR REPLACE FUNCTION generate_case_number()
 RETURNS TRIGGER AS $$
 DECLARE
-  year_part VARCHAR(4);
-  seq_num INTEGER;
+  seq_num BIGINT;
+  format_string TEXT;
+  start_value INT := 1;
+  current_last BIGINT;
 BEGIN
-  year_part := TO_CHAR(NOW(), 'YYYY');
-  SELECT COUNT(*) + 1 INTO seq_num FROM cases WHERE EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM NOW());
-  NEW.case_number := 'DR-' || year_part || '-' || LPAD(seq_num::TEXT, 5, '0');
+  SELECT value->>'case_number_format', (value->>'case_number_start')::INT
+    INTO format_string, start_value
+    FROM platform_settings
+    WHERE key = 'company';
+
+  IF format_string IS NULL OR format_string = '' THEN
+    format_string := 'DR-{YYYY}-{NNNNN}';
+  END IF;
+  IF start_value IS NULL OR start_value < 1 THEN
+    start_value := 1;
+  END IF;
+
+  SELECT last_value INTO current_last FROM case_number_seq;
+  IF current_last < start_value - 1 THEN
+    PERFORM setval('case_number_seq', start_value - 1, false);
+  END IF;
+
+  seq_num := nextval('case_number_seq');
+  NEW.case_number := format_sequence_string(format_string, seq_num);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

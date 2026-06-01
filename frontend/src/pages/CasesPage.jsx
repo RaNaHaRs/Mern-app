@@ -16,18 +16,54 @@ function getSettings(key, def) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v && v.length ? v : def; } catch { return def; }
 }
 
+function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
+  const [loading, setLoading] = useState(false);
+  const handleConfirm = async () => {
+    setLoading(true);
+    try {
+      await onConfirm();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">Move {selectedCount} case{selectedCount > 1 ? 's' : ''} to Recycle Bin</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}></button>
+        </div>
+        <div className="modal-body">
+          <p style={{ marginBottom: 16, color: 'var(--text-primary)' }}>
+            This will soft-delete the selected case{selectedCount > 1 ? 's' : ''}. You can restore them from the Recycle Bin later.
+          </p>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel} disabled={loading}>Cancel</button>
+          <button className="btn btn-secondary" onClick={handleConfirm} disabled={loading}>
+            {loading ? 'Moving...' : `Move ${selectedCount} case${selectedCount > 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CasesPage() {
   const navigate = useNavigate();
-  const { canAccess, hasPermission } = useAuth();
+  const { canAccess, hasPermission, user } = useAuth();
   const [cases, setCases] = useState([]);
   const [pagination, setPagination] = useState({});
   const [loading, setLoading] = useState(true);
   const [showNewCase, setShowNewCase] = useState(false);
   const [filters, setFilters] = useState({ stage: '', search: '', priority: '', failure_type: '' });
   const [page, setPage] = useState(1);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [deletingIds, setDeletingIds] = useState(new Set());
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const canDeleteCases = hasPermission('cases', 'delete');
+  const canPermanentDelete = user?.role === 'admin' || user?.role === 'super_admin';
 
   const checkStale = (c) => {
     if (c.stage === 'delivered' || c.stage === 'failed' || c.stage === 'completed' || c.stage === 'rejected') return false;
@@ -56,12 +92,57 @@ export default function CasesPage() {
     }
   }, [filters, page]);
 
-  useEffect(() => { loadCases(); }, [loadCases]);
+  const load = useCallback(async () => {
+    await loadCases();
+  }, [loadCases]);
+
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    fieldConfigApi.loadCaseSettingsToLocalStorage()
-      .catch(() => {})
-      .finally(() => setSettingsLoaded(true));
+    setSelectedIds(new Set());
+  }, [cases]);
+
+  const displayCases = cases;
+
+  const toggleSelect = (caseId) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(caseId)) {
+      newSelected.delete(caseId);
+    } else {
+      newSelected.add(caseId);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === displayCases.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(displayCases.map(c => c.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      await casesApi.bulkDelete(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      setShowDeleteConfirm(false);
+      await loadCases();
+      alert('Selected cases have been moved to the Recycle Bin.');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Unable to delete selected cases.');
+    }
+  };
+
+  const selectedCount = selectedIds.size;
+  const activePagination = pagination;
+  const activePage = page;
+  const resetActivePage = () => setPage(1);
+
+  useEffect(() => {
+    fieldConfigApi.loadCaseSettingsToLocalStorage().catch(() => {});
   }, []);
 
   const deleteCase = async (caseId) => {
@@ -84,16 +165,30 @@ export default function CasesPage() {
 
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header" style={{ flexWrap: 'wrap', gap: 16 }}>
         <div className="page-header-left">
           <h2>Case Management</h2>
-          <p>All recovery jobs — {pagination.total || 0} total cases</p>
+          <p>
+            {`All recovery jobs — ${pagination.total || 0} total cases`}
+          </p>
         </div>
-        {canAccess('staff') && (
-          <button className="btn btn-primary" onClick={() => setShowNewCase(true)}>
-            + New Case
-          </button>
-        )}
+
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {selectedCount > 0 && canDeleteCases && (
+            <>
+              <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(true)}>
+                Delete selected ({selectedCount})
+              </button>
+              <button className="btn btn-ghost" onClick={() => setSelectedIds(new Set())}>Clear</button>
+            </>
+          )}
+          {canAccess('staff') && (
+            <button className="btn btn-primary" onClick={() => setShowNewCase(true)}>
+              + New Case
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -101,29 +196,29 @@ export default function CasesPage() {
         <div className="search-bar">
           <span className="search-icon">🔍</span>
           <input className="search-input" placeholder="Search case#, client, serial..." value={filters.search}
-            onChange={e => { setFilters({...filters, search: e.target.value}); setPage(1); }} />
+            onChange={e => { setFilters({...filters, search: e.target.value}); resetActivePage(); }} />
         </div>
 
         <select className="form-select" style={{width:'auto', fontSize:'0.8rem', padding:'7px 12px'}} value={filters.stage}
-          onChange={e => { setFilters({...filters, stage: e.target.value}); setPage(1); }}>
+          onChange={e => { setFilters({...filters, stage: e.target.value}); resetActivePage(); }}>
           <option value="">All Stages</option>
           {getSettings('custom_stages', DEFAULT_STAGES).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').toUpperCase()}</option>)}
         </select>
 
         <select className="form-select" style={{width:'auto', fontSize:'0.8rem', padding:'7px 12px'}} value={filters.failure_type}
-          onChange={e => { setFilters({...filters, failure_type: e.target.value}); setPage(1); }}>
+          onChange={e => { setFilters({...filters, failure_type: e.target.value}); resetActivePage(); }}>
           <option value="">All Failures</option>
           {getSettings('custom_failure_types', DEFAULT_FAILURE_TYPES).map(f => <option key={f} value={f}>{f.replace(/_/g,' ')}</option>)}
         </select>
 
         <select className="form-select" style={{width:'auto', fontSize:'0.8rem', padding:'7px 12px'}} value={filters.priority}
-          onChange={e => { setFilters({...filters, priority: e.target.value}); setPage(1); }}>
+          onChange={e => { setFilters({...filters, priority: e.target.value}); resetActivePage(); }}>
           <option value="">All Priorities</option>
           {Object.entries(PRIORITIES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
         </select>
 
         {(filters.stage || filters.failure_type || filters.priority) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({stage:'',search:'',priority:'',failure_type:''}); setPage(1); }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({stage:'',search:'',priority:'',failure_type:''}); resetActivePage(); }}>
             ✕ Clear
           </button>
         )}
@@ -139,22 +234,43 @@ export default function CasesPage() {
             <table>
               <thead>
                 <tr>
+                  {canDeleteCases && (
+                    <th style={{ width: '30px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === displayCases.length && displayCases.length > 0}
+                        onChange={toggleSelectAll}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </th>
+                  )}
                   <th>Case #</th>
                   <th>Client</th>
                   <th>Device</th>
                   <th>Stage</th>
-                  <th>Priority</th>
-                  <th>Failure</th>
-                  <th>Risk</th>
-                  <th>Transfer to Client</th>
-                  <th>Engineer</th>
-                  <th>Received</th>
-                  {canDeleteCases && <th>Actions</th>}
+                    <>
+                      <th>Priority</th>
+                      <th>Failure</th>
+                      <th>Risk</th>
+                      <th>Transfer to Client</th>
+                      <th>Engineer</th>
+                      <th>Received</th>
+                    </>
                 </tr>
               </thead>
               <tbody>
-                {cases.map(c => (
+                {displayCases.map(c => (
                   <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)}>
+                    {canDeleteCases && (
+                      <td onClick={e => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(c.id)}
+                          onChange={() => toggleSelect(c.id)}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      </td>
+                    )}
                     <td>
                       <div style={{ display:'flex',flexDirection:'column',gap:4 }}>
                         <span className="font-mono text-xs text-accent">{c.case_number}</span>
@@ -170,47 +286,34 @@ export default function CasesPage() {
                       <div className="text-xs text-muted font-mono">{c.device_model}</div>
                     </td>
                     <td><span className={`badge badge-${c.stage}`}>{c.stage?.replace(/_/g,' ')}</span></td>
-                    <td><span className={`badge badge-p${c.priority||3}`}>{PRIORITIES[c.priority||3]}</span></td>
-                    <td>
-                      <div style={{display:'flex',gap:4,flexWrap:'wrap',maxWidth:150}}>
-                        {(c.failure_types || (c.failure_type?[c.failure_type]:[])).map(ft => (
-                          <span key={ft} className={`badge badge-${ft}`}>{ft}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>{c.ai_risk_level && <span className={`badge badge-risk-${c.ai_risk_level}`}>{c.ai_risk_level}</span>}</td>
-                    <td>
-                      {c.transfer_to_client ? (
-                        <span className="badge badge-completed" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>Yes</span>
-                      ) : (
-                        <span className="badge badge-received" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>No</span>
-                      )}
-                    </td>
-                    <td className="text-xs text-muted">{c.engineer_name || '—'}</td>
-                    <td className="text-xs text-muted font-mono">{new Date(c.received_at||c.created_at).toLocaleDateString('en-IN')}</td>
-                    {canDeleteCases && (
+                      <td><span className={`badge badge-p${c.priority||3}`}>{PRIORITIES[c.priority||3]}</span></td>
                       <td>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          disabled={deletingIds.has(c.id)}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteCase(c.id);
-                          }}
-                        >
-                          {deletingIds.has(c.id) ? 'Deleting…' : 'Delete'}
-                        </button>
+                        <div style={{display:'flex',gap:4,flexWrap:'wrap',maxWidth:150}}>
+                          {(c.failure_types || (c.failure_type?[c.failure_type]:[])).map(ft => (
+                            <span key={ft} className={`badge badge-${ft}`}>{ft}</span>
+                          ))}
+                        </div>
                       </td>
-                    )}
+                      <td>{c.ai_risk_level && <span className={`badge badge-risk-${c.ai_risk_level}`}>{c.ai_risk_level}</span>}</td>
+                      <td>
+                        {c.transfer_to_client ? (
+                          <span className="badge badge-completed" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>Yes</span>
+                        ) : (
+                          <span className="badge badge-received" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>No</span>
+                        )}
+                      </td>
+                      <td className="text-xs text-muted">{c.engineer_name || '—'}</td>
+                      <td className="text-xs text-muted font-mono" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <span>{new Date(c.received_at||c.created_at).toLocaleDateString('en-IN')}</span>
+                      </td>
                   </tr>
                 ))}
-                {!cases.length && (
+                {!displayCases.length && (
                   <tr><td colSpan={canDeleteCases ? 11 : 10}>
                     <div className="empty-state">
                       <div className="empty-icon">📂</div>
                       <div className="empty-title">No cases found</div>
-                      <div className="empty-desc">Create a new case or adjust your filters</div>
+                      <div className="empty-desc">Create a new case or adjust your filters.</div>
                     </div>
                   </td></tr>
                 )}
@@ -218,11 +321,11 @@ export default function CasesPage() {
             </table>
           )}
         </div>
-        {pagination.pages > 1 && (
+        {activePagination.pages > 1 && (
           <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:12,padding:16,borderTop:'1px solid var(--border-subtle)'}}>
-            <button className="btn btn-secondary btn-sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>← Prev</button>
-            <span className="text-xs text-muted font-mono">Page {page} of {pagination.pages}</span>
-            <button className="btn btn-secondary btn-sm" disabled={page>=pagination.pages} onClick={()=>setPage(p=>p+1)}>Next →</button>
+            <button className="btn btn-secondary btn-sm" disabled={activePage<=1} onClick={()=>setPage(p=>p-1)}>← Prev</button>
+            <span className="text-xs text-muted font-mono">Page {activePage} of {activePagination.pages}</span>
+            <button className="btn btn-secondary btn-sm" disabled={activePage>=activePagination.pages} onClick={()=>setPage(p=>p+1)}>Next →</button>
           </div>
         )}
       </div>
@@ -232,6 +335,13 @@ export default function CasesPage() {
           loadCases();
           if(newCase && newCase.id) navigate(`/cases/${newCase.id}`);
         }} />
+      )}
+      {showDeleteConfirm && (
+        <DeleteConfirmModal
+          selectedCount={selectedCount}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
       )}
     </div>
   );

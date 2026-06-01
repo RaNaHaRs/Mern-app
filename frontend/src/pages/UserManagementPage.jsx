@@ -426,10 +426,22 @@ export default function UserManagementPage() {
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  const handleDeactivate = async (u) => {
-    if (!confirm(`Deactivate ${u.full_name}?`)) return;
-    await usersApi.deactivate(u.id);
-    loadUsers();
+  const handleToggleActive = async (u) => {
+    const action = u.is_active ? 'Deactivate' : 'Activate';
+    if (!confirm(`${action} ${u.full_name}?`)) return;
+    try {
+      const result = await usersApi.deactivate(u.id);
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+      if (result && result.id) {
+        await loadUsers();
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (err) {
+      alert(err.message || 'Unable to update user status');
+    }
   };
 
   const adminUsers = users.filter(u => u.role === 'admin');
@@ -531,8 +543,8 @@ export default function UserManagementPage() {
                       {hasPermission('users', 'edit') && (
                         <button className="btn btn-sm btn-secondary" onClick={() => { setEditUser(u); setShowUserModal(true); }}> Edit</button>
                       )}
-                      {hasPermission('users', 'deactivate') && u.role !== 'admin' && (
-                        <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }} onClick={() => handleDeactivate(u)}>
+                      {(hasPermission('users', 'deactivate') || isAdmin) && u.role !== 'admin' && (
+                        <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }} onClick={() => handleToggleActive(u)}>
                           {u.is_active === false ? ' Activate' : ' Deactivate'}
                         </button>
                       )}

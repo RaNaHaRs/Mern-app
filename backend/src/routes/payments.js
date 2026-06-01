@@ -3,6 +3,8 @@ const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantAdminId, verifyCaseAccess } = require('../utils/tenantAccess');
+const { loadCompanySettings } = require('./settings');
+const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
 
 const router = express.Router();
 router.use(authenticate);
@@ -36,8 +38,15 @@ router.post('/quotations', requireMinRole('staff'), auditLog('create_quotation',
       return res.status(404).json({ error: 'Case not found' });
     }
     const total = parseFloat(estimated_cost || 0) * (1 + parseFloat(tax_pct || 18) / 100);
+    const companySettings = await loadCompanySettings();
     const qNumResult = await query('SELECT COUNT(*) FROM quotations');
-    const qNum = `QT-${String(parseInt(qNumResult.rows[0].count)+1).padStart(5,'0')}`;
+    const qCount = parseInt(qNumResult.rows[0].count, 10) || 0;
+    const qStart = getCompanyNumberStart(companySettings, 'quote_number_start');
+    const qSequence = qCount + qStart;
+    const qNum = formatNumberSequence(
+      getCompanyNumberFormat(companySettings, 'quote_number_format', 'QT-{YYYY}-{NNNN}'),
+      qSequence
+    );
 
     const result = await query(
       `INSERT INTO quotations (case_id, quote_number, estimated_cost, parts_cost, service_cost, tax_pct, total_amount, valid_until, notes, created_by)
@@ -51,16 +60,20 @@ router.post('/quotations', requireMinRole('staff'), auditLog('create_quotation',
 router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'), async (req, res) => {
   try {
     const { case_id, quotation_id, amount, method, reference_number, notes } = req.body;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: 'A valid payment amount is required' });
+    }
     if (!isSuperAdmin(req.user) && !(await verifyCaseAccess(case_id, req.user))) {
       return res.status(404).json({ error: 'Case not found' });
     }
     const result = await query(
       `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
        VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
-      [case_id, quotation_id||null, amount, method, reference_number||null, notes||null, req.user.id]
+      [case_id, quotation_id||null, parsedAmount, method, reference_number||null, notes||null, req.user.id]
     );
     // Update client total paid
-    await query('UPDATE clients SET total_paid = total_paid + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)', [amount, case_id]);
+    await query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)', [parsedAmount, case_id]);
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

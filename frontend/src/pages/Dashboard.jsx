@@ -122,7 +122,7 @@ export default function Dashboard() {
         {hasPermission('accounting', 'view') && (
           <>
             <StatCard label="Revenue (Month)"    value={`₹${parseFloat(r.revenue_month||0).toLocaleString('en-IN')}`} color="#f59e0b" bg="rgba(245,158,11,0.1)" size={size} onClick={() => navigate('/reports')} />
-            <StatCard label="Pending Payment"    value={`₹${parseFloat(r.pending_revenue||0).toLocaleString('en-IN')}`} color="#ef4444" bg="rgba(239,68,68,0.1)" size={size} onClick={() => navigate('/accounting')} />
+            <StatCard label="Pending Amount"    value={`₹${parseFloat(r.pending_revenue||0).toLocaleString('en-IN')}`} color="#ef4444" bg="rgba(239,68,68,0.1)" size={size} onClick={() => navigate('/accounting')} />
           </>
         )}
       </div>

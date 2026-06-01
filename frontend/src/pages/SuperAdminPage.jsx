@@ -287,8 +287,21 @@ function TenantUsersModal({ tenant, onClose }) {
   }, [tenant.id]);
 
   const toggleUser = async (u) => {
-    const res = await saApi.patch(`/tenants/${tenant.id}/users/${u.id}`, { is_active: !u.is_active });
-    if (res.ok) setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: !x.is_active } : x));
+    const action = u.is_active ? 'Deactivate' : 'Activate';
+    if (!confirm(`${action} ${u.full_name || u.username}?`)) return;
+    try {
+      const res = await saApi.patch(`/tenants/${tenant.id}/users/${u.id}`, { is_active: !u.is_active });
+      if (res?.error) {
+        throw new Error(res.error);
+      }
+      if (res.id) {
+        setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: res.is_active } : x));
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (err) {
+      alert(err.message || 'Unable to update user status');
+    }
   };
 
   return (

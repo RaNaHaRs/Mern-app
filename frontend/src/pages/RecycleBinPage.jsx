@@ -10,15 +10,13 @@ const getToken = () => localStorage.getItem('accessToken');
 
 const binApi = {
   list: () => fetch(`${BASE_URL}/recycle-bin`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
-  restore: (id, password) => fetch(`${BASE_URL}/recycle-bin/${id}/restore`, {
+  restore: (id) => fetch(`${BASE_URL}/recycle-bin/${id}/restore`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ admin_password: password }),
+    headers: { Authorization: `Bearer ${getToken()}` },
   }).then(r => r.json()),
-  permanentDelete: (id, password) => fetch(`${BASE_URL}/recycle-bin/${id}/permanent-delete`, {
+  permanentDelete: (id) => fetch(`${BASE_URL}/recycle-bin/${id}/permanent-delete`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ admin_password: password }),
+    headers: { Authorization: `Bearer ${getToken()}` },
   }).then(r => r.json()),
 };
 
@@ -27,26 +25,13 @@ const daysAgo = (d) => {
   return diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : `${diff} days ago`;
 };
 
-function PasswordModal({ item, onConfirm, onClose }) {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+function ConfirmRestoreModal({ item, onConfirm, onClose }) {
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!password) { setError('Password is required'); return; }
-    // Verify against stored recycle bin password
-    const companyData = (() => { try { return JSON.parse(localStorage.getItem('crm_company')) || {}; } catch { return {}; }})();
-    const storedPassword = companyData.recycle_bin_password;
-    if (storedPassword && password !== storedPassword) {
-      setError('Incorrect Recycle Bin password');
-      return;
-    }
+  const handleConfirm = async () => {
     setLoading(true);
     try {
-      await onConfirm(item.id, password);
-    } catch (e) {
-      setError(e.message);
+      await onConfirm();
     } finally {
       setLoading(false);
     }
@@ -56,26 +41,18 @@ function PasswordModal({ item, onConfirm, onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
         <div className="modal-header">
-          <h3 className="modal-title"> Recycle Bin Password Required</h3>
-          <button className="btn btn-ghost btn-icon" onClick={onClose}></button>
+          <h3 className="modal-title">Restore Item</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 16 }}>
-            Enter the Recycle Bin password to restore <strong>{item.case_number}</strong>.
-            This password is different from your login password and is set in Settings → Recycle Bin.
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-main)', margin: '8px 0 16px 0' }}>
+            Are you sure you want to restore this item?
           </p>
-          {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><span className="alert-icon"></span> {error}</div>}
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label className="form-label required">Recycle Bin Password</label>
-              <input type="password" className="form-input" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} autoFocus placeholder="Enter recycle bin password" />
-            </div>
-          </form>
         </div>
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={loading || !password} onClick={handleSubmit}>
-            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Restoring...</> : ' Restore Case'}
+          <button className="btn btn-secondary" onClick={onClose} disabled={loading}>No</button>
+          <button className="btn btn-primary" onClick={handleConfirm} disabled={loading}>
+            {loading ? 'Restoring...' : 'Yes'}
           </button>
         </div>
       </div>
@@ -83,50 +60,59 @@ function PasswordModal({ item, onConfirm, onClose }) {
   );
 }
 
-function PermanentDeleteModal({ item, onConfirm, onClose }) {
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState('');
+function ConfirmDeleteModal({ item, onConfirm, onClose }) {
+  const [confirmText, setConfirmText] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handle = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (confirm !== item.case_number) { setError(`Type "${item.case_number}" to confirm`); return; }
-    if (!password) { setError('Admin password required'); return; }
+    if (confirmText !== 'DELETE') return;
     setLoading(true);
-    try { await onConfirm(item.id, password); }
-    catch (e) { setError(e.message); }
-    finally { setLoading(false); }
+    try {
+      await onConfirm();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460, border: '1px solid rgba(239,68,68,0.4)' }}>
-        <div className="modal-header" style={{ background: 'rgba(239,68,68,0.08)' }}>
-          <h3 className="modal-title" style={{ color: 'var(--status-danger)' }}> Permanent Delete — {item.case_number}</h3>
-          <button className="btn btn-ghost btn-icon" onClick={onClose}></button>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, border: '1px solid rgba(239,68,68,0.3)' }}>
+        <div className="modal-header" style={{ background: 'rgba(239,68,68,0.04)' }}>
+          <h3 className="modal-title" style={{ color: 'var(--status-danger)' }}>Permanent Delete</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>×</button>
         </div>
         <div className="modal-body">
           <div className="alert alert-danger" style={{ marginBottom: 16 }}>
             <span className="alert-icon"></span>
-            <div><strong>This action cannot be undone.</strong> The case and all related data (files, payments, timeline, solution) will be permanently destroyed.</div>
+            <div><strong>This action cannot be undone.</strong> The item and all related data will be permanently destroyed.</div>
           </div>
-          {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}><span className="alert-icon"></span> {error}</div>}
-          <form onSubmit={handle}>
-            <div className="form-group">
-              <label className="form-label required">Type case number to confirm: <code style={{ color: 'var(--status-danger)', background: 'rgba(239,68,68,0.1)', padding: '2px 6px', borderRadius: 4 }}>{item.case_number}</code></label>
-              <input className="form-input" value={confirm} onChange={e => { setConfirm(e.target.value); setError(''); }} placeholder={item.case_number} autoFocus />
-            </div>
-            <div className="form-group">
-              <label className="form-label required">Super Admin Password</label>
-              <input type="password" className="form-input" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} placeholder="Your admin account password" />
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-main)', marginBottom: 12 }}>
+            Type <strong>DELETE</strong> to permanently remove this item.
+          </p>
+          <form onSubmit={handleSubmit}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <input
+                type="text"
+                className="form-input"
+                value={confirmText}
+                onChange={e => setConfirmText(e.target.value)}
+                placeholder="Type DELETE to confirm"
+                autoFocus
+                style={{ textTransform: 'none' }}
+                disabled={loading}
+              />
             </div>
           </form>
         </div>
         <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-danger" disabled={loading || confirm !== item.case_number || !password} onClick={handle}>
-            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Deleting...</> : ' Permanently Delete'}
+          <button className="btn btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
+          <button
+            className="btn btn-danger"
+            disabled={confirmText !== 'DELETE' || loading}
+            onClick={handleSubmit}
+          >
+            {loading ? 'Deleting...' : 'Permanently Delete'}
           </button>
         </div>
       </div>
@@ -175,74 +161,94 @@ export default function RecycleBinPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleRestore = async (id, password) => {
-    const result = await binApi.restore(id, password);
-    if (result.error) throw new Error(result.error);
-    setRestoreTarget(null);
-    load();
-    alert(' Case restored successfully.');
+  const triggerRestore = (item, type) => {
+    setRestoreTarget({
+      id: item.id,
+      name: item.case_number || item.model || item.name || 'item',
+      type
+    });
   };
 
-  const handlePermanentDelete = async (id, password) => {
-    const result = await binApi.permanentDelete(id, password);
-    if (result.error) throw new Error(result.error);
-    setDeleteTarget(null);
-    load();
-    alert(' Case permanently deleted.');
+  const triggerDelete = (item, type) => {
+    setDeleteTarget({
+      id: item.id,
+      name: item.case_number || item.model || item.name || 'item',
+      type
+    });
   };
 
-  const handleInvRestore = async (id) => {
+  const executeRestore = async () => {
+    if (!restoreTarget) return;
+    const { id, type } = restoreTarget;
     try {
-      await inventoryApi.restore(id);
-      await loadInventory();
-      alert(' Stock item restored.');
-    } catch (e) { alert(e.message); }
+      if (type === 'cases') {
+        const result = await binApi.restore(id);
+        if (result?.error) throw new Error(result.error);
+        if (!result?.message) throw new Error('Failed to restore case');
+        alert('Case restored successfully.');
+      } else if (type === 'inventory') {
+        const result = await inventoryApi.restore(id);
+        if (result?.error) throw new Error(result.error);
+        alert('Stock item restored.');
+      } else if (type === 'media') {
+        const result = await mediaRecycleApi.restore(id);
+        if (result?.error) throw new Error(result.error);
+        alert('Media restored to original location.');
+      }
+      setRestoreTarget(null);
+      await load();
+    } catch (e) {
+      alert(e.message || 'Failed to restore item');
+      setRestoreTarget(null);
+    }
   };
 
-  const handleInvPermanentDelete = async (id) => {
-    if (!confirm('Permanently delete this stock item? This cannot be undone.')) return;
+  const executePermanentDelete = async () => {
+    if (!deleteTarget) return;
+    const { id, type } = deleteTarget;
     try {
-      await inventoryApi.permanentDelete(id);
-      await loadInventory();
-    } catch (e) { alert(e.message); }
-  };
-
-  const handleMediaRestore = async (id) => {
-    try {
-      await mediaRecycleApi.restore(id);
-      await loadMedia();
-      alert(' Media restored to original location.');
-    } catch (e) { alert(e.message); }
-  };
-
-  const handleMediaPermanentDelete = async (id) => {
-    if (!confirm('Permanently delete this file? This cannot be undone.')) return;
-    try {
-      await mediaRecycleApi.permanentDelete(id);
-      await loadMedia();
-    } catch (e) { alert(e.message); }
+      if (type === 'cases') {
+        const result = await binApi.permanentDelete(id);
+        if (result?.error) throw new Error(result.error);
+        if (!result?.message && !result?.deleted_id) throw new Error('Failed to delete case');
+        alert('Case permanently deleted.');
+      } else if (type === 'inventory') {
+        const result = await inventoryApi.permanentDelete(id);
+        if (result?.error) throw new Error(result.error);
+        alert('Stock item permanently deleted.');
+      } else if (type === 'media') {
+        const result = await mediaRecycleApi.permanentDelete(id);
+        if (result?.error) throw new Error(result.error);
+        alert('Media permanently deleted.');
+      }
+      setDeleteTarget(null);
+      await load();
+    } catch (e) {
+      alert(e.message || 'Failed to delete item');
+      setDeleteTarget(null);
+    }
   };
 
   return (
     <div>
-      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
-        <div>
-          <h2 style={{ marginBottom:4 }}> Recycle Bin</h2>
-          <p style={{ color:'var(--text-muted)',fontSize:'0.82rem' }}>Soft-deleted cases, inventory stock, and media files — restore or permanently remove.</p>
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div className="page-header-left">
+          <h2>Recycle Bin</h2>
+          <p>Soft-deleted cases, inventory stock, and media files — restore or permanently remove.</p>
         </div>
-        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/inventory')}> Inventory</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/inventory')}>Inventory</button>
       </div>
 
-      <div className="tabs" style={{ marginBottom: 16 }}>
-        <button type="button" className={`tab-btn ${binTab === 'cases' ? 'active' : ''}`} onClick={() => setBinTab('cases')}> Cases</button>
-        <button type="button" className={`tab-btn ${binTab === 'inventory' ? 'active' : ''}`} onClick={() => setBinTab('inventory')}> Inventory Stock</button>
-        <button type="button" className={`tab-btn ${binTab === 'media' ? 'active' : ''}`} onClick={() => setBinTab('media')}> Media{mediaItems.length ? ` (${mediaItems.length})` : ''}</button>
+      <div className="tabs" style={{ marginBottom: 16, flexShrink: 0 }}>
+        <button type="button" className={`tab-btn ${binTab === 'cases' ? 'active' : ''}`} onClick={() => setBinTab('cases')}>Cases</button>
+        <button type="button" className={`tab-btn ${binTab === 'inventory' ? 'active' : ''}`} onClick={() => setBinTab('inventory')}>Inventory Stock</button>
+        <button type="button" className={`tab-btn ${binTab === 'media' ? 'active' : ''}`} onClick={() => setBinTab('media')}>Media{mediaItems.length ? ` (${mediaItems.length})` : ''}</button>
       </div>
 
       {binTab === 'cases' && (
-      <div style={{ padding:'10px 16px',background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.25)',borderRadius:'var(--radius-md)',marginBottom:16,display:'flex',alignItems:'center',gap:10,fontSize:'0.8rem',color:'var(--status-warning)' }}>
-        <span></span>
-        <span>Case restore requires the Recycle Bin password (Settings → Recycle Bin). Permanent case deletion is for Admins only.</span>
+      <div className="alert alert-info" style={{ marginBottom: 16, flexShrink: 0 }}>
+        <span className="alert-icon"></span>
+        <span>Restore items to return them to active workflows. Permanent deletion requires admin confirmation.</span>
       </div>
       )}
 
@@ -252,7 +258,7 @@ export default function RecycleBinPage() {
         <div className="empty-state" style={{ padding:80 }}>
           <div className="empty-icon"></div>
           <div className="empty-title">No deleted cases</div>
-          <div className="empty-desc">Deleted cases appear here and can be restored using the Recycle Bin password.</div>
+          <div className="empty-desc">Deleted cases appear here and can be restored easily.</div>
         </div>
       ) : binTab === 'inventory' && invItems.length === 0 ? (
         <div className="empty-state" style={{ padding:80 }}>
@@ -289,9 +295,9 @@ export default function RecycleBinPage() {
                   <td className="text-xs text-muted">{daysAgo(item.deleted_at)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleMediaRestore(item.id)}>Restore</button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'media')}>Restore</button>
                       {isSuperAdmin && (
-                        <button type="button" className="btn btn-danger btn-sm" onClick={() => handleMediaPermanentDelete(item.id)}>Delete Permanently</button>
+                        <button type="button" className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'media')}>Delete Permanently</button>
                       )}
                     </div>
                   </td>
@@ -303,7 +309,7 @@ export default function RecycleBinPage() {
       ) : binTab === 'inventory' ? (
         <div className="table-container">
           <table>
-            <thead><tr><th>Stock ID</th><th>Category</th><th>Model</th><th>PCB #</th><th>Deleted</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Stock ID</th><th>Category</th><th>Model</th><th>PCB #</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
             <tbody>
               {invItems.map(item => {
                 const cat = getCategoryMeta(item.ui_category || item.category);
@@ -313,12 +319,13 @@ export default function RecycleBinPage() {
                     <td>{cat.icon} {cat.label}</td>
                     <td>{item.model || item.name || '—'}</td>
                     <td className="font-mono text-xs">{item.pcb_number || '—'}</td>
+                    <td className="text-xs text-muted">{item.deleted_by_name || '—'}</td>
                     <td className="text-xs text-muted">{item.deleted_at ? daysAgo(item.deleted_at) : '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleInvRestore(item.id)}>Restore</button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'inventory')}>Restore</button>
                         {isSuperAdmin && (
-                          <button type="button" className="btn btn-danger btn-sm" onClick={() => handleInvPermanentDelete(item.id)}>Delete Permanently</button>
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'inventory')}>Delete Permanently</button>
                         )}
                       </div>
                     </td>
@@ -331,7 +338,7 @@ export default function RecycleBinPage() {
       ) : (
         <div className="table-container">
           <table>
-            <thead><tr><th>Case #</th><th>Client</th><th>Device</th><th>Status at Deletion</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Case #</th><th>Client</th><th>Device</th><th>Status at Deletion</th><th>Deleted By</th><th>Deleted</th></tr></thead>
             <tbody>
               {items.map(item => (
                 <tr key={item.id} style={{ opacity:0.85 }}>
@@ -339,12 +346,12 @@ export default function RecycleBinPage() {
                   <td><div style={{ fontWeight:600 }}>{item.client_name}</div></td>
                   <td className="text-xs">{[item.device_type,item.brand,item.model].filter(Boolean).join(' · ')}</td>
                   <td><span style={{ fontSize:'0.68rem',padding:'2px 7px',borderRadius:999,background:'rgba(100,116,139,0.12)',color:'#94a3b8',fontFamily:'var(--font-mono)' }}>{item.status}</span></td>
-                  <td className="text-xs text-muted">{item.deleted_by||'Admin'}</td>
-                  <td className="text-xs text-muted">{daysAgo(item.deleted_at)}</td>
-                  <td>
+                  <td className="text-xs text-muted">{item.deleted_by_name || 'Admin'}</td>
+                  <td className="text-xs text-muted" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <span>{daysAgo(item.deleted_at)}</span>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => setRestoreTarget(item)}> Restore</button>
-                      {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => setDeleteTarget(item)} style={{ fontSize: '0.72rem' }}> Delete</button>}
+                      <button className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'cases')}> Restore</button>
+                      {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'cases')} style={{ fontSize: '0.72rem' }}> Delete</button>}
                     </div>
                   </td>
                 </tr>
@@ -354,14 +361,14 @@ export default function RecycleBinPage() {
         </div>
       )}
 
-      <div className="card" style={{ marginTop:24,border:'1px solid rgba(239,68,68,0.2)',background:'rgba(239,68,68,0.02)' }}>
-        <div style={{ display:'flex',alignItems:'center',gap:12 }}>
-          <span style={{ fontSize:'1.5rem' }}></span>
+      <div className="card" style={{ marginTop: 24, borderColor: 'rgba(239,68,68,0.3)', background: 'rgba(239,68,68,0.02)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: '1.5rem' }}>⚠️</span>
           <div>
-            <div style={{ fontWeight:700,fontSize:'0.85rem',color:'var(--status-danger)',marginBottom:4 }}>Permanent Deletion Policy</div>
-            <div style={{ fontSize:'0.78rem',color:'var(--text-muted)',lineHeight:1.6 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--status-danger)', marginBottom: 4 }}>Permanent Deletion Policy</div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
               Permanent deletion is available to <strong>Admin</strong> and <strong>Super Admin</strong> accounts only.
-              This action cannot be undone — the case number must be typed to confirm.
+              This action cannot be undone — you must type DELETE to confirm.
               This policy ensures audit trails and prevents accidental data loss.
             </div>
           </div>
@@ -369,10 +376,10 @@ export default function RecycleBinPage() {
       </div>
 
       {restoreTarget && (
-        <PasswordModal item={restoreTarget} onConfirm={handleRestore} onClose={() => setRestoreTarget(null)} />
+        <ConfirmRestoreModal item={restoreTarget} onConfirm={executeRestore} onClose={() => setRestoreTarget(null)} />
       )}
       {deleteTarget && (
-        <PermanentDeleteModal item={deleteTarget} onConfirm={handlePermanentDelete} onClose={() => setDeleteTarget(null)} />
+        <ConfirmDeleteModal item={deleteTarget} onConfirm={executePermanentDelete} onClose={() => setDeleteTarget(null)} />
       )}
     </div>
   );

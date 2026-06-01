@@ -1,18 +1,38 @@
 const express = require('express');
 const fs = require('fs');
 const { body, query: queryValidator, validationResult, param } = require('express-validator');
-const { query } = require('../config/database');
+const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { upload } = require('../middleware/upload');
 const { solutionUpload } = require('../middleware/solutionUpload');
-const { isSuperAdmin, tenantCaseCondition, verifyCaseAccess, verifyClientAccess } = require('../utils/tenantAccess');
+const { isSuperAdmin, tenantAdminId, tenantCaseCondition, caseTenantExpression, verifyClientAccess } = require('../utils/tenantAccess');
 const solutionsRouter = require('./solutions');
 const mediaRecycle = require('../services/mediaRecycle');
 const { normalizeFailureType, isValidFailureType } = require('../utils/failureTypes');
+const { loadCompanySettings } = require('./settings');
+const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
 
 const router = express.Router();
 router.use(authenticate);
+
+let cachedCasesDeletedAtColumn = null;
+async function casesDeletedAtColumnExists() {
+  if (cachedCasesDeletedAtColumn !== null) return cachedCasesDeletedAtColumn;
+  try {
+    const result = await query(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'cases'
+         AND column_name = 'deleted_at'
+       LIMIT 1`
+    );
+    cachedCasesDeletedAtColumn = result.rows.length > 0;
+  } catch (err) {
+    cachedCasesDeletedAtColumn = false;
+  }
+  return cachedCasesDeletedAtColumn;
+}
 
 function normalizeCapacityGb(value) {
   if (value === undefined || value === null || value === '') return null;
@@ -89,7 +109,12 @@ function normalizeCasePayloadMiddleware(req, res, next) {
 
 async function ensureCaseAccessible(caseId, user) {
   if (isSuperAdmin(user)) return true;
-  return await verifyCaseAccess(caseId, user);
+  const deletedClause = (await casesDeletedAtColumnExists()) ? ' AND c.deleted_at IS NULL' : '';
+  const result = await query(
+    `SELECT c.id FROM cases c WHERE c.id = $1${deletedClause} AND ${caseTenantExpression('c')} = $2`,
+    [caseId, tenantAdminId(user)]
+  );
+  return result.rows.length > 0;
 }
 
 // ─── GET /api/cases ───────────────────────────────────────────────
@@ -127,6 +152,10 @@ router.get('/', async (req, res) => {
     if (req.user.role === 'junior_engineer') {
       conditions.push(`c.assigned_engineer = $${pi++}`);
       params.push(req.user.id);
+    }
+
+    if (await casesDeletedAtColumnExists()) {
+      conditions.push('c.deleted_at IS NULL');
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -201,6 +230,17 @@ router.post('/',
         return res.status(404).json({ error: 'Client not found' });
       }
 
+      const companySettings = await loadCompanySettings();
+      const startValue = getCompanyNumberStart(companySettings, 'case_number_start');
+      const formatString = getCompanyNumberFormat(companySettings, 'case_number_format', 'DR-{YYYY}-{NNNNN}');
+      const seqState = await query(`SELECT last_value FROM case_number_seq`);
+      const currentLast = seqState.rows.length ? parseInt(seqState.rows[0].last_value, 10) : 0;
+      if (currentLast < startValue - 1) {
+        await query(`SELECT setval('case_number_seq', $1, false)`, [startValue - 1]);
+      }
+      const seqRes = await query(`SELECT nextval('case_number_seq') AS seq`);
+      const caseNumber = formatNumberSequence(formatString, parseInt(seqRes.rows[0].seq, 10));
+
       // Run smart assist
       let aiData = {};
       try {
@@ -220,25 +260,44 @@ router.post('/',
         };
       } catch (e) { /* non-fatal */ }
 
-      const result = await query(
-        `INSERT INTO cases (
-          client_id, device_brand, device_model, storage_model_id, serial_number,
+      const insertSql = `INSERT INTO cases (
+          case_number, client_id, device_brand, device_model, storage_model_id, serial_number,
           capacity_gb, interface, form_factor, failure_type, symptoms, symptom_notes,
           initial_diagnosis, priority, deadline_at, internal_notes, assigned_engineer,
           ai_risk_level, ai_suggested_strategy, ai_confidence, created_by
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-        RETURNING *`,
-        [
-          client_id, device_brand, device_model, storage_model_id || null, serial_number,
-          capacity_gb, iface, form_factor, failure_type || 'unknown', symptoms || [], symptom_notes,
-          initial_diagnosis, priority || 3, deadline_at || null, internal_notes,
-          assigned_engineer || null,
-          aiData.ai_risk_level || null,
-          JSON.stringify(aiData.ai_suggested_strategy || {}),
-          aiData.ai_confidence || null,
-          req.user.id
-        ]
-      );
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        RETURNING *`;
+
+      const insertParams = [
+        caseNumber, client_id, device_brand, device_model, storage_model_id || null, serial_number,
+        capacity_gb, iface, form_factor, failure_type || 'unknown', symptoms || [], symptom_notes,
+        initial_diagnosis, priority || 3, deadline_at || null, internal_notes,
+        assigned_engineer || null,
+        aiData.ai_risk_level || null,
+        JSON.stringify(aiData.ai_suggested_strategy || {}),
+        aiData.ai_confidence || null,
+        req.user.id
+      ];
+
+      // Retry insert on case_number unique-violation to reduce race-condition failures
+      let result;
+      const maxAttempts = 5;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          result = await query(insertSql, insertParams);
+          break;
+        } catch (err) {
+          // Postgres unique violation code
+          if (err && err.code === '23505' && String(err.detail || '').includes('case_number')) {
+            console.warn(`Case insert conflict on case_number (attempt ${attempt}): ${err.message}`);
+            if (attempt === maxAttempts) throw err;
+            // small backoff
+            await new Promise(r => setTimeout(r, 50 * attempt));
+            continue;
+          }
+          throw err;
+        }
+      }
 
       // Log initial stage
       await query(
@@ -320,6 +379,10 @@ if (client_id) {
       }
       res.status(201).json(responseData);
     } catch (err) {
+      // Handle duplicate case_number unique constraint with a clear 409 response
+      if (err && err.code === '23505' && (err.constraint === 'cases_case_number_key' || (err.detail && String(err.detail).includes('case_number')))) {
+        return res.status(409).json({ error: 'Case number already exists. Please retry creating the case.' });
+      }
       res.status(500).json({ error: err.message });
     }
   }
@@ -343,7 +406,7 @@ router.get('/:id', async (req, res) => {
        LEFT JOIN clients cl ON c.client_id = cl.id
        LEFT JOIN users u ON c.assigned_engineer = u.id
        LEFT JOIN storage_models sm ON c.storage_model_id = sm.id
-       WHERE c.id = $1`,
+       WHERE c.id = $1${await casesDeletedAtColumnExists() ? ' AND c.deleted_at IS NULL' : ''}`,
       [req.params.id]
     );
 
@@ -390,6 +453,121 @@ router.get('/:id', async (req, res) => {
       payments: payments.rows,
       quotations: quotations.rows,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DELETE /api/cases/:id — soft delete to recycle bin
+router.delete('/:id', requireMinRole('staff'), auditLog('soft_delete_case', 'case'), async (req, res) => {
+  try {
+    if (!await casesDeletedAtColumnExists()) {
+      return res.status(501).json({ error: 'Soft delete is not available on this database schema.' });
+    }
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
+
+    const deleted = await transaction(async client => {
+      const caseResult = await client.query(
+        `SELECT c.id, c.case_number, c.client_id,
+                COALESCE(cl.first_name || ' ' || cl.last_name, '') AS client_name
+         FROM cases c
+         LEFT JOIN clients cl ON c.client_id = cl.id
+         WHERE c.id = $1 AND c.deleted_at IS NULL`,
+        [req.params.id]
+      );
+      if (!caseResult.rows.length) return null;
+
+      await client.query(
+        `UPDATE cases c SET deleted_at = NOW(), is_recycle = true, updated_at = NOW()
+         WHERE c.id = $1`,
+        [req.params.id]
+      );
+
+      const row = caseResult.rows[0];
+      await client.query(
+        `INSERT INTO cases_recycle_bin (case_id, case_number, client_id, client_name, deleted_by, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [row.id, row.case_number, row.client_id, row.client_name || null, req.user.id]
+      );
+      return row;
+    });
+
+    if (!deleted) {
+      return res.status(404).json({ error: 'Case not found or already deleted' });
+    }
+
+    res.json({ message: 'Case moved to Recycle Bin', case: deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /api/cases/bulk-delete — soft delete multiple cases to recycle bin
+router.post('/bulk-delete', requireMinRole('staff'), auditLog('bulk_soft_delete_case', 'case'), async (req, res) => {
+  try {
+    if (!await casesDeletedAtColumnExists()) {
+      return res.status(501).json({ error: 'Soft delete is not available on this database schema.' });
+    }
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'No case IDs specified' });
+    }
+
+    const deletedIds = await transaction(async client => {
+      const placeholders = ids.map((_, index) => `$${index + 1}`).join(',');
+      const params = [...ids];
+      const tenantClause = !isSuperAdmin(req.user)
+        ? ` AND ${tenantCaseCondition(req.user, 'c', ids.length + 1).clause}`
+        : '';
+      if (!isSuperAdmin(req.user)) params.push(tenantAdminId(req.user));
+
+      const caseResult = await client.query(
+        `SELECT c.id, c.case_number, c.client_id,
+                COALESCE(cl.first_name || ' ' || cl.last_name, '') AS client_name
+         FROM cases c
+         LEFT JOIN clients cl ON c.client_id = cl.id
+         WHERE c.id IN (${placeholders}) AND c.deleted_at IS NULL${tenantClause}`,
+        params
+      );
+
+      if (!caseResult.rows.length) return [];
+      const validIds = caseResult.rows.map(row => row.id);
+      const updatePlaceholders = validIds.map((_, index) => `$${index + 1}`).join(',');
+      const updateParams = [...validIds];
+      const updateTenantClause = !isSuperAdmin(req.user)
+        ? ` AND ${tenantCaseCondition(req.user, 'c', validIds.length + 1).clause}`
+        : '';
+      if (!isSuperAdmin(req.user)) updateParams.push(tenantAdminId(req.user));
+
+      await client.query(
+        `UPDATE cases c SET deleted_at = NOW(), is_recycle = true, updated_at = NOW()
+         WHERE c.id IN (${updatePlaceholders})${updateTenantClause}`,
+        updateParams
+      );
+
+      const insertValues = [];
+      const insertParams = [];
+      let pi = 1;
+      caseResult.rows.forEach((row) => {
+        insertValues.push(`($${pi++}, $${pi++}, $${pi++}, $${pi++}, $${pi++}, NOW())`);
+        insertParams.push(row.id, row.case_number, row.client_id, row.client_name || null, req.user.id);
+      });
+      await client.query(
+        `INSERT INTO cases_recycle_bin (case_id, case_number, client_id, client_name, deleted_by, deleted_at)
+         VALUES ${insertValues.join(',')}`,
+        insertParams
+      );
+
+      return validIds;
+    });
+
+    if (!deletedIds.length) {
+      return res.status(404).json({ error: 'No cases found or already deleted' });
+    }
+
+    res.json({ message: `${deletedIds.length} case(s) moved to Recycle Bin`, deleted_ids: deletedIds });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -790,6 +968,46 @@ router.delete('/:id/images/:imgId', requireMinRole('junior_engineer'), async (re
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─── POST /api/cases/:id/payments ──────────────────────────────
+router.post('/:id/payments', requireMinRole('junior_engineer'), auditLog('record_payment', 'payment'), async (req, res) => {
+  try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
+
+    const { amount, quotation_id, method, reference_number, notes } = req.body;
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: 'A valid payment amount is required' });
+    }
+
+    const paymentRes = await transaction(async client => {
+      const insertRes = await client.query(
+        `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
+         VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
+        [req.params.id, quotation_id || null, parsedAmount, method || null, reference_number || null, notes || null, req.user.id]
+      );
+
+      const caseClient = await client.query(
+        'SELECT client_id FROM cases WHERE id = $1',
+        [req.params.id]
+      );
+      if (caseClient.rows.length && caseClient.rows[0].client_id) {
+        await client.query(
+          'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = $2',
+          [parsedAmount, caseClient.rows[0].client_id]
+        );
+      }
+
+      return insertRes.rows[0];
+    });
+
+    res.status(201).json({ payment: paymentRes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/cases/:id/collect-payment ──────────────────────────
 router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog('collect_payment', 'case'), async (req, res) => {
   try {
@@ -834,14 +1052,19 @@ router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog(
     // Create collection payment record
     const paymentRes = await query(
       `INSERT INTO payments (case_id, quotation_id, amount, status, paid_at, recorded_by)
-       VALUES ($1, $2, $3, 'collected', NOW(), $4)
+       VALUES ($1, $2, $3, 'paid', NOW(), $4)
        RETURNING id, amount, paid_at, status`,
       [req.params.id, quotation.id, pendingAmount, req.user.id]
     );
 
     const payment = paymentRes.rows[0];
 
-    // Get updated pending amount (should be 0 now)
+    await query(
+      'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = $2',
+      [pendingAmount, caseData.client_id]
+    );
+
+    // Get updated pending amount (should reflect the collected payment)
     const updatedPendingRes = await query(
       `SELECT COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as total_paid
        FROM payments WHERE case_id = $1`,

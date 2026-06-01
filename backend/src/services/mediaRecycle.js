@@ -76,7 +76,7 @@ async function listMediaRecycle({ page = 1, limit = 50, source, user } = {}) {
   const countRes = await query(`SELECT COUNT(*) FROM media_recycle_bin mrb ${where}`, params);
   params.push(parseInt(limit, 10), offset);
   const result = await query(
-    `SELECT mrb.*, u.username AS deleted_by_name
+    `SELECT mrb.*, u.full_name AS deleted_by_name
      FROM media_recycle_bin mrb
      LEFT JOIN users u ON u.id = mrb.deleted_by
      ${where}

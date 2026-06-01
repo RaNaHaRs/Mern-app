@@ -21,7 +21,7 @@ router.get('/dashboard', async (req, res) => {
           ? engineerTenantCase.params
           : [];
 
-    const [casesStats, revenueStats, engineerStats, failureStats, recentCases, stageCounts, expenseStats] = await Promise.all([
+    const [casesStats, revenueStats, pendingQuoteStats, engineerStats, failureStats, recentCases, stageCounts, expenseStats] = await Promise.all([
       // Cases overview
       query(`SELECT
         COUNT(*) as total,
@@ -38,10 +38,27 @@ router.get('/dashboard', async (req, res) => {
       query(`SELECT
         COALESCE(SUM(amount) FILTER (WHERE status = 'paid' AND paid_at >= NOW() - INTERVAL '30 days'), 0) as revenue_month,
         COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) as total_revenue,
-        COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0) as pending_revenue,
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
         FROM payments p
         JOIN cases c ON p.case_id = c.id
+        ${tenantCase ? `WHERE ${tenantCase.clause}` : ''}`,
+        tenantCaseParams),
+
+      // Pending amount from latest case quote minus received payments
+      query(`SELECT
+        COALESCE(SUM(GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0)), 0) AS pending_revenue
+        FROM cases c
+        LEFT JOIN LATERAL (
+          SELECT q.total_amount
+          FROM quotations q
+          WHERE q.case_id = c.id
+          ORDER BY q.created_at DESC LIMIT 1
+        ) q ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS total_paid
+          FROM payments p
+          WHERE p.case_id = c.id
+        ) paid ON TRUE
         ${tenantCase ? `WHERE ${tenantCase.clause}` : ''}`,
         tenantCaseParams),
 
@@ -97,6 +114,7 @@ router.get('/dashboard', async (req, res) => {
       cases: casesStats.rows[0],
       revenue: {
         ...revenueStats.rows[0],
+        pending_revenue: parseFloat(pendingQuoteStats.rows[0].pending_revenue),
         profit_month: parseFloat(revenueStats.rows[0].revenue_month) - parseFloat(expenseStats.rows[0].expenses_month),
       },
       engineers: engineerStats.rows,

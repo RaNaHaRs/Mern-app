@@ -926,20 +926,20 @@ export default function InventoryPage() {
                         </td>
                       )}
                       <td onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', minWidth: 0 }}>
                           {viewMode === 'stock' && canAccess('junior_engineer') && (
                             <>
                               <button type="button" className="btn btn-secondary btn-sm" disabled={isTransferred}
-                                onClick={() => handleTransfer(item)} style={{ padding: '4px 8px', fontSize: '0.72rem' }} title={isTransferred ? 'Transferred' : 'Transfer'}>{isTransferred ? 'Transferred' : 'Transfer'}</button>
-                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)} style={{ padding: '4px 8px' }}>Edit</button>
-                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdjustItem(item)} style={{ padding: '4px 8px' }}>±</button>
+                                onClick={() => handleTransfer(item)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title={isTransferred ? 'Transferred' : 'Transfer'}>{isTransferred ? 'T' : 'Xfr'}</button>
+                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Edit">E</button>
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdjustItem(item)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Adjust">±</button>
                             </>
                           )}
                           {viewMode === 'recycle' && (
                             <>
-                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRestore(item.id)}>Restore</button>
+                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRestore(item.id)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Restore">R</button>
                               {isAdmin && (
-                                <button type="button" className="btn btn-danger btn-sm" onClick={() => { setSelectedIds(new Set([item.id])); setShowPermanentDelete(true); }}>Delete Permanently</button>
+                                <button type="button" className="btn btn-danger btn-sm" onClick={() => { setSelectedIds(new Set([item.id])); setShowPermanentDelete(true); }} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Delete">D</button>
                               )}
                             </>
                           )}

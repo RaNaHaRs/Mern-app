@@ -42,8 +42,11 @@ const DEFAULT_COMPANY_SETTINGS = {
   razorpay_plan_id: '',
   payment_methods: [],
   case_number_format: 'DR-{YYYY}-{NNNNN}',
+  case_number_start: 1,
   invoice_number_format: 'INV-{YYYY}-{NNNN}',
+  invoice_number_start: 1,
   quote_number_format: 'QT-{YYYY}-{NNNN}',
+  quote_number_start: 1,
 };
 
 async function loadCompanySettings() {
@@ -312,4 +315,5 @@ router.delete('/roles/:id', authenticate, requireMinRole('admin'), auditLog('del
   }
 });
 
+router.loadCompanySettings = loadCompanySettings;
 module.exports = router;

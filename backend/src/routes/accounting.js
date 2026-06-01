@@ -3,6 +3,8 @@ const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
+const { loadCompanySettings } = require('./settings');
+const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
 
 const router = express.Router();
 router.use(authenticate);
@@ -130,8 +132,15 @@ router.post('/quotes', requireMinRole('staff'), auditLog('create_quote', 'accoun
     const taxAmt = Math.round((subtotal - discountAmt) * (tax_pct || 18) / 100 * 100) / 100;
     const total = subtotal - discountAmt + taxAmt;
 
+    const companySettings = await loadCompanySettings();
     const numResult = await query('SELECT COUNT(*) FROM accounting_quotes');
-    const qNum = `QT-${String(parseInt(numResult.rows[0].count) + 1).padStart(5, '0')}`;
+    const quoteCount = parseInt(numResult.rows[0].count, 10) || 0;
+    const quoteStart = getCompanyNumberStart(companySettings, 'quote_number_start');
+    const quoteSequence = quoteCount + quoteStart;
+    const qNum = formatNumberSequence(
+      getCompanyNumberFormat(companySettings, 'quote_number_format', 'QT-{YYYY}-{NNNN}'),
+      quoteSequence
+    );
 
     const result = await query(
       `INSERT INTO accounting_quotes
@@ -209,8 +218,15 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
     if (!quote.rows.length) return res.status(404).json({ error: 'Quote not found' });
     const q = quote.rows[0];
 
+    const companySettings = await loadCompanySettings();
     const numResult = await query('SELECT COUNT(*) FROM accounting_invoices');
-    const invNum = `INV-${String(parseInt(numResult.rows[0].count) + 1).padStart(5, '0')}`;
+    const invoiceCount = parseInt(numResult.rows[0].count, 10) || 0;
+    const invoiceStart = getCompanyNumberStart(companySettings, 'invoice_number_start');
+    const invoiceSequence = invoiceCount + invoiceStart;
+    const invNum = formatNumberSequence(
+      getCompanyNumberFormat(companySettings, 'invoice_number_format', 'INV-{YYYY}-{NNNN}'),
+      invoiceSequence
+    );
     const dueDate = new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
     const result = await query(
@@ -261,8 +277,15 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
     const taxAmt = Math.round((subtotal - discountAmt) * (tax_pct || 18) / 100 * 100) / 100;
     const total = subtotal - discountAmt + taxAmt;
 
+    const companySettings = await loadCompanySettings();
     const numResult = await query('SELECT COUNT(*) FROM accounting_invoices');
-    const invNum = `INV-${String(parseInt(numResult.rows[0].count) + 1).padStart(5, '0')}`;
+    const invoiceCount = parseInt(numResult.rows[0].count, 10) || 0;
+    const invoiceStart = getCompanyNumberStart(companySettings, 'invoice_number_start');
+    const invoiceSequence = invoiceCount + invoiceStart;
+    const invNum = formatNumberSequence(
+      getCompanyNumberFormat(companySettings, 'invoice_number_format', 'INV-{YYYY}-{NNNN}'),
+      invoiceSequence
+    );
 
     const result = await query(
       `INSERT INTO accounting_invoices

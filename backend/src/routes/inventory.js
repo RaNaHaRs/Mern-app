@@ -11,6 +11,10 @@ const {
 const router = express.Router();
 router.use(authenticate);
 
+// Ensure deleted_by column exists on inventory_items
+query('ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id)')
+  .catch(err => console.error('Error adding deleted_by column to inventory_items:', err.message));
+
 async function saveInventoryCustomFields(itemId, customFieldValues = {}) {
   if (!customFieldValues || typeof customFieldValues !== 'object') return;
   for (const [fieldId, value] of Object.entries(customFieldValues)) {
@@ -192,7 +196,9 @@ router.get('/recycle-bin', async (req, res) => {
     const where = `WHERE ${conditions.join(' AND ')}`;
     const count = await query(`SELECT COUNT(*) FROM inventory_items ii ${where}`, params);
     const result = await query(
-      `SELECT ii.* FROM inventory_items ii ${where}
+      `SELECT ii.*, u.full_name AS deleted_by_name FROM inventory_items ii
+       LEFT JOIN users u ON u.id = ii.deleted_by
+       ${where}
        ORDER BY ii.deleted_at DESC LIMIT $${pi} OFFSET $${pi + 1}`,
       [...params, parseInt(limit, 10), offset]
     );
@@ -611,9 +617,9 @@ router.post('/bulk-delete', requireMinRole('junior_engineer'), auditLog('bulk_de
     }
 
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    const sql = `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
-       WHERE id IN (${placeholders}) AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 1) : '');
-    await query(sql, !isSuperAdmin(req.user) ? [...ids, tenantAdminId(req.user)] : ids);
+    const sql = `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', deleted_by=$${ids.length + 1}, updated_at=NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 2) : '');
+    await query(sql, !isSuperAdmin(req.user) ? [...ids, req.user.id, tenantAdminId(req.user)] : [...ids, req.user.id]);
 
     res.json({ message: `${ids.length} item(s) moved to recycle bin`, deleted_count: ids.length });
   } catch (err) {
@@ -630,9 +636,9 @@ router.post('/bulk-recycle', requireMinRole('junior_engineer'), auditLog('bulk_r
     }
 
     const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
-    const sql = `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', updated_at=NOW()
-       WHERE id IN (${placeholders}) AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 1) : '');
-    await query(sql, !isSuperAdmin(req.user) ? [...ids, tenantAdminId(req.user)] : ids);
+    const sql = `UPDATE inventory_items SET deleted_at=NOW(), status='deleted', deleted_by=$${ids.length + 1}, updated_at=NOW()
+       WHERE id IN (${placeholders}) AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $' + (ids.length + 2) : '');
+    await query(sql, !isSuperAdmin(req.user) ? [...ids, req.user.id, tenantAdminId(req.user)] : [...ids, req.user.id]);
 
     res.json({ message: `${ids.length} item(s) moved to recycle bin`, recycled_count: ids.length });
   } catch (err) {

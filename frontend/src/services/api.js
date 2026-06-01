@@ -17,15 +17,20 @@ async function parseJsonResponse(res) {
 async function request(path, options = {}) {
   const token = getToken();
   const headers = {
-    'Content-Type': 'application/json',
+    ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const fetchOptions = {
     ...options,
     headers,
-  });
+  };
+  if (options.body === undefined) {
+    delete fetchOptions.body;
+  }
+
+  const res = await fetch(`${BASE_URL}${path}`, fetchOptions);
 
   if (res.status === 401) {
     // Try to refresh
@@ -128,6 +133,10 @@ export const casesApi = {
   create: (data) => api.post('/cases', data),
   update: (id, data) => api.put(`/cases/${id}`, data),
   delete: (id) => api.delete(`/cases/${id}`),
+  bulkDelete: (ids) => api.post('/cases/bulk-delete', { ids }),
+  listRecycleBin: (params) => api.get('/recycle-bin', params),
+  restoreFromRecycleBin: (id) => api.post(`/recycle-bin/${id}/restore`),
+  permanentDeleteFromRecycleBin: (id) => api.delete(`/recycle-bin/${id}/permanent-delete`),
   transition: (id, data) => api.patch(`/cases/${id}/stage`, data),
   smartAssist: (id) => api.get(`/cases/${id}/smart-assist`),
   donors: (id) => api.get(`/cases/${id}/donors`),
@@ -244,6 +253,7 @@ export const usersApi = {
   list: () => api.get('/users'),
   create: (data) => api.post('/users', data),
   update: (id, data) => api.put(`/users/${id}`, data),
+  deactivate: (id) => api.post(`/users/${id}/deactivate`, {}),
   auditLogs: (params) => api.get('/users/audit-logs', params),
 };
 

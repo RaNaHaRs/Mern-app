@@ -113,7 +113,6 @@ function Sidebar({ open, onClose }) {
       ]},
       { group: 'Access', items: [
         { icon: '', label: 'Users', to: '/users' },
-        { icon: '', label: 'Team', to: '/users' },
         { icon: '', label: 'Security & Backup', to: '/security' },
         { icon: '', label: 'Settings',           to: '/settings' },
       ]},
