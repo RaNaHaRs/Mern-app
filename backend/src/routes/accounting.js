@@ -557,6 +557,17 @@ router.post('/invoices/:id/payments', requireMinRole('staff'), auditLog('record_
            VALUES ($1, $2, 'paid', $3, $4, NOW(), $5)`,
           [caseId, effectiveAmount, method || 'Invoice Payment', note || `Payment for invoice ${invRow.invoice_number}`, req.user.id]
         );
+        // Update case pending_amount cache so case-level queries reflect the payment
+        await client.query(
+          `UPDATE cases SET pending_amount = (
+            SELECT GREATEST(
+              COALESCE((SELECT q.total_amount FROM quotations q WHERE q.case_id = $1 ORDER BY q.created_at DESC LIMIT 1), 0) -
+              COALESCE((SELECT SUM(p.amount) FILTER (WHERE p.status = 'paid') FROM payments p WHERE p.case_id = $1), 0),
+              0
+            )
+          ) WHERE id = $1`,
+          [caseId]
+        );
       }
       if (invRow.client_id) {
         await client.query(

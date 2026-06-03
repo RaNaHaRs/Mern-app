@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
-const { query, transaction } = require('../config/database');
+const { pool, query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const {
@@ -169,7 +169,7 @@ async function buildBackupData(req, includeImages = true, tenantOnly = true) {
   const inventoryScope = isSuper ? null : tenantInventoryCondition(req.user, 'ii', 1);
 
   const [users, clients, cases] = await Promise.all([
-    safeQuery(`SELECT * FROM users ${isSuper ? '' : `WHERE ${userScope.clause}`}`, userScope?.params || []),
+    safeQuery(`SELECT * FROM users u ${isSuper ? '' : `WHERE ${userScope.clause}`}`, userScope?.params || []),
     safeQuery(`SELECT * FROM clients cl ${isSuper ? '' : `WHERE ${clientScope.clause}`}`, clientScope?.params || []),
     safeQuery(`SELECT * FROM cases c ${isSuper ? '' : `WHERE ${caseScope.clause}`}`, caseScope?.params || []),
   ]);
@@ -195,17 +195,17 @@ async function buildBackupData(req, includeImages = true, tenantOnly = true) {
   ]);
 
   const [inventoryItems, inventoryTransactions, inventoryImages, transferredItems] = await Promise.all([
-    safeQuery(`SELECT * FROM inventory_items ${isSuper ? '' : `WHERE ${inventoryScope.clause}`}`, inventoryScope?.params || []),
+    safeQuery(`SELECT * FROM inventory_items ii ${isSuper ? '' : `WHERE ${inventoryScope.clause}`}`, inventoryScope?.params || []),
     safeQuery(`SELECT it.* FROM inventory_transactions it JOIN inventory_items ii ON it.item_id = ii.id ${isSuper ? '' : `WHERE ${inventoryScope.clause}`}`, inventoryScope?.params || []),
     safeQuery(`SELECT ii.* FROM inventory_images ii JOIN inventory_items i ON ii.item_id = i.id ${isSuper ? '' : `WHERE ${inventoryScope.clause}`}`, inventoryScope?.params || []),
-    safeQuery(`SELECT * FROM transferred_items ${isSuper ? '' : `WHERE ${inventoryScope.clause}`}`, inventoryScope?.params || []),
+    safeQuery(`SELECT * FROM transferred_items ii ${isSuper ? '' : `WHERE ${inventoryScope.clause}`}`, inventoryScope?.params || []),
   ]);
 
   const [accountingQuotes, accountingInvoices, accountingInvoicePayments, accountingExpenses] = await Promise.all([
-    safeQuery(`SELECT * FROM accounting_quotes ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('aq')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM accounting_invoices ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('ai')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM accounting_invoice_payments ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('aip')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM accounting_expenses ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('ae')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM accounting_quotes aq ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('aq')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM accounting_invoices ai ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('ai')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM accounting_invoice_payments aip ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('aip')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM accounting_expenses ae ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('ae')}`}`, isSuper ? [] : [tenantId]),
   ]);
 
   const [knowledgeBaseEntries, mediaRecycleBinRows, casesRecycleBinRows, auditLogsRows, platformSettings] = await Promise.all([
@@ -217,17 +217,17 @@ async function buildBackupData(req, includeImages = true, tenantOnly = true) {
   ]);
 
   const [storageBrands, storageModels, failureLibrary, donorMatching, fieldConfigs, customFields, inventoryCustomFieldValues, sectionConfigs, marketingEmailTemplates, marketingWhatsappTemplates, marketingCampaigns, marketingCampaignRecipients, marketingUnsubscribes] = await Promise.all([
-    safeQuery(`SELECT * FROM storage_brands ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('sb')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM storage_models ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('sm')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM failure_library ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('fl')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM donor_matching ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('dm')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM field_configs ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('fc')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM custom_fields ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('cf')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM inventory_custom_field_values ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('icfv')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM section_configs ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('sc')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM marketing_email_templates ${isSuper ? '' : `WHERE tenant_id = $1 OR ${getCreatedByTenantClause('met')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM marketing_whatsapp_templates ${isSuper ? '' : `WHERE tenant_id = $1 OR ${getCreatedByTenantClause('mwt')}`}`, isSuper ? [] : [tenantId]),
-    safeQuery(`SELECT * FROM marketing_campaigns ${isSuper ? '' : `WHERE tenant_id = $1 OR ${getCreatedByTenantClause('mc')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM storage_brands sb ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('sb')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM storage_models sm ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('sm')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM failure_library fl ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('fl')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM donor_matching dm ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('dm')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM field_configs fc ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('fc')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM custom_fields cf ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('cf')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM inventory_custom_field_values icfv ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('icfv')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM section_configs sc ${isSuper ? '' : `WHERE ${getCreatedByTenantClause('sc')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM marketing_email_templates met ${isSuper ? '' : `WHERE tenant_id = $1 OR ${getCreatedByTenantClause('met')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM marketing_whatsapp_templates mwt ${isSuper ? '' : `WHERE tenant_id = $1 OR ${getCreatedByTenantClause('mwt')}`}`, isSuper ? [] : [tenantId]),
+    safeQuery(`SELECT * FROM marketing_campaigns mc ${isSuper ? '' : `WHERE tenant_id = $1 OR ${getCreatedByTenantClause('mc')}`}`, isSuper ? [] : [tenantId]),
     safeQuery(`SELECT * FROM marketing_campaign_recipients ${isSuper ? '' : `WHERE campaign_id IN (SELECT id FROM marketing_campaigns WHERE tenant_id = $1)`}`, isSuper ? [] : [tenantId]),
     safeQuery(`SELECT * FROM marketing_unsubscribes ${isSuper ? '' : `WHERE tenant_id = $1`}`, isSuper ? [] : [tenantId]),
   ]);
@@ -458,6 +458,10 @@ router.post('/restore', requireMinRole('admin'), upload.single('backup_file'), a
 
     const tenantId = tenantAdminId(req.user);
     const isSuper = isSuperAdmin(req.user);
+    
+    // Log what data is in the backup
+    const dataKeys = Object.keys(backupData.data || {});
+    console.log(`Restore initiated. Backup contains ${dataKeys.length} data types. Users: ${(backupData.data.users || []).length}, Clients: ${(backupData.data.clients || []).length}, Cases: ${(backupData.data.cases || []).length}`);
     // Allow restore if: (1) backup has no tenant_id (portable), (2) matches current tenant, or (3) super admin
     // This allows the same backup to work on any machine by reassigning it to the current tenant
     if (!isSuper && backupData.tenant_id && backupData.tenant_id !== tenantId) {
@@ -473,8 +477,13 @@ router.post('/restore', requireMinRole('admin'), upload.single('backup_file'), a
       inventory_items: 0,
     };
 
-    await transaction(async client => {
-      if (!appendMode) {
+    // Track all restore errors for reporting (declared outside transaction)
+    const restoreErrors = [];
+
+    // DELETE phase: Use transaction for atomic deletion
+    if (!appendMode) {
+      await transaction(async client => {
+        console.log('Starting full replace - deleting existing data...');
         const deleteTargets = [
           'case_solution_notes',
           'case_solution_media',
@@ -570,102 +579,228 @@ router.post('/restore', requireMinRole('admin'), upload.single('backup_file'), a
             // table may not support tenant isolation directly; skip safely
           }
         }
-      }
+        console.log('Delete phase completed. Starting data restore...');
+      });
+    }
 
-      const insertRows = async (table, rows) => {
-        if (!Array.isArray(rows) || !rows.length) return 0;
-        const columns = Object.keys(rows[0]);
-        const placeholderRow = columns.map((_, idx) => `$${idx + 1}`).join(',');
-        const insertSql = `INSERT INTO ${table} (${columns.join(',')}) VALUES (${placeholderRow}) ON CONFLICT (id) DO NOTHING`;
-        
-        // JSON columns per table that need serialization
-        const jsonColumnsByTable = {
-          platform_settings: ['value'],
-          case_workflow_logs: ['log_data'],
-          case_engineer_sessions: ['session_data'],
-          field_configs: ['config'],
-          custom_fields: ['field_options'],
-          section_configs: ['section_config'],
-        };
-        const tableJsonCols = new Set(jsonColumnsByTable[table] || []);
-        
-        let count = 0;
+    // INSERT phase: Use a dedicated connection so column introspection and inserts
+    // all use the same session.
+    const restoreClient = await pool.connect();
+    try {
+      const cQuery = restoreClient.query.bind(restoreClient);
+
+      // Cross-machine restore: collect user UUIDs referenced in backup but missing on target,
+      // then nullify those FK references so inserts don't fail.
+      const data = backupData.data;
+      const missingUserIds = new Set();
+      const userFkColumns = ['created_by', 'assigned_engineer', 'recorded_by', 'uploaded_by',
+        'deleted_by', 'added_by', 'updated_by', 'verified_by', 'performed_by',
+        'assigned_admin_id', 'tenant_owner_id', 'user_id', 'vendor_id', 'transferred_by',
+        'engineer_id', 'staff_id', 'closed_by'];
+
+      // Collect all user UUIDs referenced across backup tables
+      for (const rows of Object.values(data)) {
+        if (!Array.isArray(rows)) continue;
         for (const row of rows) {
-          const values = columns.map(col => {
-            let val = row[col];
-            if (val === undefined || val === null) return null;
-            // Stringify JSON columns if they're objects/arrays
-            if (tableJsonCols.has(col) && typeof val === 'object') {
-              return JSON.stringify(val);
+          for (const col of userFkColumns) {
+            const val = row[col];
+            if (val && typeof val === 'string' && val.length === 36 && val.includes('-')) {
+              missingUserIds.add(val);
             }
-            return val;
-          });
-          try {
-            await client.query(insertSql, values);
-            count += 1;
-          } catch (err) {
-            // Log and skip row on insert failure to allow partial restore
-            console.warn(`Failed to restore row in ${table}:`, err.message);
           }
         }
-        return count;
-      };
-
-      const data = backupData.data;
-      
-      // Ensure all rows get tenant_id set to current tenant for cross-machine restore
-      const ensureTenant = (rows) => {
-        if (!Array.isArray(rows)) return rows;
-        return rows.map(r => {
-          // Skip tenant reassignment for platform_settings
-          if (!r.tenant_id && !r.id?.toString().startsWith('platform_')) {
-            return { ...r, tenant_id: tenantId };
+      }
+      // Remove UUIDs that already exist in the target users table
+      if (missingUserIds.size > 0) {
+        const userIdsArr = [...missingUserIds];
+        const existingRes = await cQuery(
+          `SELECT id FROM users WHERE id = ANY($1::uuid[])`,
+          [userIdsArr]
+        );
+        const existingSet = new Set(existingRes.rows.map(r => r.id));
+        for (const uid of userIdsArr) {
+          if (existingSet.has(uid)) missingUserIds.delete(uid);
+        }
+        if (missingUserIds.size > 0) {
+          console.log(`Cross-machine restore: nullifying ${missingUserIds.size} missing user FK references`);
+          // Nullify missing user refs in all backup rows before insert
+          for (const [tableName, rows] of Object.entries(data)) {
+            if (!Array.isArray(rows)) continue;
+            for (const row of rows) {
+              for (const col of userFkColumns) {
+                if (missingUserIds.has(row[col])) {
+                  row[col] = null;
+                }
+              }
+            }
           }
-          return r;
-        });
-      };
+        }
+      }
 
-      restoredCounts.users = await insertRows('users', ensureTenant(data.users || []));
-      restoredCounts.clients = await insertRows('clients', ensureTenant(data.clients || []));
-      restoredCounts.cases = await insertRows('cases', ensureTenant(data.cases || []));
-      restoredCounts.case_images = await insertRows('case_images', ensureTenant(data.case_images || []));
-      await insertRows('case_solutions', ensureTenant(data.case_solutions || []));
-      await insertRows('case_solution_media', ensureTenant(data.case_solution_media || []));
-      await insertRows('case_solution_notes', ensureTenant(data.case_solution_notes || []));
-      await insertRows('case_workflow_logs', ensureTenant(data.case_workflow_logs || []));
-      await insertRows('case_engineer_sessions', ensureTenant(data.case_engineer_sessions || []));
-      await insertRows('client_communications', ensureTenant(data.client_communications || []));
-      await insertRows('case_files', ensureTenant(data.case_files || []));
-      await insertRows('quotations', ensureTenant(data.quotations || []));
-      await insertRows('payments', ensureTenant(data.payments || []));
-      await insertRows('case_custom_field_values', ensureTenant(data.case_custom_field_values || []));
-      restoredCounts.inventory_items = await insertRows('inventory_items', ensureTenant(data.inventory_items || []));
-      await insertRows('inventory_transactions', ensureTenant(data.inventory_transactions || []));
-      await insertRows('inventory_images', ensureTenant(data.inventory_images || []));
-      await insertRows('transferred_items', ensureTenant(data.transferred_items || []));
-      await insertRows('accounting_quotes', ensureTenant(data.accounting_quotes || []));
-      await insertRows('accounting_invoices', ensureTenant(data.accounting_invoices || []));
-      await insertRows('accounting_invoice_payments', ensureTenant(data.accounting_invoice_payments || []));
-      await insertRows('accounting_expenses', ensureTenant(data.accounting_expenses || []));
-      await insertRows('knowledge_base_entries', ensureTenant(data.knowledge_base_entries || []));
-      await insertRows('media_recycle_bin', ensureTenant(data.media_recycle_bin || []));
-      await insertRows('cases_recycle_bin', ensureTenant(data.cases_recycle_bin || []));
-      await insertRows('audit_logs', ensureTenant(data.audit_logs || []));
-      await insertRows('storage_brands', ensureTenant(data.storage_brands || []));
-      await insertRows('storage_models', ensureTenant(data.storage_models || []));
-      await insertRows('failure_library', ensureTenant(data.failure_library || []));
-      await insertRows('donor_matching', ensureTenant(data.donor_matching || []));
-      await insertRows('field_configs', ensureTenant(data.field_configs || []));
-      await insertRows('custom_fields', ensureTenant(data.custom_fields || []));
-      await insertRows('inventory_custom_field_values', ensureTenant(data.inventory_custom_field_values || []));
-      await insertRows('section_configs', ensureTenant(data.section_configs || []));
-      await insertRows('marketing_email_templates', ensureTenant(data.marketing_email_templates || []));
-      await insertRows('marketing_whatsapp_templates', ensureTenant(data.marketing_whatsapp_templates || []));
-      await insertRows('marketing_campaigns', ensureTenant(data.marketing_campaigns || []));
-      await insertRows('marketing_campaign_recipients', ensureTenant(data.marketing_campaign_recipients || []));
-      await insertRows('marketing_unsubscribes', ensureTenant(data.marketing_unsubscribes || []));
-      await insertRows('platform_settings', data.platform_settings || []);
-    });
+      // Disable FK triggers for the session (PostgreSQL suppresses FK trigger firing in replica mode)
+      try {
+        await cQuery(`SET session_replication_role = 'replica'`);
+      } catch (e) {
+        console.warn('Could not disable FK triggers:', e.message);
+      }
+
+      let columnCache = {};
+      const insertRows = async (table, rows) => {
+          if (!Array.isArray(rows) || !rows.length) return 0;
+          if (!columnCache[table]) {
+            try {
+              const colRes = await cQuery(
+                `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+                [table]
+              );
+              columnCache[table] = new Set(colRes.rows.map(r => r.column_name));
+            } catch {
+              columnCache[table] = null;
+            }
+          }
+          const allColumns = Object.keys(rows[0]);
+          const columns = columnCache[table]
+            ? allColumns.filter(c => columnCache[table].has(c))
+            : allColumns;
+          if (!columns.length) {
+            console.warn(`Restore: skipping ${table} - no matching columns between backup and target`);
+            return 0;
+          }
+          const placeholderRow = columns.map((_, idx) => `$${idx + 1}`).join(',');
+
+          const primaryKeyByTable = {
+            platform_settings: 'key',
+          };
+          const primaryKey = primaryKeyByTable[table] || 'id';
+          const updateCols = columns.filter(c => c !== primaryKey);
+          const updateSet = updateCols.length > 0
+            ? ` ON CONFLICT (${primaryKey}) DO UPDATE SET ${updateCols.map(c => `${c} = EXCLUDED.${c}`).join(',')}`
+            : '';
+          const insertSql = `INSERT INTO ${table} (${columns.join(',')}) VALUES (${placeholderRow})${updateSet}`;
+
+          const jsonColumnsByTable = {
+            platform_settings: ['value'],
+            case_workflow_logs: ['log_data'],
+            case_engineer_sessions: ['session_data'],
+            field_configs: ['config'],
+            custom_fields: ['field_options'],
+            section_configs: ['section_config'],
+            knowledge_base_entries: ['content', 'metadata', 'tags', 'solutions', 'note_history', 'case_refs', 'files'],
+            case_files: ['metadata', 'properties'],
+            storage_brands: ['specs', 'features'],
+            storage_models: ['specs', 'features'],
+            failure_library: ['symptoms', 'diagnosis', 'recovery_steps'],
+            marketing_email_templates: ['template', 'variables'],
+            marketing_whatsapp_templates: ['template', 'variables'],
+            marketing_campaigns: ['config', 'settings', 'metadata'],
+            inventory_items: ['specs', 'metadata'],
+          };
+          const tableJsonCols = new Set(jsonColumnsByTable[table] || []);
+
+          let inserted = 0;
+
+          for (const row of rows) {
+            const values = columns.map(col => {
+              let val = row[col];
+              if (val === undefined || val === null) return null;
+              if (tableJsonCols.has(col)) {
+                if (typeof val === 'object') {
+                  return JSON.stringify(val);
+                } else if (typeof val === 'string') {
+                  try {
+                    JSON.parse(val);
+                    return val;
+                  } catch {
+                    return JSON.stringify(val);
+                  }
+                }
+              }
+              return val;
+            });
+            try {
+              const result = await cQuery(insertSql, values);
+              if (result.rowCount > 0) {
+                inserted += 1;
+              }
+            } catch (err) {
+              const errorMsg = `${table} insert failed: ${err.message}`;
+              restoreErrors.push(errorMsg);
+              console.warn(errorMsg, 'Row ID:', row.id);
+            }
+          }
+          console.log(`  ${table}: inserted ${inserted}/${rows.length} rows${restoreErrors.length ? ` (${restoreErrors.slice(-1)[0]})` : ''}`);
+          return inserted;
+        };
+
+        const ensureTenant = (rows) => {
+          if (!Array.isArray(rows) || tenantId == null) return rows;
+          return rows.map(r => {
+            try {
+              const idStr = r.id != null ? String(r.id) : '';
+              if (!idStr.startsWith('platform_')) {
+                return { ...r, tenant_id: tenantId };
+              }
+            } catch {
+              return { ...r, tenant_id: tenantId };
+            }
+            return r;
+          });
+        };
+        console.log(`Restore rows: users=${(data.users||[]).length}, clients=${(data.clients||[]).length}, cases=${(data.cases||[]).length}, inventory_items=${(data.inventory_items||[]).length}`);
+
+        restoredCounts.users = await insertRows('users', ensureTenant(data.users || []));
+        restoredCounts.clients = await insertRows('clients', ensureTenant(data.clients || []));
+        restoredCounts.cases = await insertRows('cases', ensureTenant(data.cases || []));
+        restoredCounts.case_images = await insertRows('case_images', ensureTenant(data.case_images || []));
+        await insertRows('case_solutions', ensureTenant(data.case_solutions || []));
+        await insertRows('case_solution_media', ensureTenant(data.case_solution_media || []));
+        await insertRows('case_solution_notes', ensureTenant(data.case_solution_notes || []));
+        await insertRows('case_workflow_logs', ensureTenant(data.case_workflow_logs || []));
+        await insertRows('case_engineer_sessions', ensureTenant(data.case_engineer_sessions || []));
+        await insertRows('client_communications', ensureTenant(data.client_communications || []));
+        await insertRows('case_files', ensureTenant(data.case_files || []));
+        await insertRows('quotations', ensureTenant(data.quotations || []));
+        await insertRows('payments', ensureTenant(data.payments || []));
+        await insertRows('case_custom_field_values', ensureTenant(data.case_custom_field_values || []));
+        restoredCounts.inventory_items = await insertRows('inventory_items', ensureTenant(data.inventory_items || []));
+        await insertRows('inventory_transactions', ensureTenant(data.inventory_transactions || []));
+        await insertRows('inventory_images', ensureTenant(data.inventory_images || []));
+        await insertRows('transferred_items', ensureTenant(data.transferred_items || []));
+        await insertRows('accounting_quotes', ensureTenant(data.accounting_quotes || []));
+        await insertRows('accounting_invoices', ensureTenant(data.accounting_invoices || []));
+        await insertRows('accounting_invoice_payments', ensureTenant(data.accounting_invoice_payments || []));
+        await insertRows('accounting_expenses', ensureTenant(data.accounting_expenses || []));
+        await insertRows('knowledge_base_entries', ensureTenant(data.knowledge_base_entries || []));
+        await insertRows('media_recycle_bin', ensureTenant(data.media_recycle_bin || []));
+        await insertRows('cases_recycle_bin', ensureTenant(data.cases_recycle_bin || []));
+        await insertRows('storage_brands', ensureTenant(data.storage_brands || []));
+        await insertRows('storage_models', ensureTenant(data.storage_models || []));
+        await insertRows('failure_library', ensureTenant(data.failure_library || []));
+        await insertRows( 'donor_matching', ensureTenant(data.donor_matching || []));
+        await insertRows('field_configs', ensureTenant(data.field_configs || []));
+        await insertRows('custom_fields', ensureTenant(data.custom_fields || []));
+        await insertRows('inventory_custom_field_values', ensureTenant(data.inventory_custom_field_values || []));
+        await insertRows('section_configs', ensureTenant(data.section_configs || []));
+        await insertRows('marketing_email_templates', ensureTenant(data.marketing_email_templates || []));
+        await insertRows('marketing_whatsapp_templates', ensureTenant(data.marketing_whatsapp_templates || []));
+        await insertRows('marketing_campaigns', ensureTenant(data.marketing_campaigns || []));
+        await insertRows('marketing_campaign_recipients', ensureTenant(data.marketing_campaign_recipients || []));
+        await insertRows('marketing_unsubscribes', ensureTenant(data.marketing_unsubscribes || []));
+        await insertRows('platform_settings', data.platform_settings || []);
+
+      console.log(`Restore summary: ${restoredCounts.users} users, ${restoredCounts.clients} clients, ${restoredCounts.cases} cases, ${restoreErrors.length} errors`);
+      if (restoreErrors.length > 0) {
+        console.warn('Restore errors:', restoreErrors.slice(0, 5).join(' | '));
+      }
+
+      try {
+        await cQuery(`SET session_replication_role = 'origin'`);
+      } catch (e) {
+        console.warn('Could not re-enable FK triggers:', e.message);
+      }
+    } finally {
+      restoreClient.release();
+    }
 
     const restoreEntry = {
       id: `restore_${Date.now()}`,
@@ -679,7 +814,19 @@ router.post('/restore', requireMinRole('admin'), upload.single('backup_file'), a
     };
     await appendRestoreHistory(restoreEntry);
 
-    res.json({ ok: true, restored: restoredCounts, message: `Restore completed. ${restoredCounts.cases} cases, ${restoredCounts.clients} clients, ${restoredCounts.inventory_items} inventory items restored.` });
+    const response = {
+      ok: true,
+      restored: restoredCounts,
+      message: `Restore completed. ${restoredCounts.cases} cases, ${restoredCounts.clients} clients, ${restoredCounts.inventory_items} inventory items restored.`
+    };
+    
+    // Include error details if there were any errors during restore
+    if (restoreErrors.length > 0) {
+      response.warnings = restoreErrors.slice(0, 10); // Limit to first 10 errors
+      response.message += ` (${restoreErrors.length} errors encountered during restore)`;
+    }
+    
+    res.json(response);
   } catch (err) {
     console.error('Backup restore failed', err.message);
     res.status(500).json({ error: 'Backup restore failed: ' + err.message });

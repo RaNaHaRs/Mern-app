@@ -1638,6 +1638,22 @@ app.post('/api/accounting/invoices/:id/payments', authenticate, (req, res) => {
   const totalPaid = INVOICE_PAYMENTS.filter(p => p.invoice_id === inv.id).reduce((s,p)=>s+parseFloat(p.amount),0);
   if (totalPaid >= inv.total) { inv.status = 'paid'; inv.paid_at = new Date().toISOString(); }
   else if (totalPaid > 0) inv.status = 'partial';
+  // Sync payment to the case so case pending status updates
+  if (inv.case_id) {
+    const c = DEMO_CASES.find(x => x.id === inv.case_id);
+    if (c) {
+      if (!c.payments) c.payments = [];
+      c.payments.push({
+        id: `pay_${Date.now()}`,
+        case_id: inv.case_id,
+        amount: parseFloat(req.body.amount),
+        method: req.body.method || 'Cash',
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      });
+    }
+  }
   res.status(201).json({ payment, invoice: inv });
 });
 
