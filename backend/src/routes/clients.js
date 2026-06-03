@@ -49,28 +49,30 @@ router.get('/', async (req, res) => {
     else orderBy = `cl.created_at ${dir}`;
 
     const result = await query(
-      `SELECT cl.*, 
-              COUNT(c.id) FILTER (WHERE c.stage NOT IN ('completed','delivered','failed')) AS active_cases,
-              COUNT(c.id) AS total_cases,
-              MAX(c.created_at) AS last_case_date,
+      `SELECT cl.*,
+              COUNT(c.id) FILTER (WHERE c.stage NOT IN ('completed','delivered','failed') AND c.deleted_at IS NULL) AS active_cases,
+              COUNT(c.id) FILTER (WHERE c.deleted_at IS NULL) AS total_cases,
+              MAX(c.created_at) FILTER (WHERE c.deleted_at IS NULL) AS last_case_date,
               COALESCE(SUM(
                 CASE
                   WHEN q.total_amount IS NULL THEN 0
-                  ELSE GREATEST(q.total_amount - COALESCE(q.paid_on_quote, 0), 0)
+                  ELSE GREATEST(q.total_amount - COALESCE(paid.total_paid, 0), 0)
                 END
-              ), 0) AS pending_amount
+              ) FILTER (WHERE c.deleted_at IS NULL), 0) AS pending_amount
        FROM clients cl
        LEFT JOIN cases c ON cl.id = c.client_id
        LEFT JOIN LATERAL (
-         SELECT q.total_amount,
-                COALESCE((SELECT SUM(amount) FILTER (WHERE status = 'paid')
-                          FROM payments p
-                          WHERE p.case_id = c.id AND p.quotation_id = q.id), 0) AS paid_on_quote
+         SELECT q.total_amount
          FROM quotations q
          WHERE q.case_id = c.id
          ORDER BY q.created_at DESC
          LIMIT 1
        ) q ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(amount) FILTER (WHERE status = 'paid'), 0) AS total_paid
+         FROM payments p
+         WHERE p.case_id = c.id
+       ) paid ON TRUE
        ${where}
        GROUP BY cl.id
        ORDER BY ${orderBy}
@@ -108,17 +110,25 @@ router.post('/',
 
     try {
       const {
-        first_name, last_name, email, phone, phone_alt, company, address,
-        city, country, id_type, id_number, referral_source, notes, is_corporate, is_vip
+        first_name, last_name, middle_name, email, phone, phone_alt, company,
+        address, city, state, pincode, country, whatsapp,
+        id_type, id_number, referral_source, notes, is_corporate, is_vip
       } = req.body;
 
       const result = await query(
         `INSERT INTO clients (
-          first_name, last_name, email, phone, phone_alt, company, address,
-          city, country, id_type, id_number, referral_source, notes,
+          first_name, last_name, middle_name, email, phone, phone_alt, company,
+          address, city, state, pincode, country, whatsapp,
+          id_type, id_number, referral_source, notes,
           is_corporate, is_vip, created_by
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
-        [first_name, last_name, email||null, phone, phone_alt||null, company||null, address||null, city||null, country||'India', id_type||null, id_number||null, referral_source||null, notes||null, is_corporate||false, is_vip||false, req.user.id]
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+        [
+          first_name, last_name, middle_name||null, email||null, phone,
+          phone_alt||null, company||null, address||null,
+          city||null, state||null, pincode||null, country||'India', whatsapp||null,
+          id_type||null, id_number||null, referral_source||null, notes||null,
+          is_corporate||false, is_vip||false, req.user.id
+        ]
       );
 
       res.status(201).json(result.rows[0]);
@@ -144,7 +154,9 @@ router.get('/:id', async (req, res) => {
       `SELECT c.id, c.case_number, c.stage, c.priority, c.failure_type, c.device_brand, c.device_model, c.created_at, c.completed_at,
               COALESCE(q.total_amount, 0) AS quotation_total,
               COALESCE(paid.total_paid, 0) AS total_paid,
-              GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0) AS pending_amount
+              GREATEST(COALESCE(q.total_amount, 0) - COALESCE(paid.total_paid, 0), 0) AS pending_amount,
+              COALESCE(purch.total_purchase_cost, 0) AS total_purchase_cost,
+              COALESCE(q.total_amount, 0) - COALESCE(purch.total_purchase_cost, 0) AS profit
        FROM cases c
        LEFT JOIN LATERAL (
          SELECT q.total_amount
@@ -157,6 +169,11 @@ router.get('/:id', async (req, res) => {
          FROM payments p
          WHERE p.case_id = c.id
        ) paid ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(total), 0) AS total_purchase_cost
+         FROM accounting_purchases ap
+         WHERE ap.case_id = c.id
+       ) purch ON TRUE
        WHERE c.client_id = $1 ORDER BY c.created_at DESC`,
       [req.params.id]
     );
@@ -170,7 +187,7 @@ router.get('/:id', async (req, res) => {
 
     const payments = await query(
       `SELECT COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) as total_paid,
-              COUNT(p.*) as payment_count
+              COUNT(p.*) FILTER (WHERE p.status = 'paid') as payment_count
        FROM payments p
        JOIN cases c ON p.case_id = c.id
        WHERE c.client_id = $1`,
@@ -191,14 +208,20 @@ router.get('/:id', async (req, res) => {
          FROM payments p
          WHERE p.case_id = c.id
        ) paid ON TRUE
-       WHERE c.client_id = $1`,
+       WHERE c.client_id = $1 AND c.deleted_at IS NULL`,
       [req.params.id]
     );
+
+    const totalPurchaseCost = cases.rows.reduce((s, c) => s + parseFloat(c.total_purchase_cost||0), 0);
+    const totalQuotation = cases.rows.reduce((s, c) => s + parseFloat(c.quotation_total||0), 0);
+    const overallProfit = totalQuotation - totalPurchaseCost;
 
     res.json({
       ...result.rows[0],
       cases: cases.rows,
       communications: comms.rows,
+      total_purchase_cost: totalPurchaseCost,
+      overall_profit: overallProfit,
       paymentSummary: {
         ...payments.rows[0],
         pending: pendingSummary.rows[0].pending,
@@ -209,16 +232,70 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// ─── GET /api/clients/:id/payments ───────────────────────────────
+router.get('/:id/payments', async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+
+    const result = await query(
+      `SELECT
+         p.id, p.amount, p.method, p.reference_number, p.status,
+         p.paid_at, p.notes, p.created_at,
+         c.id as case_id, c.case_number, c.device_brand, c.device_model, c.stage,
+         u.full_name as recorded_by_name,
+         COALESCE(q.total_amount, 0) as case_total
+       FROM payments p
+       JOIN cases c ON p.case_id = c.id
+       LEFT JOIN users u ON p.recorded_by = u.id
+       LEFT JOIN LATERAL (
+         SELECT total_amount FROM quotations
+         WHERE case_id = c.id ORDER BY created_at DESC LIMIT 1
+       ) q ON TRUE
+       WHERE c.client_id = $1
+         AND p.status = 'paid'
+       ORDER BY COALESCE(p.paid_at, p.created_at) DESC`,
+      [req.params.id]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── PUT /api/clients/:id ─────────────────────────────────────────
 router.put('/:id', requireMinRole('staff'), auditLog('update_client', 'client'), async (req, res) => {
   try {
-    const { first_name, last_name, email, phone, phone_alt, company, address, city, country, notes, is_corporate, is_vip } = req.body;
+    const {
+      first_name, last_name, middle_name, email, phone, phone_alt, company,
+      address, city, state, pincode, country, whatsapp,
+      id_type, id_number, referral_source, notes, is_corporate, is_vip
+    } = req.body;
     if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
       return res.status(404).json({ error: 'Client not found' });
     }
     const result = await query(
-      `UPDATE clients SET first_name=COALESCE($1,first_name), last_name=COALESCE($2,last_name), email=COALESCE($3,email), phone=COALESCE($4,phone), phone_alt=$5, company=$6, address=$7, city=$8, country=COALESCE($9,country), notes=$10, is_corporate=COALESCE($11,is_corporate), is_vip=COALESCE($12,is_vip), updated_at=NOW() WHERE id=$13 RETURNING *`,
-      [first_name, last_name, email, phone, phone_alt, company, address, city, country, notes, is_corporate, is_vip, req.params.id]
+      `UPDATE clients SET
+        first_name=COALESCE($1,first_name), last_name=COALESCE($2,last_name),
+        middle_name=$3, email=$4, phone=COALESCE($5,phone),
+        phone_alt=$6, company=$7, address=$8,
+        city=$9, state=$10, pincode=$11,
+        country=COALESCE($12,country), whatsapp=$13,
+        id_type=$14, id_number=$15, referral_source=$16,
+        notes=$17, is_corporate=COALESCE($18,is_corporate), is_vip=COALESCE($19,is_vip),
+        updated_at=NOW()
+       WHERE id=$20 RETURNING *`,
+      [
+        first_name, last_name, middle_name||null, email||null, phone,
+        phone_alt||null, company||null, address||null,
+        city||null, state||null, pincode||null,
+        country||'India', whatsapp||null,
+        id_type||null, id_number||null, referral_source||null,
+        notes||null, is_corporate, is_vip,
+        req.params.id
+      ]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Client not found' });
     res.json(result.rows[0]);
@@ -252,10 +329,9 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       return res.status(404).json({ error: 'Client not found' });
     }
 
-    const amountRequested = parseFloat(req.body.amount || 0);
-    const notes = req.body.notes || 'Collected from Clients page';
-    if (isNaN(amountRequested) || amountRequested <= 0) {
-      return res.status(400).json({ error: 'Invalid amount' });
+    const { case_selections, notes } = req.body;
+    if (!Array.isArray(case_selections) || case_selections.length === 0) {
+      return res.status(400).json({ error: 'case_selections array is required with at least one entry' });
     }
 
     const pendingCases = await query(
@@ -284,64 +360,81 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       [req.params.id]
     );
 
-    const toCollect = pendingCases.rows.filter((row) => parseFloat(row.pending_amount || 0) > 0);
-    if (!toCollect.length) {
+    const pendingMap = {};
+    for (const row of pendingCases.rows) {
+      const pending = parseFloat(row.pending_amount || 0);
+      if (pending > 0) {
+        pendingMap[row.case_id] = { ...row, pending_amount: pending };
+      }
+    }
+
+    const pendingIds = Object.keys(pendingMap);
+    if (!pendingIds.length) {
       return res.json({ ok: true, message: 'No pending amount to collect.', collected_amount: 0, updated_cases: 0, allocation_details: [] });
     }
 
-    const totalPending = toCollect.reduce((s, r) => s + parseFloat(r.pending_amount || 0), 0);
-    if (amountRequested > totalPending) {
-      return res.status(400).json({ error: 'Amount exceeds total pending amount', total_pending: totalPending });
+    // Validate case_selections
+    let totalRequested = 0;
+    for (const sel of case_selections) {
+      if (!sel.case_id) {
+        return res.status(400).json({ error: 'Each case_selection must have a case_id' });
+      }
+      if (!pendingMap[sel.case_id]) {
+        return res.status(400).json({ error: `Case ${sel.case_id} has no pending amount or does not belong to this client` });
+      }
+      const amount = parseFloat(sel.amount);
+      if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ error: `Invalid amount for case ${sel.case_id}` });
+      }
+      if (amount > pendingMap[sel.case_id].pending_amount) {
+        return res.status(400).json({
+          error: `Amount (${amount}) exceeds pending amount (${pendingMap[sel.case_id].pending_amount}) for case ${sel.case_id}`
+        });
+      }
+      totalRequested += amount;
     }
 
-    // ✅ CRITICAL FIX: Sort by pending_amount DESC (highest first) for intelligent allocation
-    // This ensures payment is allocated to the case with the highest outstanding balance first
-    const sortedByPending = toCollect.sort((a, b) => parseFloat(b.pending_amount || 0) - parseFloat(a.pending_amount || 0));
+    if (totalRequested <= 0) {
+      return res.status(400).json({ error: 'Total amount to collect must be greater than zero' });
+    }
 
-    // Run inserts/updates inside a transaction
+    // Process selections inside a transaction
     const result = await require('../config/database').transaction(async (client) => {
-      let remaining = amountRequested;
       let updatedCases = 0;
       const allocationDetails = [];
-      
-      for (const row of sortedByPending) {
-        if (remaining <= 0) break;
-        const pendingAmt = parseFloat(row.pending_amount || 0);
-        if (pendingAmt <= 0) continue;
-        
-        const pay = Math.min(pendingAmt, remaining);
-        
+
+      for (const sel of case_selections) {
+        const row = pendingMap[sel.case_id];
+        const pay = parseFloat(sel.amount);
+
         await client.query(
           `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
            VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
-          [row.case_id, row.quotation_id || null, pay, notes, req.user.id]
+          [row.case_id, row.quotation_id || null, pay, notes || 'Collected from Clients page', req.user.id]
         );
-        
-        // Track allocation for response
+
         allocationDetails.push({
           case_id: row.case_id,
           case_number: row.case_number,
           allocated_amount: pay,
-          previous_pending: pendingAmt,
-          new_pending: Math.max(0, pendingAmt - pay)
+          previous_pending: row.pending_amount,
+          new_pending: Math.max(0, row.pending_amount - pay)
         });
-        
-        remaining -= pay;
+
         updatedCases += 1;
       }
 
-      const collected = amountRequested - remaining;
-      if (collected > 0) {
-        await client.query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2', [collected, req.params.id]);
+      if (totalRequested > 0) {
+        await client.query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2', [totalRequested, req.params.id]);
       }
 
-      return { collected, updatedCases, allocationDetails };
+      return { collected: totalRequested, updatedCases, allocationDetails };
     });
 
-    res.json({ 
-      ok: true, 
-      message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`, 
-      collected_amount: result.collected, 
+    res.json({
+      ok: true,
+      message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`,
+      collected_amount: result.collected,
       updated_cases: result.updatedCases,
       allocation_details: result.allocationDetails || []
     });

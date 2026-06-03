@@ -63,7 +63,7 @@ router.get('/problems', async (req, res) => {
            AND symptom_notes ILIKE $1
            ${tenantCase ? `AND ${tenantCase.clause}` : ''}
          ORDER BY symptom_notes
-         LIMIT $2`,
+         LIMIT $${tenantCase ? 3 : 2}`,
         tenantCase ? [contains, ...tenantCase.params, max] : [contains, max]
       );
       caseRows = caseResult.rows;
@@ -144,7 +144,7 @@ router.get('/diagnosis', async (req, res) => {
            AND initial_diagnosis ILIKE $1
            ${tenantCase ? `AND ${tenantCase.clause}` : ''}
          ORDER BY initial_diagnosis
-         LIMIT $2`,
+         LIMIT $${tenantCase ? 3 : 2}`,
         tenantCase ? [contains, ...tenantCase.params, max] : [contains, max]
       );
       caseRows = caseResult.rows;

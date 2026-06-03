@@ -235,6 +235,8 @@ export default function ClientDetail() {
   const [company, setCompany] = useState(null);
   const [showCollectPayment, setShowCollectPayment] = useState(false);
   const [selectedCaseForCollection, setSelectedCaseForCollection] = useState(null);
+  const [payments, setPayments] = useState([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -242,6 +244,18 @@ export default function ClientDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (tab !== 'payments') return;
+    setPaymentsLoading(true);
+    fetch(`${BASE_URL}/clients/${id}/payments`, {
+      headers: { Authorization: `Bearer ${getToken()}` }
+    })
+      .then(r => r.json())
+      .then(data => setPayments(Array.isArray(data) ? data : []))
+      .catch(() => setPayments([]))
+      .finally(() => setPaymentsLoading(false));
+  }, [tab, id]);
 
   useEffect(() => {
     fetch(`${BASE_URL}/company/settings`, { headers: { Authorization: `Bearer ${getToken()}` } })
@@ -265,24 +279,42 @@ export default function ClientDetail() {
           <h2>{cl.first_name} {cl.middle_name ? cl.middle_name+' ' : ''}{cl.last_name}</h2>
           <div className="text-sm text-muted">{cl.phone}{cl.email && ` • ${cl.email}`}{cl.company && ` • ${cl.company}`}</div>
         </div>
-        <div style={{ display:'flex',gap:10,flexWrap:'wrap' }}>
-          <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Paid</div>
-            <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.total_paid||0).toLocaleString('en-IN')}</div>
+          <div style={{ display:'flex',gap:10,flexWrap:'wrap' }}>
+            <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Paid</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.total_paid||0).toLocaleString('en-IN')}</div>
+            </div>
+            <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Pending</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:parseFloat(cl.paymentSummary?.pending||0)>0?'var(--danger)':'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.paymentSummary?.pending||0).toLocaleString('en-IN')}</div>
+            </div>
+            <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Cases (Active/Total)</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--accent-primary)',fontFamily:'var(--font-mono)' }}>
+                {(cl.cases||[]).filter(c => !['completed','delivered','failed'].includes(c.stage)).length} / {cl.total_cases||cl.cases?.length||0}
+              </div>
+            </div>
+            <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Pending Cases</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:(cl.cases||[]).filter(c=>parseFloat(c.pending_amount||0)>0).length > 0 ? 'var(--status-warning)' : 'var(--status-success)',fontFamily:'var(--font-mono)' }}>
+                {(cl.cases||[]).filter(c=>parseFloat(c.pending_amount||0)>0).length}
+              </div>
+            </div>
+            <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Expenses</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:'#f472b6',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.total_purchase_cost||0).toLocaleString('en-IN')}</div>
+            </div>
+            <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Overall Profit</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:parseFloat(cl.overall_profit||0)>=0?'var(--status-success)':'var(--status-danger)',fontFamily:'var(--font-mono)' }}>
+                {parseFloat(cl.overall_profit||0)>=0?'+':''}₹{parseFloat(cl.overall_profit||0).toLocaleString('en-IN')}
+              </div>
+            </div>
+            <div style={{ display:'flex',flexDirection:'column',gap:8 }}>
+              {canAccess('junior_engineer') && <button className="btn btn-secondary btn-sm" onClick={() => setShowEdit(true)}>✏️ Edit</button>}
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowCourier(true)}>📮 Courier Slip</button>
+            </div>
           </div>
-          <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Pending</div>
-            <div style={{ fontSize:'1.1rem',fontWeight:800,color:parseFloat(cl.paymentSummary?.pending||0)>0?'var(--danger)':'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.paymentSummary?.pending||0).toLocaleString('en-IN')}</div>
-          </div>
-          <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Cases</div>
-            <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--accent-primary)',fontFamily:'var(--font-mono)' }}>{cl.total_cases||cl.cases?.length||0}</div>
-          </div>
-          <div style={{ display:'flex',flexDirection:'column',gap:8 }}>
-            {canAccess('junior_engineer') && <button className="btn btn-secondary btn-sm" onClick={() => setShowEdit(true)}>✏️ Edit</button>}
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowCourier(true)}>📮 Courier Slip</button>
-          </div>
-        </div>
       </div>
 
       {/* Tabs */}
@@ -290,6 +322,7 @@ export default function ClientDetail() {
         {[
           { key:'overview',       label:'📋 Overview' },
           { key:'cases',          label:'📂 Cases' },
+          { key:'payments',       label:'💰 Payments' },
           { key:'communications', label:'💬 Communications' },
         ].map(t => <button key={t.key} className={`tab-btn ${tab===t.key?'active':''}`} onClick={() => setTab(t.key)}>{t.label}</button>)}
       </div>
@@ -314,17 +347,19 @@ export default function ClientDetail() {
             {cl.address && <div style={{ marginTop:12,fontSize:'0.8rem',color:'var(--text-secondary)',padding:'8px 10px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)' }}>📍 {cl.address}</div>}
           </div>
           <div className="card">
-            <div className="card-title" style={{ marginBottom:14 }}>📊 Summary</div>
+            <div className="card-title" style={{ marginBottom:14 }}>📊 Payment Summary</div>
             <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12 }}>
               {[
-                { l:'Total Cases', v:cl.cases?.length||0 },
-                { l:'Amount Paid', v:`₹${parseFloat(cl.paymentSummary?.total_paid||0).toLocaleString('en-IN')}` },
-                { l:'Member Since', v:new Date(cl.created_at).toLocaleDateString('en-IN') },
-                { l:'ID Type', v:`${cl.id_type||'—'} ${cl.id_number||''}` },
-              ].map(({ l, v }) => (
+                { l:'Total Cases', v:cl.cases?.length||0, c:'var(--text-primary)' },
+                { l:'Amount Paid', v:`₹${parseFloat(cl.paymentSummary?.total_paid||0).toLocaleString('en-IN')}`, c:'var(--status-success)' },
+                { l:'Amount Pending', v:`₹${parseFloat(cl.paymentSummary?.pending||0).toLocaleString('en-IN')}`, c:parseFloat(cl.paymentSummary?.pending||0)>0?'var(--status-danger)':'var(--status-success)' },
+                { l:'Pending Cases', v:(cl.cases||[]).filter(c=>parseFloat(c.pending_amount||0)>0).length, c:'var(--status-warning)' },
+                { l:'Total Expenses', v:`₹${parseFloat(cl.total_purchase_cost||0).toLocaleString('en-IN')}`, c:'#f472b6' },
+                { l:'Overall Profit', v:`${parseFloat(cl.overall_profit||0)>=0?'+':''}₹${parseFloat(cl.overall_profit||0).toLocaleString('en-IN')}`, c:parseFloat(cl.overall_profit||0)>=0?'var(--status-success)':'var(--status-danger)' },
+              ].map(({ l, v, c }) => (
                 <div key={l} style={{ padding:'12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)' }}>
                   <div className="tech-data-label">{l}</div>
-                  <div style={{ fontSize:'0.9rem',fontWeight:700,color:'var(--text-primary)',marginTop:4 }}>{v}</div>
+                  <div style={{ fontSize:'0.9rem',fontWeight:700,color:c,marginTop:4 }}>{v}</div>
                 </div>
               ))}
             </div>
@@ -335,7 +370,7 @@ export default function ClientDetail() {
       {tab === 'cases' && (
         <div className="table-container">
           <table>
-            <thead><tr><th>Case #</th><th>Device</th><th>Stage</th><th>Failure</th><th>Quotation</th><th>Paid</th><th>Pending</th><th>Date</th><th>Action</th></tr></thead>
+            <thead><tr><th>Case #</th><th>Device</th><th>Stage</th><th>Failure</th><th>Quotation</th><th>Paid</th><th>Expense</th><th>Profit</th><th>Pending</th><th>Date</th><th>Action</th></tr></thead>
             <tbody>
               {(cl.cases||[]).map(c => (
                 <tr key={c.id} style={{ cursor:'pointer' }}>
@@ -345,6 +380,8 @@ export default function ClientDetail() {
                   <td onClick={() => navigate(`/cases/${c.id}`)}>{c.failure_type && <span className={`badge badge-${c.failure_type}`}>{c.failure_type}</span>}</td>
                   <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs">₹{parseFloat(c.quotation_total||0).toLocaleString('en-IN')}</td>
                   <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs" style={{color:'var(--status-success)'}}>₹{parseFloat(c.total_paid||0).toLocaleString('en-IN')}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs" style={{color:'#f472b6'}}>₹{parseFloat(c.total_purchase_cost||0).toLocaleString('en-IN')}</td>
+                  <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs" style={{color:parseFloat(c.profit||0)>=0?'var(--status-success)':'var(--status-danger)'}}>{parseFloat(c.profit||0)>=0?'+':''}₹{parseFloat(c.profit||0).toLocaleString('en-IN')}</td>
                   <td onClick={() => navigate(`/cases/${c.id}`)} className="font-mono text-xs" style={{color:parseFloat(c.pending_amount||0)>0?'var(--danger)':'var(--status-success)',fontWeight:700}}>₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}</td>
                   <td onClick={() => navigate(`/cases/${c.id}`)} className="text-xs text-muted">{new Date(c.created_at).toLocaleDateString('en-IN')}</td>
                   <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
@@ -364,9 +401,109 @@ export default function ClientDetail() {
                   </td>
                 </tr>
               ))}
-              {!cl.cases?.length && <tr><td colSpan={9}><div className="empty-state" style={{ padding:30 }}><div className="empty-desc">No cases for this client</div></div></td></tr>}
+              {!cl.cases?.length && <tr><td colSpan={11}><div className="empty-state" style={{ padding:30 }}><div className="empty-desc">No cases for this client</div></div></td></tr>}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {tab === 'payments' && (
+        <div>
+          {/* Summary bar */}
+          <div style={{ display:'flex', gap:12, marginBottom:20, flexWrap:'wrap' }}>
+            {[
+              { label:'Total Paid', value:`₹${parseFloat(cl.paymentSummary?.total_paid||0).toLocaleString('en-IN')}`, color:'var(--status-success)' },
+              { label:'Pending', value:`₹${parseFloat(cl.paymentSummary?.pending||0).toLocaleString('en-IN')}`, color: parseFloat(cl.paymentSummary?.pending||0)>0 ? 'var(--status-warning)' : 'var(--status-success)' },
+              { label:'Transactions', value: payments.length, color:'var(--accent-primary)' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ padding:'10px 18px', background:'var(--bg-elevated)', borderRadius:'var(--radius-md)', border:'1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize:'0.7rem', color:'var(--text-muted)', textTransform:'uppercase', marginBottom:3 }}>{label}</div>
+                <div style={{ fontSize:'1rem', fontWeight:800, fontFamily:'var(--font-mono)', color }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {paymentsLoading ? (
+            <div style={{ display:'flex', justifyContent:'center', padding:40 }}>
+              <div className="spinner" style={{ width:28, height:28, borderWidth:3 }} />
+            </div>
+          ) : payments.length === 0 ? (
+            <div style={{ padding:40, textAlign:'center', color:'var(--text-muted)' }}>
+              <div style={{ fontSize:'2rem', marginBottom:10 }}>💳</div>
+              <div style={{ fontWeight:600, marginBottom:4 }}>No payments recorded</div>
+              <div style={{ fontSize:'0.85rem' }}>Payments will appear here once collected against any case.</div>
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date & Time</th>
+                    <th>Case</th>
+                    <th>Device</th>
+                    <th style={{ textAlign:'right' }}>Case Total</th>
+                    <th style={{ textAlign:'right' }}>Amount Paid</th>
+                    <th>Method</th>
+                    <th>Reference</th>
+                    <th>Notes</th>
+                    <th>Recorded By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map(p => (
+                    <tr key={p.id} style={{ cursor:'pointer' }} onClick={() => navigate(`/cases/${p.case_id}`)}>
+                      <td>
+                        <div style={{ fontSize:'0.82rem', fontWeight:600 }}>
+                          {new Date(p.paid_at || p.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}
+                        </div>
+                        <div style={{ fontSize:'0.7rem', color:'var(--text-muted)' }}>
+                          {new Date(p.paid_at || p.created_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}
+                        </div>
+                      </td>
+                      <td>
+                        <span style={{ fontFamily:'var(--font-mono)', fontSize:'0.8rem', color:'var(--accent-primary)', fontWeight:600 }}>
+                          {p.case_number}
+                        </span>
+                        <div>
+                          <span style={{ fontSize:'0.68rem', padding:'1px 6px', borderRadius:3, background:'var(--bg-elevated)', color:'var(--text-muted)' }}>
+                            {p.stage?.replace(/_/g,' ')}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize:'0.82rem' }}>{p.device_brand} {p.device_model}</td>
+                      <td style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:'0.82rem', color:'var(--text-muted)' }}>
+                        ₹{parseFloat(p.case_total||0).toLocaleString('en-IN')}
+                      </td>
+                      <td style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:'0.9rem', fontWeight:800, color:'var(--status-success)' }}>
+                        ₹{parseFloat(p.amount).toLocaleString('en-IN')}
+                      </td>
+                      <td>
+                        {p.method ? (
+                          <span style={{
+                            fontSize:'0.72rem', padding:'2px 8px', borderRadius:999, fontWeight:600,
+                            background: p.method==='cash' ? 'rgba(34,197,94,0.12)' : p.method==='upi' ? 'rgba(139,92,246,0.12)' : p.method==='card' ? 'rgba(59,130,246,0.12)' : 'rgba(107,114,128,0.12)',
+                            color: p.method==='cash' ? '#22c55e' : p.method==='upi' ? '#8b5cf6' : p.method==='card' ? '#3b82f6' : 'var(--text-muted)',
+                            textTransform:'uppercase'
+                          }}>
+                            {p.method}
+                          </span>
+                        ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
+                      </td>
+                      <td style={{ fontSize:'0.78rem', color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>
+                        {p.reference_number || '—'}
+                      </td>
+                      <td style={{ fontSize:'0.78rem', color:'var(--text-secondary)', maxWidth:160 }}>
+                        {p.notes || '—'}
+                      </td>
+                      <td style={{ fontSize:'0.78rem', color:'var(--text-muted)' }}>
+                        {p.recorded_by_name || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

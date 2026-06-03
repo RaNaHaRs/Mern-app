@@ -89,39 +89,17 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
   const isSsd = form.category === 'ssd';
   const isOther = form.category === 'other';
   const showStockNumber = !isPcb;
-  const showDynamicFields = isHDD && !isPcb;
 
   useEffect(() => {
     setInventoryFields(loadInventoryFields(form.category));
   }, [form.category]);
 
-  const RESERVED_INVENTORY_KEYS = new Set([
-    'stock_number', 'category', 'company', 'brand', 'model', 'name', 'serial_number', 'pcb_number',
-    'capacity', 'interface', 'form_factor', 'firmware', 'site_code', 'date_code', 'head_map', 'family',
-    'condition', 'status', 'quantity', 'min_quantity', 'unit_cost', 'location', 'notes', 'description',
-  ]);
-
-  const renderInventorySettingsField = (field) => {
-    const value = form[field.key] ?? '';
-    const onChange = (e) => setForm(prev => ({ ...prev, [field.key]: e.target.value }));
-    return (
-      <div key={field.key} className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">{field.label}</label>
-        {field.type === 'select' ? (
-          <select className="form-select" value={value} onChange={onChange}>
-            <option value="">Select…</option>
-            {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-          </select>
-        ) : field.type === 'textarea' ? (
-          <textarea className="form-textarea" style={{ minHeight: 56 }} value={value} onChange={onChange} />
-        ) : (
-          <input className="form-input" type={field.type === 'number' ? 'number' : 'text'} value={value} onChange={onChange} />
-        )}
-      </div>
-    );
+  const invFieldSkipKeys = {
+    ssd: ['capacity'],
+    pcb: ['model', 'pcb_number', 'notes'],
+    hdd: [],
+    other: [],
   };
-
-  const customInventoryFields = inventoryFields.filter(f => !RESERVED_INVENTORY_KEYS.has(f.key));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -232,26 +210,12 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
               </div>
             )}
 
-            {showDynamicFields && (
-              <InventoryHddFields
-                category={form.category === 'hdd' ? 'harddisk' : form.category}
-                form={form}
-                setForm={setForm}
-                customFieldValues={customFieldValues}
-                setCustomFieldValues={setCustomFieldValues}
-              />
-            )}
-
-            {customInventoryFields.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: 10 }}>
-                  Inventory settings fields — {form.category?.replace(/_/g, ' ') || 'Category'}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {customInventoryFields.map(renderInventorySettingsField)}
-                </div>
-              </div>
-            )}
+            <InventoryHddFields
+              category={form.category}
+              form={form}
+              setForm={setForm}
+              skipKeys={invFieldSkipKeys[form.category] || []}
+            />
 
             {isHDD && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -869,16 +833,15 @@ export default function InventoryPage() {
                   )}
                   <th>Stock ID</th>
                   <th>Category</th>
-                  <th>Company / Brand</th>
+                  <th>Brand</th>
                   <th>Model</th>
                   <th>Serial #</th>
                   <th>PCB #</th>
                   <th>Capacity</th>
                   {viewMode === 'stock' && <th>Status</th>}
-                  {viewMode === 'stock' && <th>Transferred to Client</th>}
-                  <th>Qty</th>
+                  <th style={{ textAlign: 'center' }}>Qty</th>
                   {viewMode === 'recycle' && <th>Deleted</th>}
-                  <th></th>
+                  <th style={{ textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -912,39 +875,75 @@ export default function InventoryPage() {
                       <td className="text-xs font-mono text-muted">{item.serial_number || dyn.serial_number || '—'}</td>
                       <td className="text-xs font-mono">{item.pcb_number || dyn.pcb_number || '—'}</td>
                       <td className="text-xs text-muted">{item.capacity || dyn.capacity || '—'}</td>
-                      {viewMode === 'stock' && <td><StatusBadge status={item.status || 'available'} /></td>}
-                      {viewMode === 'stock' && <td style={{ fontSize: '0.8rem', fontWeight: 600, color: item.is_transferred_to_client ? '#10b981' : '#94a3b8' }}>{item.is_transferred_to_client ? ' Yes' : '—'}</td>}
-                      <td>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.85rem', color: isLow ? 'var(--status-danger)' : 'inherit' }}>
-                          {item.quantity}
-                          {isLow && <span style={{ marginLeft: 4, fontSize: '0.55rem', color: 'var(--status-danger)' }}> LOW</span>}
-                        </span>
+                      {viewMode === 'stock' && (
+                        <td>
+                          <StatusBadge status={item.is_transferred_to_client ? 'transferred' : (item.status || 'available')} />
+                        </td>
+                      )}
+                      <td style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem', color: isLow ? 'var(--status-danger)' : 'inherit' }}>
+                            {item.quantity}
+                          </span>
+                          {isLow && (
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#fff', background: 'var(--status-danger)', borderRadius: 3, padding: '1px 5px', letterSpacing: '0.05em' }}>
+                              LOW
+                            </span>
+                          )}
+                        </div>
                       </td>
                       {viewMode === 'recycle' && (
                         <td className="text-xs text-muted">
                           {item.deleted_at ? new Date(item.deleted_at).toLocaleDateString('en-IN') : '—'}
                         </td>
                       )}
-                      <td onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', minWidth: 0 }}>
+                      <td onClick={e => e.stopPropagation()} style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'nowrap' }}>
                           {viewMode === 'stock' && canAccess('junior_engineer') && (
                             <>
-                              <button type="button" className="btn btn-secondary btn-sm" disabled={isTransferred}
-                                onClick={() => handleTransfer(item)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title={isTransferred ? 'Transferred' : 'Transfer'}>{isTransferred ? 'T' : 'Xfr'}</button>
-                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditItem(item)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Edit">E</button>
-                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAdjustItem(item)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Adjust">±</button>
+                              <button type="button" className="btn btn-secondary btn-sm"
+                                disabled={isTransferred}
+                                onClick={() => handleTransfer(item)}
+                                style={{ padding: '4px 10px', fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                                title="Transfer to client">
+                                Transfer
+                              </button>
+                              <button type="button" className="btn btn-secondary btn-sm"
+                                onClick={() => setEditItem(item)}
+                                style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                                title="Edit item">
+                                Edit
+                              </button>
+                              <button type="button" className="btn btn-ghost btn-sm"
+                                onClick={() => setAdjustItem(item)}
+                                style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                                title="Adjust stock quantity">
+                                Adjust
+                              </button>
                             </>
                           )}
                           {viewMode === 'recycle' && (
                             <>
-                              <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleRestore(item.id)} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Restore">R</button>
+                              <button type="button" className="btn btn-secondary btn-sm"
+                                onClick={() => handleRestore(item.id)}
+                                style={{ padding: '4px 10px', fontSize: '0.72rem' }}>
+                                Restore
+                              </button>
                               {isAdmin && (
-                                <button type="button" className="btn btn-danger btn-sm" onClick={() => { setSelectedIds(new Set([item.id])); setShowPermanentDelete(true); }} style={{ padding: '3px 6px', fontSize: '0.65rem' }} title="Delete">D</button>
+                                <button type="button" className="btn btn-danger btn-sm"
+                                  onClick={() => { setSelectedIds(new Set([item.id])); setShowPermanentDelete(true); }}
+                                  style={{ padding: '4px 10px', fontSize: '0.72rem' }}>
+                                  Delete
+                                </button>
                               )}
                             </>
                           )}
                           {viewMode === 'stock' && (
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => navigate(`/inventory/${item.id}`)} style={{ padding: '4px 8px' }}>→</button>
+                            <button type="button" className="btn btn-ghost btn-sm"
+                              onClick={() => navigate(`/inventory/${item.id}`)}
+                              style={{ padding: '4px 10px', fontSize: '0.72rem' }}>
+                              View
+                            </button>
                           )}
                         </div>
                       </td>
@@ -952,7 +951,7 @@ export default function InventoryPage() {
                   );
                 })}
                 {!displayList.length && (
-                  <tr><td colSpan={viewMode === 'recycle' ? 10 : 11}>
+                  <tr><td colSpan={viewMode === 'recycle' ? 9 : 10}>
                     <div className="empty-state">
                       <div className="empty-icon">{viewMode === 'recycle' ? '' : ''}</div>
                       <div className="empty-title">{viewMode === 'recycle' ? 'Recycle bin is empty' : 'No items found'}</div>

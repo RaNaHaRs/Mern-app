@@ -2,7 +2,7 @@ import React from 'react';
 import { fieldConfigApi } from '../services/fieldConfigApi';
 import { categoryToConfigKey } from '../constants/inventoryConfig';
 
-function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustomFieldValues, caseSettings }) {
+function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustomFieldValues, caseSettings, stepErrors = {}, showStepErrors = false }) {
   const normKey = categoryToConfigKey(hddKey) || '';
   const [schema, setSchema] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
@@ -275,15 +275,17 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
                   />
                   <span style={{ fontSize: '0.9rem' }}>Yes / No</span>
                 </label>
-              ) : field.field_type === 'select' ? (
+              ) : field.field_type === 'select' || field.field_key === 'interface' || field.field_key === 'capacity' || field.field_key === 'form_factor' ? (
                 (() => {
                   let options = [];
                   if (field.field_key === 'manufacture_country') {
                     options = getCaseSettingsList('manufacture_countries', ['Thailand', 'China', 'Malaysia', 'Philippines']);
                   } else if (field.field_key === 'interface') {
-                    options = getCaseSettingsList('interfaces', ['SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'M.2', 'eSATA']);
+                    options = getCaseSettingsList('interfaces', ['SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'mSATA', 'M2', 'eSATA']);
                   } else if (field.field_key === 'capacity') {
                     options = getCaseSettingsList('capacities', ['160GB', '250GB', '320GB', '500GB', '750GB', '1TB', '2TB', '4TB']);
+                  } else if (field.field_key === 'form_factor') {
+                    options = getCaseSettingsList('form_factors', ['3.5', '2.5', 'M.2', 'mSATA', 'U.2', 'PCIe_card']);
                   }
                   return options.length ? (
                     <select
@@ -323,6 +325,11 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
                   spellCheck={false}
                   required={isMandatory}
                 />
+              )}
+              {showStepErrors && stepErrors?.[field.field_key] && (
+                <div className="field-error" role="alert" style={{ marginTop: 4, fontSize: "0.78rem" }}>
+                  {stepErrors[field.field_key]}
+                </div>
               )}
             </div>
           );

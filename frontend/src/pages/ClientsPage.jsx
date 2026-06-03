@@ -102,78 +102,196 @@ function NewClientModal({ onClose, onCreated }) {
 }
 
 function CollectModal({ client, onClose, onCollected }) {
-  const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('Collected from Clients page');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pendingCases, setPendingCases] = useState([]);
+  const [casesLoading, setCasesLoading] = useState(true);
+  const [selectedCaseId, setSelectedCaseId] = useState('');
+  const [amount, setAmount] = useState('');
+
+  useEffect(() => {
+    if (!client?.id) return;
+    setCasesLoading(true);
+    clientsApi.get(client.id)
+      .then(data => {
+        const cases = (data.cases || []).filter(c => parseFloat(c.pending_amount || 0) > 0);
+        setPendingCases(cases);
+        if (cases.length === 1) setSelectedCaseId(cases[0].id);
+      })
+      .catch(() => setError('Failed to load case details'))
+      .finally(() => setCasesLoading(false));
+  }, [client?.id]);
 
   if (!client) return null;
 
-  const pending = parseFloat(client.pending_amount || 0);
+  const selectedCase = pendingCases.find(c => c.id === selectedCaseId);
+  const selectedPending = parseFloat(selectedCase?.pending_amount || 0);
+  const enteredAmount = parseFloat(amount) || 0;
+  const totalPending = pendingCases.reduce((s, c) => s + parseFloat(c.pending_amount || 0), 0);
 
-  const validate = () => {
+  const handleCaseChange = (id) => {
+    setSelectedCaseId(id);
+    setAmount('');
     setError('');
-    const val = parseFloat(amount || 0);
-    if (!amount || isNaN(val)) { setError('Enter a valid amount'); return false; }
-    if (val <= 0) { setError('Amount must be greater than zero'); return false; }
-    if (val > pending) { setError('Amount cannot exceed pending amount'); return false; }
-    return true;
   };
 
   const handleCollect = async () => {
-    if (!validate()) return;
+    setError('');
+    if (!selectedCaseId) { setError('Please select a case'); return; }
+    if (enteredAmount <= 0) { setError('Enter a valid amount'); return; }
+    if (enteredAmount > selectedPending) {
+      setError(`Amount exceeds pending (₹${selectedPending.toLocaleString('en-IN')})`);
+      return;
+    }
     setLoading(true);
     try {
-      await clientsApi.collectPending(client.id, { amount: parseFloat(amount), notes });
-      // Refresh parent data
+      await clientsApi.collectPending(client.id, {
+        case_selections: [{ case_id: selectedCaseId, amount: enteredAmount }],
+        notes
+      });
       if (onCollected) await onCollected();
-      try { window.dispatchEvent(new Event('paymentsUpdated')); } catch (e) { /* ignore */ }
+      try { window.dispatchEvent(new Event('paymentsUpdated')); } catch (e) {}
       onClose();
     } catch (err) {
       setError(err?.message || 'Failed to collect payment');
     } finally { setLoading(false); }
   };
 
+  const inputStyle = {
+    width: '100%',
+    padding: '9px 12px',
+    background: 'var(--bg-tertiary, #1a2035)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border-default)',
+    borderRadius: 'var(--radius-sm)',
+    fontSize: '0.9rem',
+    outline: 'none',
+    boxSizing: 'border-box'
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-sm" onClick={e => e.stopPropagation()} style={{maxWidth:420}}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth: 460}}>
         <div className="modal-header">
           <h3 className="modal-title">💳 Collect Payment — {client.first_name} {client.last_name}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:'0.85rem',color:'var(--text-muted)'}}>Client</div>
-            <div style={{fontWeight:700}}>{client.first_name} {client.last_name} • <span className="font-mono">{client.client_code}</span></div>
-          </div>
-
-          <div style={{display:'flex',gap:12,marginBottom:10}}>
-            <div style={{flex:1}}>
-              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Total Pending</div>
-              <div style={{fontWeight:800,fontFamily:'var(--font-mono)'}}>₹{pending.toLocaleString('en-IN')}</div>
+          {/* Summary row */}
+          <div style={{display:'flex',gap:10,marginBottom:20}}>
+            <div style={{flex:1,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)'}}>
+              <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginBottom:2}}>Total Pending</div>
+              <div style={{fontWeight:800,fontSize:'1rem',fontFamily:'var(--font-mono)',color:'var(--status-warning)'}}>₹{totalPending.toLocaleString('en-IN')}</div>
             </div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:'0.78rem',color:'var(--text-muted)'}}>Total Paid</div>
-              <div style={{fontWeight:700,fontFamily:'var(--font-mono)'}}>₹{parseFloat(client.total_paid||0).toLocaleString('en-IN')}</div>
+            <div style={{flex:1,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)'}}>
+              <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginBottom:2}}>Total Paid</div>
+              <div style={{fontWeight:700,fontSize:'1rem',fontFamily:'var(--font-mono)',color:'var(--status-success)'}}>₹{parseFloat(client.total_paid||0).toLocaleString('en-IN')}</div>
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label required">Collect Amount (₹)</label>
-            <input type="number" className="form-input" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" min="0" step="0.01" />
-          </div>
+          {casesLoading ? (
+            <div style={{display:'flex',justifyContent:'center',padding:30}}><div className="spinner" style={{width:24,height:24}}/></div>
+          ) : pendingCases.length === 0 ? (
+            <div style={{padding:20,textAlign:'center',color:'var(--text-muted)'}}>No pending cases for this client</div>
+          ) : (
+            <>
+              {/* Case dropdown */}
+              <div className="form-group">
+                <label className="form-label">Select Case</label>
+                <select
+                  value={selectedCaseId}
+                  onChange={e => handleCaseChange(e.target.value)}
+                  style={inputStyle}
+                >
+                  <option value="">— Choose a case —</option>
+                  {pendingCases.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.case_number} — Pending ₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="form-group">
+              {/* Case details card */}
+              {selectedCase && (
+                <div style={{
+                  padding:'12px 14px',
+                  background:'var(--bg-elevated)',
+                  borderRadius:'var(--radius-sm)',
+                  border:'1px solid var(--border-subtle)',
+                  marginBottom:14,
+                  display:'grid',
+                  gridTemplateColumns:'1fr 1fr 1fr',
+                  gap:10
+                }}>
+                  <div>
+                    <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Pending</div>
+                    <div style={{fontWeight:700,color:'var(--status-warning)',fontFamily:'var(--font-mono)'}}>
+                      ₹{selectedPending.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Total</div>
+                    <div style={{fontWeight:600,fontFamily:'var(--font-mono)'}}>
+                      ₹{parseFloat(selectedCase.quotation_total||0).toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Paid</div>
+                    <div style={{fontWeight:600,color:'var(--status-success)',fontFamily:'var(--font-mono)'}}>
+                      ₹{parseFloat(selectedCase.total_paid||0).toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Amount input */}
+              <div className="form-group">
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                  <label className="form-label" style={{margin:0}}>Amount (₹)</label>
+                  {selectedCase && (
+                    <button
+                      className="btn btn-ghost btn-xs"
+                      style={{fontSize:'0.72rem'}}
+                      onClick={() => setAmount(selectedPending)}
+                    >
+                      Fill Pending
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  style={inputStyle}
+                  placeholder="Enter amount..."
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  disabled={!selectedCaseId}
+                  onChange={e => { setAmount(e.target.value); setError(''); }}
+                />
+              </div>
+            </>
+          )}
+
+          {/* Notes */}
+          <div className="form-group" style={{marginBottom:0}}>
             <label className="form-label">Notes</label>
-            <input className="form-input" value={notes} onChange={e=>setNotes(e.target.value)} />
+            <input className="form-input" style={inputStyle} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Payment notes..." />
           </div>
 
-          {error && <div className="alert alert-danger" style={{marginTop:8}}>{error}</div>}
+          {error && <div className="alert alert-danger" style={{marginTop:12}}>{error}</div>}
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleCollect} disabled={loading}>
-            {loading ? <><div className="spinner" style={{width:14,height:14}}/> Processing...</> : 'Collect Payment'}
+          <button
+            className="btn btn-primary"
+            onClick={handleCollect}
+            disabled={loading || enteredAmount <= 0 || !selectedCaseId}
+          >
+            {loading
+              ? <><div className="spinner" style={{width:14,height:14}}/> Processing...</>
+              : `Collect ₹${enteredAmount > 0 ? enteredAmount.toLocaleString('en-IN') : 0}`}
           </button>
         </div>
       </div>

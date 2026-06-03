@@ -34,6 +34,7 @@ const recycleBinRoutes = require('./routes/recycleBin');
 const settingsRoutes = require('./routes/settings');
 // New Chat routes
 const chatRoutes = require('./routes/chat');
+const clientPortalRoutes = require('./routes/clientPortal');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -119,6 +120,7 @@ app.use('/api/media-recycle-bin', mediaRecycleRoutes);
 app.use('/api/recycle-bin', recycleBinRoutes);
 app.use('/api/settings',    settingsRoutes);
 app.use('/api/chat',        chatRoutes);
+app.use('/api/client-portal', clientPortalRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

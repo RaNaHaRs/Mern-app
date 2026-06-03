@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE accounting_expenses ADD COLUMN IF NOT EXISTS case_id UUID REFERENCES cases(id) ON DELETE SET NULL;
+ALTER TABLE accounting_expenses ADD COLUMN IF NOT EXISTS case_number VARCHAR(50);
+
+COMMIT;

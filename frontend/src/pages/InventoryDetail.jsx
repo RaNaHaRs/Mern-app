@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { inventoryApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
-import { isHddCategoryKey } from '../constants/inventoryConfig';
+import { isHddCategoryKey, normalizeCategoryKey } from '../constants/inventoryConfig';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import InventoryHddFields from '../components/InventoryHddFields';
+import InventoryUsageHistoryPanel from '../components/InventoryUsageHistoryPanel';
 import MediaFileGrid from '../components/MediaFileGrid';
 
 const BASE_URL = '/api';
@@ -285,6 +286,13 @@ export default function InventoryDetail() {
     load();
   };
 
+  const invFieldSkipKeys = {
+    hdd: [],
+    ssd: ['capacity'],
+    pcb: ['model', 'pcb_number', 'notes'],
+    other: [],
+  };
+
   const handleSaveEdit = async () => {
     setSavingEdit(true);
     try {
@@ -351,7 +359,8 @@ export default function InventoryDetail() {
   const TABS = [
     { key: 'overview', label: ' Overview' },
     { key: 'photos', label: ` Media (${images.length})` },
-    { key: 'history', label: ' History' },
+    { key: 'usage-history', label: ' Usage History' },
+    { key: 'history', label: ' Activity Log' },
     ...(compareWithCase ? [{ key: 'compare', label: '🔬 Comparison' }] : []),
   ];
 
@@ -478,9 +487,10 @@ export default function InventoryDetail() {
                 {!isOtherCat && (
                   <div style={{ gridColumn: '1/-1' }}>
                     <InventoryHddFields
-                      category={uiCat}
+                      category={normalizeCategoryKey(uiCat)}
                       form={editForm}
                       setForm={setEditForm}
+                      skipKeys={invFieldSkipKeys[normalizeCategoryKey(uiCat)] || []}
                       customFieldValues={editForm.custom_field_values || {}}
                       setCustomFieldValues={(fn) => setEditForm(f => ({
                         ...f,
@@ -641,6 +651,13 @@ export default function InventoryDetail() {
               variant="gallery"
             />
           )}
+        </div>
+      )}
+
+      {/* Usage History Tab */}
+      {activeTab === 'usage-history' && (
+        <div className="card">
+          <InventoryUsageHistoryPanel itemId={id} />
         </div>
       )}
 

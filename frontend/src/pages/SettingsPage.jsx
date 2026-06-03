@@ -39,12 +39,21 @@ function InvCategorySettings({ deviceFamily }) {
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [saved, setSaved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editingOpt, setEditingOpt] = useState(null);
+  const [editOptVal, setEditOptVal] = useState('');
 
   const persist = (next) => {
     setFields(next);
     localStorage.setItem(storageKey, JSON.stringify(next));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleExpand = (fieldKey) => {
+    setExpandedField(expandedField === fieldKey ? null : fieldKey);
+    setNewOptVal('');
+    setEditingOpt(null);
+    setEditOptVal('');
   };
 
   const addOption = (fieldKey) => {
@@ -54,6 +63,29 @@ function InvCategorySettings({ deviceFamily }) {
     );
     persist(next);
     setNewOptVal('');
+  };
+
+  const startEditOption = (fieldKey, optIdx, optVal) => {
+    setEditingOpt({ fieldKey, optIdx });
+    setEditOptVal(optVal);
+  };
+
+  const saveEditOption = () => {
+    if (!editingOpt) return;
+    if (!editOptVal.trim()) { setEditingOpt(null); return; }
+    const { fieldKey, optIdx } = editingOpt;
+    persist(fields.map(f =>
+      f.key === fieldKey
+        ? { ...f, options: f.options.map((o, i) => i === optIdx ? editOptVal.trim() : o) }
+        : f
+    ));
+    setEditingOpt(null);
+    setEditOptVal('');
+  };
+
+  const cancelEditOption = () => {
+    setEditingOpt(null);
+    setEditOptVal('');
   };
 
   const removeOption = (fieldKey, optIdx) => {
@@ -76,9 +108,11 @@ function InvCategorySettings({ deviceFamily }) {
 
   const removeField = (fieldKey) => {
     const field = fields.find(f => f.key === fieldKey);
+    const isCustom = field && field.custom;
     setConfirmDelete({
       type: 'field',
       fieldKey,
+      isCustom,
       itemName: `${field.label} (${field.key})`,
     });
   };
@@ -97,7 +131,11 @@ function InvCategorySettings({ deviceFamily }) {
         f.key === fieldKey ? { ...f, options: f.options.filter((_, i) => i !== optIdx) } : f
       ));
     } else if (confirmDelete.type === 'field') {
-      persist(fields.filter(f => f.key !== confirmDelete.fieldKey));
+      if (confirmDelete.isCustom) {
+        persist(fields.filter(f => f.key !== confirmDelete.fieldKey));
+      } else {
+        persist(fields.map(f => f.key === confirmDelete.fieldKey ? { ...f, hidden: true } : f));
+      }
     } else if (confirmDelete.type === 'reset') {
       persist([...(INV_DEFAULTS[deviceFamily] || [])]);
     }
@@ -112,20 +150,18 @@ function InvCategorySettings({ deviceFamily }) {
         </div>
       )}
 
-      {fields.map(f => (
+      {fields.filter(f => !f.hidden).map(f => (
         <div key={f.key} style={{ background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
           {/* Field header row */}
           <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', gap: 10, cursor: 'pointer' }}
-            onClick={() => setExpandedField(expandedField === f.key ? null : f.key)}>
+            onClick={() => handleExpand(f.key)}>
             <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', width: 120, flexShrink: 0 }}>{f.key}</span>
             <span style={{ fontWeight: 600, fontSize: '0.85rem', flex: 1 }}>{f.label}</span>
             <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 20, background: f.type === 'select' ? 'rgba(0,212,255,0.1)' : 'rgba(99,102,241,0.1)', color: f.type === 'select' ? 'var(--accent-primary)' : '#a78bfa', fontWeight: 700 }}>
               {f.type === 'select' ? ` ${(f.options || []).length} opts` : 'text'}
             </span>
-            {f.custom && (
-              <button type="button" onClick={e => { e.stopPropagation(); removeField(f.key); }}
-                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}></button>
-            )}
+            <button type="button" onClick={e => { e.stopPropagation(); removeField(f.key); }}
+              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}>×</button>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{expandedField === f.key ? '' : ''}</span>
           </div>
 
@@ -134,13 +170,31 @@ function InvCategorySettings({ deviceFamily }) {
             <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ fontWeight: 600, fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>Dropdown Options</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {(f.options || []).map((opt, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 20, padding: '3px 10px', fontSize: '0.78rem' }}>
-                    <span>{opt}</span>
-                    <button type="button" onClick={() => removeOption(f.key, idx)}
-                      style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, padding: 0, lineHeight: 1 }}></button>
-                  </div>
-                ))}
+                {(f.options || []).map((opt, idx) => {
+                  const isEditing = editingOpt && editingOpt.fieldKey === f.key && editingOpt.optIdx === idx;
+                  return (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 20, padding: '3px 10px', fontSize: '0.78rem' }}>
+                      {isEditing ? (
+                        <>
+                          <input className="form-input" style={{ width: 120, fontSize: '0.78rem', padding: '1px 6px' }}
+                            value={editOptVal} onChange={e => setEditOptVal(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEditOption(); if (e.key === 'Escape') cancelEditOption(); }}
+                            autoFocus />
+                          <button type="button" onClick={saveEditOption}
+                            style={{ background: 'none', border: 'none', color: '#22c55e', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>✓</button>
+                          <button type="button" onClick={cancelEditOption}
+                            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ cursor: 'pointer' }} onClick={() => startEditOption(f.key, idx, opt)} title="Click to edit">{opt}</span>
+                          <button type="button" onClick={() => removeOption(f.key, idx)}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
                 {!(f.options || []).length && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No options yet — add below.</span>}
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -177,7 +231,7 @@ function InvCategorySettings({ deviceFamily }) {
       {confirmDelete && (
         <ConfirmDeleteModal
           title={confirmDelete.type === 'option' ? 'Delete Option?' : confirmDelete.type === 'field' ? 'Delete Field?' : 'Reset to Defaults?'}
-          message={confirmDelete.type === 'option' ? 'This option will be removed from the dropdown.' : confirmDelete.type === 'field' ? 'This field and all its data will be removed.' : 'All custom fields will be lost. Only default fields will remain.'}
+          message={confirmDelete.type === 'option' ? 'Are you sure you want to delete this option?' : confirmDelete.type === 'field' ? (confirmDelete.isCustom ? 'This custom field will be permanently removed.' : 'This predefined field will be hidden from forms. You can reset to restore it.') : 'All custom fields will be lost. Only default fields will remain.'}
           itemName={confirmDelete.itemName}
           onConfirm={handleConfirmDelete}
           onCancel={() => setConfirmDelete(null)}
@@ -809,19 +863,21 @@ function CapacitiesManager({ capacities, onChange }) {
   const DEFAULT_CAPS = ['160GB','250GB','320GB','500GB','750GB','1TB','1.5TB','2TB','3TB','4TB','6TB','8TB','10TB','12TB','14TB','16TB','18TB','20TB'];
   const [caps, setCaps] = useState(() => capacities || DEFAULT_CAPS);
   const [newCap, setNewCap] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   useEffect(() => { setCaps(capacities || DEFAULT_CAPS); }, [capacities]);
   const save = (c) => { setCaps(c); onChange(c); };
-  const remove = (c) => save(caps.filter(x=>x!==c));
+  const remove = () => { if (!confirmDelete) return; save(caps.filter(x=>x!==confirmDelete.itemName)); setConfirmDelete(null); };
   const add = () => { if (!newCap.trim() || caps.includes(newCap.trim())) return; save([...caps, newCap.trim()]); setNewCap(''); };
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div className="form-label" style={{marginBottom:4}}>Capacity Options</div>
       <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
         {caps.map(c => (
           <div key={c} style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'var(--bg-elevated)',border:'1px solid var(--border-default)',borderRadius:20,fontSize:'0.8rem'}}>
             <span>{c}</span>
-            <button onClick={()=>remove(c)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:11,padding:0,lineHeight:1}}></button>
+            <button onClick={()=>setConfirmDelete({itemName:c})} style={{background:'none',border:'none',cursor:'pointer',color:'var(--status-danger)',fontSize:11,padding:0,lineHeight:1}}>×</button>
           </div>
         ))}
       </div>
@@ -834,6 +890,15 @@ function CapacitiesManager({ capacities, onChange }) {
         <button className="btn btn-primary" onClick={add}>+ Add</button>
       </div>
       <button className="btn btn-secondary btn-sm" style={{alignSelf:'flex-start'}} onClick={()=>{if(confirm('Reset to defaults?'))save(DEFAULT_CAPS);}}> Reset Defaults</button>
+      {confirmDelete && (
+        <ConfirmDeleteModal
+          title="Delete Capacity Option?"
+          message="Are you sure you want to delete this capacity option?"
+          itemName={confirmDelete.itemName}
+          onConfirm={remove}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   );
 }

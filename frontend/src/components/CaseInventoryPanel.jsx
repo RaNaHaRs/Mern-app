@@ -1,0 +1,788 @@
+import React, { useState, useEffect } from 'react';
+import { casesApi, inventoryApi } from '../services/api';
+
+const BASE_URL = '/api';
+const getToken = () => localStorage.getItem('accessToken');
+
+async function parseErrorMsg(res) {
+  try {
+    const body = await res.text();
+    if (!body) return `HTTP ${res.status}`;
+    const json = JSON.parse(body);
+    return json.error || (json.errors && json.errors.map(e => e.msg).join(', ')) || `HTTP ${res.status}`;
+  } catch (_) {
+    return `HTTP ${res.status}`;
+  }
+}
+
+const inputStyle = {
+  width: '100%',
+  padding: '8px 12px',
+  background: 'var(--bg-tertiary, #1a2035)',
+  color: 'var(--text-primary)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: '0.85rem',
+  outline: 'none',
+  boxSizing: 'border-box'
+};
+
+export default function CaseInventoryPanel({ caseId }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expenses, setExpenses] = useState(null);
+  const [profit, setProfit] = useState(null);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [selectedInventory, setSelectedInventory] = useState([]);
+  const [form, setForm] = useState({
+    inventory_item_id: '',
+    qty_allocated: 1,
+    usage_type: 'CONSUMED',
+    unit_cost: '',
+    notes: ''
+  });
+  const [expenseForm, setExpenseForm] = useState({
+    expense_type: 'direct_purchase',
+    amount: '',
+    description: '',
+    category: '',
+    vendor_name: '',
+    notes: ''
+  });
+
+  useEffect(() => {
+    loadItems();
+  }, [caseId]);
+
+  const loadItems = async () => {
+    try {
+      setLoading(true);
+      const [itemsRes, expensesRes, profitRes] = await Promise.all([
+        fetch(`${BASE_URL}/cases/${caseId}/inventory`, {
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        }),
+        fetch(`${BASE_URL}/cases/${caseId}/expenses`, {
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        }),
+        fetch(`${BASE_URL}/cases/${caseId}/profit`, {
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        })
+      ]);
+
+      if (itemsRes.ok) setItems(await itemsRes.json());
+      if (expensesRes.ok) setExpenses(await expensesRes.json());
+      if (profitRes.ok) setProfit(await profitRes.json());
+    } catch (err) {
+      console.error('Error loading case inventory:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddItem = async (e) => {
+    e.preventDefault();
+    if (!form.inventory_item_id) {
+      alert('Please select an inventory item');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE_URL}/cases/${caseId}/inventory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({
+          ...form,
+          qty_allocated: parseInt(form.qty_allocated),
+          unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : undefined
+        })
+      });
+
+      if (!res.ok) {
+        alert(`Error: ${await parseErrorMsg(res)}`);
+        return;
+      }
+
+      await loadItems();
+      setForm({
+        inventory_item_id: '',
+        qty_allocated: 1,
+        usage_type: 'CONSUMED',
+        unit_cost: '',
+        notes: ''
+      });
+      setShowAddItem(false);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleAddExpense = async (e) => {
+    e.preventDefault();
+    if (!expenseForm.amount || !expenseForm.description) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${BASE_URL}/cases/${caseId}/expenses`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({
+          ...expenseForm,
+          amount: parseFloat(expenseForm.amount)
+        })
+      });
+
+      if (!res.ok) {
+        alert(`Error: ${await parseErrorMsg(res)}`);
+        return;
+      }
+
+      await loadItems();
+      setExpenseForm({
+        expense_type: 'direct_purchase',
+        amount: '',
+        description: '',
+        category: '',
+        vendor_name: '',
+        notes: ''
+      });
+      setShowExpenseForm(false);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleUpdateUsage = async (itemId, action) => {
+    const qty = prompt(`Enter quantity to ${action}:`, '1');
+    if (!qty) return;
+
+    try {
+      const res = await fetch(`${BASE_URL}/cases/${caseId}/inventory/${itemId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({
+          action,
+          qty: parseInt(qty)
+        })
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(`Error: ${error.error}`);
+        return;
+      }
+
+      await loadItems();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleRemoveItem = async (itemId) => {
+    if (!confirm('Are you sure you want to remove this item?')) return;
+
+    try {
+      const res = await fetch(`${BASE_URL}/cases/${caseId}/inventory/${itemId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${getToken()}` }
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        alert(`Error: ${error.error}`);
+        return;
+      }
+
+      await loadItems();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  if (loading) {
+    return <div className="spinner" />;
+  }
+
+  return (
+    <div>
+      {/* Inventory Items Section */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header">
+          <div className="card-title">Used Inventory Items</div>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowAddItem(!showAddItem)}>
+            {showAddItem ? '✕ Cancel' : '+ Add Item'}
+          </button>
+        </div>
+
+        {showAddItem && (
+          <div className="card-body" style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', padding: 16, marginBottom: 16, overflow: 'visible' }}>
+            <form onSubmit={handleAddItem}>
+              <div className="form-group">
+                <label>Select Inventory Item *</label>
+                <InventorySelector
+                  value={form.inventory_item_id}
+                  onChange={(id, item) => {
+                    setForm({ ...form, inventory_item_id: id });
+                    setSelectedInventory([...selectedInventory, item]);
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="form-group">
+                  <label>Quantity *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.qty_allocated}
+                    onChange={(e) => setForm({ ...form, qty_allocated: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Unit Cost (optional)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={form.unit_cost}
+                    onChange={(e) => setForm({ ...form, unit_cost: e.target.value })}
+                    placeholder="Auto-fetched if available"
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Usage Type *</label>
+                <select
+                  value={form.usage_type}
+                  onChange={(e) => setForm({ ...form, usage_type: e.target.value })}
+                  style={inputStyle}
+                >
+                  <option value="CONSUMED">CONSUMED - Stock decreases, cost to case</option>
+                  <option value="TEMPORARY_TOOL">TEMPORARY/TOOL - Assign & return, no expense unless damaged</option>
+                  <option value="CASE_PURCHASE">CASE_PURCHASE - Bought for case, linked to case, cost to expense</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Notes (optional)</label>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Add notes about this allocation..."
+                  style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="btn btn-primary btn-sm">Add Item</button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddItem(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {items.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '0.8rem'
+            }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                  <th style={{ padding: 8, textAlign: 'left' }}>Item</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Type</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Qty Allocated</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Qty Used</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Qty Returned</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Total Cost</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Status</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item) => (
+                  <tr key={item.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: 8 }}>
+                      <div style={{ fontWeight: 600 }}>{item.name}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.sku}</div>
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      <span style={{
+                        fontSize: '0.7rem',
+                        padding: '2px 6px',
+                        background: item.usage_type === 'CONSUMED' ? 'rgba(239, 68, 68, 0.1)' : 
+                                  item.usage_type === 'TEMPORARY_TOOL' ? 'rgba(59, 130, 246, 0.1)' :
+                                  'rgba(34, 197, 94, 0.1)',
+                        color: item.usage_type === 'CONSUMED' ? '#ef4444' :
+                               item.usage_type === 'TEMPORARY_TOOL' ? '#3b82f6' : '#22c55e',
+                        borderRadius: 3,
+                        fontWeight: 600
+                      }}>
+                        {item.usage_type}
+                      </span>
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_allocated}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_used || 0}</td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_returned || 0}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>
+                      ₹{parseFloat(item.total_allocated_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      <span style={{
+                        fontSize: '0.7rem',
+                        padding: '2px 6px',
+                        background: item.status === 'allocated' ? 'rgba(168, 85, 247, 0.1)' :
+                                  item.status === 'consumed' ? 'rgba(239, 68, 68, 0.1)' :
+                                  item.status === 'returned' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                        color: item.status === 'allocated' ? '#a855f7' :
+                               item.status === 'consumed' ? '#ef4444' :
+                               item.status === 'returned' ? '#22c55e' : '#6b7280',
+                        borderRadius: 3,
+                        fontWeight: 600
+                      }}>
+                        {item.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: 8, textAlign: 'center' }}>
+                      {item.usage_type === 'TEMPORARY_TOOL' ? (
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => handleUpdateUsage(item.id, 'return')}
+                          style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+                        >
+                          Return
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => handleUpdateUsage(item.id, 'consume')}
+                          style={{ fontSize: '0.65rem', padding: '2px 4px' }}
+                        >
+                          Consume
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => handleRemoveItem(item.id)}
+                        style={{ fontSize: '0.65rem', padding: '2px 4px', marginLeft: 4 }}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+            No inventory items added yet
+          </div>
+        )}
+
+        {items.length > 0 && (
+          <div style={{
+            padding: 12,
+            background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius-sm)',
+            marginTop: 16,
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontWeight: 600,
+            fontSize: '0.9rem'
+          }}>
+            <span>Total Inventory Expense:</span>
+            <span style={{ color: 'var(--accent-primary)' }}>
+              ₹{items.reduce((sum, item) => sum + parseFloat(item.total_allocated_cost || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Expenses Section */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header">
+          <div className="card-title">All Case Expenses</div>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowExpenseForm(!showExpenseForm)}>
+            {showExpenseForm ? '✕ Cancel' : '+ Add Expense'}
+          </button>
+        </div>
+
+        {showExpenseForm && (
+          <div className="card-body" style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', padding: 16, marginBottom: 16 }}>
+            <form onSubmit={handleAddExpense}>
+              <div className="form-group">
+                <label>Expense Type *</label>
+                <select
+                  value={expenseForm.expense_type}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, expense_type: e.target.value })}
+                  style={inputStyle}
+                >
+                  <option value="inventory">Inventory</option>
+                  <option value="direct_purchase">Direct Purchase</option>
+                  <option value="shipping">Shipping</option>
+                  <option value="vendor">Vendor</option>
+                  <option value="lab">Lab</option>
+                  <option value="misc">Miscellaneous</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="form-group">
+                  <label>Amount (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={expenseForm.amount}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Vendor Name (optional)</label>
+                  <input
+                    type="text"
+                    value={expenseForm.vendor_name}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, vendor_name: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Description *</label>
+                <input
+                  type="text"
+                  value={expenseForm.description}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
+                  placeholder="Briefly describe this expense..."
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Category (optional)</label>
+                <input
+                  type="text"
+                  value={expenseForm.category}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
+                  placeholder="e.g., PCB Repair, Parts, etc."
+                  style={inputStyle}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Notes (optional)</label>
+                <textarea
+                  value={expenseForm.notes}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
+                  placeholder="Add additional notes..."
+                  style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="submit" className="btn btn-primary btn-sm">Add Expense</button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowExpenseForm(false)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {expenses && expenses.expenses.length > 0 ? (
+          <div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '0.8rem'
+              }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Description</th>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Type</th>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Category</th>
+                    <th style={{ padding: 8, textAlign: 'right' }}>Amount</th>
+                    <th style={{ padding: 8, textAlign: 'left' }}>Vendor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expenses.expenses.map((exp) => (
+                    <tr key={exp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                      <td style={{ padding: 8 }}>{exp.description}</td>
+                      <td style={{ padding: 8 }}>
+                        <span style={{
+                          fontSize: '0.7rem',
+                          padding: '2px 6px',
+                          background: 'rgba(168, 85, 247, 0.1)',
+                          color: '#a855f7',
+                          borderRadius: 3,
+                          fontWeight: 600
+                        }}>
+                          {exp.expense_type}
+                        </span>
+                      </td>
+                      <td style={{ padding: 8, color: 'var(--text-muted)' }}>{exp.category || '—'}</td>
+                      <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>
+                        ₹{parseFloat(exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: 8, color: 'var(--text-muted)' }}>{exp.vendor_name || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{
+              padding: 12,
+              background: 'var(--bg-secondary)',
+              borderRadius: 'var(--radius-sm)',
+              marginTop: 16,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 12
+            }}>
+              {Object.entries(expenses.totals || {}).map(([type, amount]) => (
+                <div key={type} style={{ fontSize: '0.85rem' }}>
+                  <div style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>{type.replace(/_/g, ' ')}</div>
+                  <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--accent-primary)' }}>
+                    ₹{parseFloat(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize: '0.85rem', borderTop: '1px solid var(--border-default)', paddingTop: 12, gridColumn: '1 / -1' }}>
+                <div style={{ color: 'var(--text-muted)' }}>TOTAL EXPENSES</div>
+                <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#ef4444' }}>
+                  ₹{parseFloat(expenses.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+            No expenses recorded yet
+          </div>
+        )}
+      </div>
+
+      {/* Profit Summary */}
+      {profit && (
+        <div className="card" style={{
+          background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(22, 163, 74, 0.1) 100%)',
+          border: '1px solid rgba(34, 197, 94, 0.3)'
+        }}>
+          <div className="card-title">Case Profitability</div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: 16,
+            marginTop: 16
+          }}>
+            <div style={{
+              padding: 12,
+              background: 'rgba(34, 197, 94, 0.08)',
+              borderRadius: 'var(--radius-sm)',
+              borderLeft: '3px solid #22c55e'
+            }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                Revenue
+              </div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#22c55e', marginTop: 4 }}>
+                ₹{parseFloat(profit.revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+
+            <div style={{
+              padding: 12,
+              background: 'rgba(239, 68, 68, 0.08)',
+              borderRadius: 'var(--radius-sm)',
+              borderLeft: '3px solid #ef4444'
+            }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                Total Expenses
+              </div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#ef4444', marginTop: 4 }}>
+                ₹{parseFloat(profit.total_expenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+
+            <div style={{
+              padding: 12,
+              background: 'rgba(59, 130, 246, 0.08)',
+              borderRadius: 'var(--radius-sm)',
+              borderLeft: '3px solid #3b82f6'
+            }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                Gross Profit
+              </div>
+              <div style={{
+                fontSize: '1.3rem',
+                fontWeight: 700,
+                color: parseFloat(profit.gross_profit || 0) >= 0 ? '#22c55e' : '#ef4444',
+                marginTop: 4
+              }}>
+                ₹{parseFloat(profit.gross_profit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
+            <div className="text-sm text-muted" style={{ marginBottom: 8 }}>Expense Breakdown</div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+              gap: 8
+            }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Inventory</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                  ₹{parseFloat(profit.inventory_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Direct Purchases</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                  ₹{parseFloat(profit.direct_purchase_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Shipping</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                  ₹{parseFloat(profit.shipping_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Vendor</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                  ₹{parseFloat(profit.vendor_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Lab</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                  ₹{parseFloat(profit.lab_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Miscellaneous</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                  ₹{parseFloat(profit.misc_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Helper component: Inventory selector dropdown
+function InventorySelector({ value, onChange }) {
+  const [options, setOptions] = useState([]);
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const loadOptions = async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/inventory?search=${encodeURIComponent(search)}&limit=20`, {
+          headers: { 'Authorization': `Bearer ${getToken()}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setOptions(data.items || []);
+        }
+      } catch (err) {
+        console.error('Error loading inventory:', err);
+      }
+    };
+
+    loadOptions();
+  }, [search, open]);
+
+  return (
+    <div style={{ position: 'relative', zIndex: open ? 1000 : 'auto' }}>
+      <input
+        type="text"
+        placeholder="Search inventory..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        style={{
+          width: '100%',
+          padding: '8px 12px',
+          background: 'var(--bg-tertiary, #1a2035)',
+          color: 'var(--text-primary)',
+          border: `1px solid ${open ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+          borderRadius: open ? 'var(--radius-sm) var(--radius-sm) 0 0' : 'var(--radius-sm)',
+          fontSize: '0.85rem',
+          outline: 'none',
+          boxSizing: 'border-box'
+        }}
+      />
+      {open && options.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          background: 'var(--bg-secondary, #151c2c)',
+          border: '1px solid var(--accent-primary)',
+          borderTop: 'none',
+          borderRadius: '0 0 var(--radius-sm) var(--radius-sm)',
+          maxHeight: 220,
+          overflowY: 'auto',
+          zIndex: 9999,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+        }}>
+          {options.map((item) => (
+            <div
+              key={item.id}
+              onClick={() => {
+                onChange(item.id, item);
+                setSearch(item.name);
+                setOpen(false);
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary, #1a2035)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+              style={{
+                padding: '10px 12px',
+                cursor: 'pointer',
+                borderBottom: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
+                transition: 'background 0.15s'
+              }}
+            >
+              <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{item.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({item.sku})</span></div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                Stock: {item.quantity} &nbsp;|&nbsp; Cost: ₹{parseFloat(item.unit_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
