@@ -9,23 +9,10 @@ const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = 
 const router = express.Router();
 router.use(authenticate);
 
-<<<<<<< HEAD
-// Ensure new columns exist on accounting_invoices
-(async () => {
-  try {
-    await query(`ALTER TABLE accounting_invoices ADD COLUMN IF NOT EXISTS case_id UUID REFERENCES cases(id)`);
-    await query(`ALTER TABLE accounting_invoices ADD COLUMN IF NOT EXISTS client_id UUID REFERENCES clients(id)`);
-    await query(`ALTER TABLE accounting_invoices ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMPTZ`);
-  } catch (e) {
-    // columns may already exist or table may not exist yet
-  }
-})();
-=======
 // Ensure soft-delete column exists on accounting tables (non-blocking)
 ['accounting_expenses', 'accounting_purchases', 'accounting_invoices'].forEach(table => {
   query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`).catch(() => {});
 });
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
 function tenantScope(req, alias = '') {
   if (isSuperAdmin(req.user)) return { clause: '', params: [] };
@@ -356,45 +343,6 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
     const companySettings = await loadCompanySettings();
     const dueDate = new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
-<<<<<<< HEAD
-    let caseId = null;
-    if (q.case_number) {
-      const caseResult = await query('SELECT id FROM cases WHERE case_number = $1 LIMIT 1', [q.case_number]);
-      if (caseResult.rows.length) caseId = caseResult.rows[0].id;
-    }
-
-    if (await invoiceExistsForCase({ quoteId: q.id, caseId, caseNumber: q.case_number })) {
-      return res.status(409).json({ error: 'An invoice already exists for this quote/case.' });
-    }
-
-    let result;
-    const maxAttempts = 5;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const invoiceSequence = await getNextInvoiceSequence(companySettings);
-      const invNum = formatNumberSequence(
-        getCompanyNumberFormat(companySettings, 'invoice_number_format', 'INV-{YYYY}-{NNNN}'),
-        invoiceSequence
-      );
-      try {
-        result = await query(
-          `INSERT INTO accounting_invoices
-             (invoice_number, quote_id, title, client_name, company, client_address, client_gstin,
-              case_number, line_items, discount_pct, discount_amt, tax_pct, tax_amt, subtotal, total, due_date, notes, created_by, tenant_id, case_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
-          [invNum, q.id, q.title, q.client_name, q.company, client_address || null, client_gstin || null,
-           q.case_number, q.line_items, q.discount_pct, q.discount_amt, q.tax_pct, q.tax_amt,
-           q.subtotal, q.total, dueDate, q.notes, req.user.id, q.tenant_id || tenantAdminId(req.user), caseId]
-        );
-        break;
-      } catch (err) {
-        if (err && err.code === '23505' && err.constraint === 'accounting_invoices_invoice_number_key' && attempt < maxAttempts) {
-          continue;
-        }
-        throw err;
-      }
-    }
-
-=======
     // Resolve case_id from case_number
     let caseId = null;
     if (q.case_number) {
@@ -411,7 +359,6 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
        q.case_number, caseId, q.line_items, q.discount_pct, q.discount_amt, q.tax_pct, q.tax_amt,
        q.subtotal, q.total, dueDate, q.notes, req.user.id, q.tenant_id || tenantAdminId(req.user)]
     );
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
     await query(
       `UPDATE accounting_quotes SET status='invoiced', updated_at=NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
@@ -424,23 +371,15 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
 // ─── Invoices ─────────────────────────────────────────────────────
 router.get('/invoices', async (req, res) => {
   try {
-<<<<<<< HEAD
-    const { search, status, case_id } = req.query;
-    const conditions = [], params = [];
-=======
     const { search, status, case_number, case_id } = req.query;
     const conditions = ['deleted_at IS NULL'], params = [];
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
       conditions.push(`tenant_id = $${pi++}`);
       params.push(tenantAdminId(req.user));
     }
     if (status) { conditions.push(`status = $${pi++}`); params.push(status); }
-<<<<<<< HEAD
-=======
     if (case_number) { conditions.push(`case_number = $${pi++}`); params.push(case_number); }
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     if (case_id) { conditions.push(`case_id = $${pi++}`); params.push(case_id); }
     if (search) {
       conditions.push(`(title ILIKE $${pi} OR client_name ILIKE $${pi} OR invoice_number ILIKE $${pi} OR case_number ILIKE $${pi})`);
@@ -518,8 +457,6 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
       }
     }
 
-<<<<<<< HEAD
-=======
     // Resolve case_id from case_number
     let caseId = null;
     if (case_number) {
@@ -536,7 +473,6 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
        case_number || null, caseId, JSON.stringify(li), discount_pct || 0, discountAmt, tax_pct || 18,
        taxAmt, subtotal, total, due_date || null, notes || null, req.user.id, tenantAdminId(req.user)]
     );
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

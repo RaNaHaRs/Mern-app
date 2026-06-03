@@ -34,11 +34,7 @@ const recycleBinRoutes = require('./routes/recycleBin');
 const backupRoutes = require('./routes/backup');
 const settingsRoutes = require('./routes/settings');
 const chatRoutes = require('./routes/chat');
-<<<<<<< HEAD
-const activityLogRoutes = require('./routes/activityLogs');
-=======
 const clientPortalRoutes = require('./routes/clientPortal');
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -125,11 +121,7 @@ app.use('/api/recycle-bin', recycleBinRoutes);
 app.use('/api/backup',      backupRoutes);
 app.use('/api/settings',    settingsRoutes);
 app.use('/api/chat',        chatRoutes);
-<<<<<<< HEAD
-app.use('/api/activity-logs', activityLogRoutes);
-=======
 app.use('/api/client-portal', clientPortalRoutes);
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
 // Health check
 app.get('/api/health', (req, res) => {

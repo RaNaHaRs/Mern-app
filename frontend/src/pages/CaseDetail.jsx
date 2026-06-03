@@ -985,12 +985,6 @@ export default function CaseDetail() {
       })
       .catch(err => { if(err.status===404) navigate('/cases'); })
       .finally(() => setLoading(false));
-<<<<<<< HEAD
-    // Load invoices for this case
-    fetch(`${BASE_URL}/accounting/invoices?case_id=${id}`,{ headers:{ Authorization:`Bearer ${getToken()}` } })
-      .then(r=>r.json()).then(d=>setCaseInvoices(d.invoices||[])).catch(()=>{});
-=======
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
   }, [id]);
 
   const handleAddTimelineNote = async () => {

@@ -329,22 +329,9 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       return res.status(404).json({ error: 'Client not found' });
     }
 
-<<<<<<< HEAD
-    const { case_id } = req.body;
-    const paymentAmount = parseFloat(req.body.amount || 0);
-    const notes = req.body.notes || 'Collected from Clients page';
-
-    if (!case_id) {
-      return res.status(400).json({ error: 'Case ID is required' });
-    }
-
-    if (isNaN(paymentAmount) || paymentAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid amount' });
-=======
     const { case_selections, notes } = req.body;
     if (!Array.isArray(case_selections) || case_selections.length === 0) {
       return res.status(400).json({ error: 'case_selections array is required with at least one entry' });
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     }
 
     // Verify case belongs to client and get pending amount
@@ -373,21 +360,6 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       [case_id, req.params.id]
     );
 
-<<<<<<< HEAD
-    if (!caseRes.rows.length) {
-      return res.status(400).json({ error: 'Case not found for this client' });
-    }
-
-    const caseData = caseRes.rows[0];
-    const pendingAmt = parseFloat(caseData.pending_amount || 0);
-
-    if (pendingAmt <= 0) {
-      return res.status(400).json({ error: 'This case has no pending amount' });
-    }
-
-    if (paymentAmount > pendingAmt) {
-      return res.status(400).json({ error: 'Amount exceeds case pending amount', pending_amount: pendingAmt });
-=======
     const pendingMap = {};
     for (const row of pendingCases.rows) {
       const pending = parseFloat(row.pending_amount || 0);
@@ -424,25 +396,10 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
 
     if (totalRequested <= 0) {
       return res.status(400).json({ error: 'Total amount to collect must be greater than zero' });
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     }
 
     // Process selections inside a transaction
     const result = await require('../config/database').transaction(async (client) => {
-<<<<<<< HEAD
-      await client.query(
-        `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
-         VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
-        [caseData.case_id, caseData.quotation_id || null, paymentAmount, notes, req.user.id]
-      );
-
-      await client.query(
-        'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2',
-        [paymentAmount, req.params.id]
-      );
-
-      return { collected: paymentAmount };
-=======
       let updatedCases = 0;
       const allocationDetails = [];
 
@@ -472,26 +429,14 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       }
 
       return { collected: totalRequested, updatedCases, allocationDetails };
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     });
 
     res.json({
       ok: true,
       message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`,
       collected_amount: result.collected,
-<<<<<<< HEAD
-      updated_cases: 1,
-      allocation_details: [{
-        case_id: caseData.case_id,
-        case_number: caseData.case_number,
-        allocated_amount: paymentAmount,
-        previous_pending: pendingAmt,
-        new_pending: Math.max(0, pendingAmt - paymentAmount)
-      }]
-=======
       updated_cases: result.updatedCases,
       allocation_details: result.allocationDetails || []
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

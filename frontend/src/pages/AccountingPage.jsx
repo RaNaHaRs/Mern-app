@@ -159,121 +159,6 @@ function StatusBadge({ status, map }) {
   return <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999, color: s.color, background: s.bg, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</span>;
 }
 
-<<<<<<< HEAD
-//  Line Items Editor 
-function LineItemsEditor({ items, onChange }) {
-  const add = () => onChange([...items, { description: '', qty: 1, unit_price: 0 }]);
-  const remove = (i) => onChange(items.filter((_, j) => j !== i));
-  const update = (i, field, val) => { const n = [...items]; n[i] = { ...n[i], [field]: val }; onChange(n); };
-  return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 100px 30px', gap: 6, marginBottom: 6 }}>
-        <span className="form-label" style={{ marginBottom: 0 }}>Description</span>
-        <span className="form-label" style={{ marginBottom: 0 }}>Qty</span>
-        <span className="form-label" style={{ marginBottom: 0 }}>Unit Price</span>
-        <span />
-      </div>
-      {items.map((it, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 100px 30px', gap: 6, marginBottom: 6 }}>
-          <input className="form-input" style={{ padding: '7px 10px' }} value={it.description} onChange={e => update(i, 'description', e.target.value)} placeholder="Service / item description" />
-          <input className="form-input" style={{ padding: '7px 8px' }} type="number" min="1" value={it.qty} onChange={e => update(i, 'qty', parseFloat(e.target.value) || 1)} />
-          <input className="form-input" style={{ padding: '7px 8px' }} type="number" min="0" value={it.unit_price} onChange={e => update(i, 'unit_price', parseFloat(e.target.value) || 0)} />
-          <button onClick={() => remove(i)} style={{ background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 6, color: '#f87171', cursor: 'pointer', fontSize: '0.8rem' }}></button>
-        </div>
-      ))}
-      <button className="btn btn-secondary btn-sm" onClick={add} style={{ marginTop: 4 }}>+ Add Line</button>
-      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, fontSize: '0.8rem' }}>
-        {(() => {
-          const sub = items.reduce((s, l) => s + (l.qty || 1) * (l.unit_price || 0), 0);
-          return <span className="text-muted">Subtotal: <strong style={{ color: 'var(--text-primary)' }}>{fmt(sub)}</strong></span>;
-        })()}
-      </div>
-    </div>
-  );
-}
-
-function downloadInvoicePdf(inv) {
-  const co = (() => { try { return JSON.parse(localStorage.getItem('crm_company')) || {}; } catch { return {}; } })();
-  const clientName = inv.client_name || '—';
-  const caseDate = new Date().toLocaleString('en-IN');
-  const subtotalVal = parseFloat(inv.subtotal || 0);
-  const taxAmountVal = parseFloat(inv.tax_amt || 0);
-  const totalAmountVal = parseFloat(inv.total || 0);
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice - ${inv.invoice_number}</title>
-  <style id="pageStyle">@page{size:A4 portrait;margin:0}</style>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    @media print{
-      @page{margin:0}
-      .controls{display:none!important}
-      body{background:#fff;padding:0;min-height:auto}
-      .page-wrap{padding:0;box-shadow:none;min-height:auto}
-      body{print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    }
-    body{font-family:Arial,sans-serif;background:#e2e8f0;min-height:100vh;padding:20px}
-    .controls{background:#1e293b;color:#f8fafc;padding:10px 18px;display:flex;align-items:center;gap:12px;width:794px;margin:0 auto 10px;border-radius:6px;font-size:12px}
-    .btn-print{background:#0284c7;color:#fff;border:none;padding:7px 18px;border-radius:5px;font-weight:800;font-size:12px;cursor:pointer;margin-left:auto}
-    .btn-close{background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid #475569;padding:6px 12px;border-radius:5px;font-size:11px;cursor:pointer}
-    .page-wrap{background:#fff;width:794px;margin:0 auto;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:28px 36px;min-height:1123px}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0284c7;padding-bottom:10px;margin-bottom:14px}
-    .co-name{font-size:22px;font-weight:900;color:#0284c7}
-    .co-meta{font-size:9px;color:#64748b;margin-top:2px;line-height:1.4}
-    .form-title{font-size:16px;font-weight:900;text-transform:uppercase;text-align:right;color:#111;letter-spacing:0.04em}
-    .case-ref{font-size:12px;font-weight:800;text-align:right;margin-top:4px;font-family:'Courier New',monospace;color:#0284c7}
-    .form-date{font-size:9px;color:#64748b;text-align:right;margin-top:2px}
-    .sec-title{font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;background:#0f172a;color:#00d4ff;padding:3px 8px;display:inline-block;border-radius:3px;margin:10px 0 4px}
-    table{width:100%;border-collapse:collapse;margin-bottom:4px}
-    th,td{border:1px solid #ddd;padding:5px 9px;font-size:10px;text-align:left}
-    th{background:#f1f5f9;font-weight:700;width:25%;color:#334155;font-size:9px;text-transform:uppercase;letter-spacing:0.04em}
-    .disclaimer{font-size:8px;color:#64748b;line-height:1.4;margin-top:10px;padding:6px 8px;background:#f8fafc;border-left:3px solid #0284c7;border-radius:3px}
-    .sig-row{display:flex;gap:30px;margin-top:16px}
-    .sig-box{flex:1;text-align:center;font-size:9px;font-weight:700;color:#334155}
-    .sig-line{border-top:1.5px solid #334155;margin-top:25px;padding-top:5px}
-  </style></head>
-  <body>
-  <div class="controls">
-    <strong> Invoice — ${inv.invoice_number}</strong>
-    <button class="btn-close" onclick="window.close()">✕ Close</button>
-    <button type="button" class="btn-print"> Print / Save PDF</button>
-  </div>
-  <div class="page-wrap">
-    <div class="hdr">
-      <div>
-        <div class="co-name">${co.name || 'RecoverLab CRM'}</div>
-        <div class="co-meta">${(co.address || '')}<br/>${co.phone || ''}${co.phone && co.email ? ' | ' : ''}${co.email || ''}</div>
-      </div>
-      <div>
-        <div class="form-title">INVOICE</div>
-        <div class="case-ref">Ref: ${inv.case_number || '—'}</div>
-        <div class="form-date">Invoice No: ${inv.invoice_number}<br/>Date: ${caseDate}</div>
-      </div>
-    </div>
-    <div class="sec-title">Bill To</div>
-    <div style="font-size:13px;margin-bottom:12px;"><strong>${clientName}</strong>${inv.company ? '<br/>' + inv.company : ''}${inv.client_address ? '<br/>' + inv.client_address : ''}</div>
-    <div class="sec-title">Line Items</div>
-    <table>
-      <thead><tr><th>Description</th><th style="width:60px;text-align:center">Qty</th><th style="width:120px;text-align:right">Unit Price</th><th style="width:120px;text-align:right">Amount</th></tr></thead>
-      <tbody>
-        ${(inv.line_items || []).map(l => `<tr><td>${l.description}</td><td style="text-align:center">${l.qty}</td><td style="text-align:right">₹${parseFloat(l.unit_price).toLocaleString('en-IN')}</td><td style="text-align:right;font-weight:600">₹${((l.qty||1)*(l.unit_price||0)).toLocaleString('en-IN')}</td></tr>`).join('')}
-      </tbody>
-    </table>
-    <div style="display:flex;justify-content:flex-end;margin-top:10px">
-      <div style="width:280">
-        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>Subtotal</span><span>₹${subtotalVal.toLocaleString('en-IN')}</span></div>
-        ${inv.discount_amt > 0 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;color:#10b981"><span>Discount</span><span>—₹${parseFloat(inv.discount_amt).toLocaleString('en-IN')}</span></div>` : ''}
-        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>GST (${inv.tax_pct}%)</span><span>₹${taxAmountVal.toLocaleString('en-IN')}</span></div>
-        <div style="display:flex;justify-content:space-between;padding:8px 12px;background:#0d1117;border-radius:8px;margin-top:4px"><span style="font-weight:700;color:#fff">Total</span><span style="font-weight:900;color:#00d4ff">₹${totalAmountVal.toLocaleString('en-IN')}</span></div>
-      </div>
-    </div>
-    ${inv.notes ? `<div style="margin-top:16px;padding:8px 10px;background:#f8fafc;border-left:3px solid #0284c7;border-radius:3px;font-size:10px;color:#64748b">${inv.notes}</div>` : ''}
-    <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:9px;color:#94a3b8;text-align:center">Thank you for choosing RecoverLab</div>
-  </div>
-  </body></html>`;
-  openPrintPreviewWindow(html, { autoPrint: false });
-}
-
-=======
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 //  Invoice Print View 
 function InvoicePrintModal({ invoice, onClose }) {
   const handlePrint = () => window.print();
@@ -593,13 +478,8 @@ export default function AccountingPage() {
     });
     const map = Object.fromEntries(days.map(d => [d.date, d]));
     invoices.forEach(inv => {
-<<<<<<< HEAD
-      if (!inv) return;
-      const paidDate = inv.invoice_date || inv.paid_at || inv.updated_at || inv.created_at;
-=======
       if (!inv || inv.status !== 'paid') return;
       const paidDate = inv.paid_at;
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
       const dayKey = paidDate ? paidDate.slice(0, 10) : null;
       if (!dayKey || !map[dayKey]) return;
       map[dayKey].amount += parseFloat(inv.amount_paid || inv.total || 0) || 0;
@@ -633,14 +513,8 @@ export default function AccountingPage() {
   const overdueValue = getSummaryNumber('case_total_pending_overdue', 'overdueRevenue', 'overdue_revenue');
   const netProfitValue = getSummaryNumber('netProfit', 'net_profit') || totalRevenueValue - totalExpensesValue;
   // Modals
-<<<<<<< HEAD
-  const [showQuoteForm, setShowQuoteForm] = useState(false);
-  const [editQuote, setEditQuote] = useState(null);
-  const [convertQuote, setConvertQuote] = useState(null);
-=======
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [payInvoice, setPayInvoice] = useState(null);
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
   const [printInvoice, setPrintInvoice] = useState(null);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [editExpense, setEditExpense] = useState(null);
@@ -836,28 +710,6 @@ export default function AccountingPage() {
               <thead><tr><th>Purchase #</th><th>Vendor</th><th>Description</th><th>Case</th><th>Amount</th><th>Date</th><th></th></tr></thead>
               <tbody>
                 {loading ? <tr><td colSpan={7}><div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" /></div></td></tr>
-<<<<<<< HEAD
-                  : quotes.length === 0 ? <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No quotes found</div></div></td></tr>
-                    : quotes.map(q => (
-                      <tr key={q.id}>
-                        <td><span className="font-mono text-xs" style={{ color: 'var(--accent-primary)' }}>{q.quote_number}</span></td>
-                        <td><div style={{ fontWeight: 600 }}>{q.client_name}</div>{q.company && <div className="text-xs text-muted">{q.company}</div>}</td>
-                        <td style={{ maxWidth: 200 }}><div style={{ fontSize: '0.82rem' }}>{q.title}</div>{q.case_number && <div className="text-xs text-muted font-mono">{q.case_number}</div>}</td>
-                        <td><span className="font-mono" style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{fmt(q.total)}</span></td>
-                        <td className="text-xs text-muted">{fmtDate(q.valid_until)}</td>
-                        <td><StatusBadge status={q.status} map={Q_STATUS} /></td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {q.status === 'draft' && <button className="btn btn-secondary btn-sm" onClick={() => { setEditQuote(q); setShowQuoteForm(true); }}> Edit</button>}
-                            {q.status === 'draft' && <button className="btn btn-secondary btn-sm" onClick={async () => { await accountingApi.updateQuoteStatus(q.id, 'sent'); load(); }}> Send</button>}
-                            {q.status === 'sent' && <button className="btn btn-secondary btn-sm" onClick={async () => { await accountingApi.updateQuoteStatus(q.id, 'accepted'); load(); }}> Accept</button>}
-                            {q.status === 'sent' && <button className="btn btn-secondary btn-sm" onClick={async () => { await accountingApi.updateQuoteStatus(q.id, 'rejected'); load(); }}> Reject</button>}
-                            {(q.status === 'accepted' && !q.has_invoice) && <button className="btn btn-primary btn-sm" onClick={() => setConvertQuote(q)}> Invoice</button>}
-                            {q.status === 'accepted' && q.has_invoice && <button className="btn btn-secondary btn-sm" disabled>Invoiced</button>}
-                            {q.status === 'draft' && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm('Delete this quote?')) { await accountingApi.deleteQuote(q.id); load(); } }}>✕</button>}
-                          </div>
-                        </td>
-=======
                   : purchases.length === 0 ? <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No purchases recorded</div></div></td></tr>
                     : purchases.map(p => (
                       <tr key={p.id}>
@@ -872,7 +724,6 @@ export default function AccountingPage() {
                             <IconTrash />
                           </button>
                         )}</td>
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
                       </tr>
                     ))}
               </tbody>
@@ -912,13 +763,6 @@ export default function AccountingPage() {
                         <td><span className={`text-xs ${inv.status === 'overdue' ? '' : 'text-muted'}`} style={inv.status === 'overdue' ? { color: 'var(--status-danger)', fontWeight: 700 } : {}}>{fmtDate(inv.due_date)}</span></td>
                         <td><StatusBadge status={inv.status} map={I_STATUS} /></td>
                         <td>
-<<<<<<< HEAD
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            <button className="btn btn-ghost btn-sm" onClick={() => downloadInvoicePdf(inv)}> Download</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}> Print</button>
-                            <button className="btn btn-secondary btn-sm" onClick={() => printCourierSlip(inv)}> Courier</button>
-                            {inv.status !== 'paid' && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm('Delete invoice?')) { await accountingApi.deleteInvoice(inv.id); load(); } }}>✕</button>}
-=======
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                             <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}>🖨 Print</button>
                             <button className="btn btn-secondary btn-sm" onClick={() => printCourierSlip(inv)}>📦 Courier</button>
@@ -928,7 +772,6 @@ export default function AccountingPage() {
                                 <IconTrash />
                               </button>
                             )}
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
                           </div>
                         </td>
                       </tr>
@@ -961,9 +804,6 @@ export default function AccountingPage() {
                         <td className="font-mono text-xs">{fmt(exp.amount)}</td>
                         <td className="font-mono text-xs text-muted">{exp.tax_amt > 0 ? fmt(exp.tax_amt) : '—'}</td>
                         <td><span className="font-mono" style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{fmt(exp.total)}</span></td>
-<<<<<<< HEAD
-                        <td>{canAccess('admin') && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm('Delete expense?')) { await accountingApi.deleteExpense(exp.id); load(); } }}>✕</button>}</td>
-=======
                         <td>
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                             {canAccess('staff') && (
@@ -978,7 +818,6 @@ export default function AccountingPage() {
                             )}
                           </div>
                         </td>
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
                       </tr>
                     ))}
               </tbody>
@@ -993,13 +832,8 @@ export default function AccountingPage() {
       )}
 
       {/* Modals */}
-<<<<<<< HEAD
-      {showQuoteForm && <QuoteFormModal existing={editQuote} onClose={() => { setShowQuoteForm(false); setEditQuote(null); }} onDone={load} />}
-      {convertQuote && <ConvertModal quote={convertQuote} onClose={() => setConvertQuote(null)} onDone={() => { load(); setActiveTab('invoices'); }} />}
-=======
       {showPurchaseForm && <PurchaseModal onClose={() => setShowPurchaseForm(false)} onDone={load} />}
       {payInvoice && <RecordPaymentModal invoice={payInvoice} onClose={() => setPayInvoice(null)} onDone={load} />}
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
       {printInvoice && <InvoicePrintModal invoice={printInvoice} onClose={() => setPrintInvoice(null)} />}
       {showExpenseForm && <ExpenseModal edit={editExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} onDone={load} />}
 

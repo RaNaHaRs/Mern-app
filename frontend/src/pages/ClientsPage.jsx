@@ -102,13 +102,6 @@ function NewClientModal({ onClose, onCreated }) {
 }
 
 function CollectModal({ client, onClose, onCollected }) {
-<<<<<<< HEAD
-  const [cases, setCases] = useState([]);
-  const [loadingCases, setLoadingCases] = useState(false);
-  const [selCaseId, setSelCaseId] = useState('');
-  const [amount, setAmount] = useState('');
-=======
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
   const [notes, setNotes] = useState('Collected from Clients page');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -140,32 +133,15 @@ function CollectModal({ client, onClose, onCollected }) {
 
   if (!client) return null;
 
-<<<<<<< HEAD
-  const validCases = cases.filter(c => parseFloat(c.pending_amount || 0) > 0);
-  const selectedCase = validCases.find(c => c.id === selCaseId);
-=======
   const selectedCase = pendingCases.find(c => c.id === selectedCaseId);
   const selectedPending = parseFloat(selectedCase?.pending_amount || 0);
   const enteredAmount = parseFloat(amount) || 0;
   const totalPending = pendingCases.reduce((s, c) => s + parseFloat(c.pending_amount || 0), 0);
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
   const handleCaseChange = (id) => {
     setSelectedCaseId(id);
     setAmount('');
     setError('');
-<<<<<<< HEAD
-    if (!selCaseId) { setError('Please select a case'); return false; }
-    const val = parseFloat(amount || 0);
-    if (!amount || isNaN(val)) { setError('Enter a valid amount'); return false; }
-    if (val <= 0) { setError('Amount must be greater than zero'); return false; }
-    if (selectedCase && val > parseFloat(selectedCase.pending_amount || 0)) {
-      setError(`Amount cannot exceed ₹${parseFloat(selectedCase.pending_amount || 0).toLocaleString('en-IN')}, the pending amount for the selected case`);
-      return false;
-    }
-    return true;
-=======
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
   };
 
   const handleCaseChange = (e) => {
@@ -189,14 +165,10 @@ function CollectModal({ client, onClose, onCollected }) {
     }
     setLoading(true);
     try {
-<<<<<<< HEAD
-      await clientsApi.collectPending(client.id, { case_id: selCaseId, amount: parseFloat(amount), notes });
-=======
       await clientsApi.collectPending(client.id, {
         case_selections: [{ case_id: selectedCaseId, amount: enteredAmount }],
         notes
       });
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
       if (onCollected) await onCollected();
       try { window.dispatchEvent(new Event('paymentsUpdated')); } catch (e) {}
       onClose();
@@ -219,44 +191,12 @@ function CollectModal({ client, onClose, onCollected }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-<<<<<<< HEAD
-      <div className="modal modal-sm" onClick={e => e.stopPropagation()} style={{maxWidth:460}}>
-=======
       <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth: 460}}>
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
         <div className="modal-header">
           <h3 className="modal-title">💳 Collect Payment — {client.first_name} {client.last_name}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
-<<<<<<< HEAD
-          <div style={{marginBottom:10}}>
-            <div style={{fontSize:'0.85rem',color:'var(--text-muted)'}}>Client</div>
-            <div style={{fontWeight:700}}>{client.first_name} {client.last_name} • <span className="font-mono">{client.client_code}</span></div>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label required">Case</label>
-            <select className="form-input" value={selCaseId} onChange={handleCaseChange} disabled={loadingCases}>
-              <option value="">-- Select a case --</option>
-              {validCases.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.case_number} — Pending: ₹{parseFloat(c.pending_amount || 0).toLocaleString('en-IN')}
-                  {c.device_brand ? ` (${c.device_brand} ${c.device_model || ''})` : ''}
-                </option>
-              ))}
-            </select>
-            {loadingCases && <div style={{fontSize:'0.75rem',color:'var(--text-muted)',marginTop:4}}>Loading cases...</div>}
-            {!loadingCases && validCases.length === 0 && (
-              <div style={{fontSize:'0.75rem',color:'var(--status-warning)',marginTop:4}}>No cases with pending amount</div>
-            )}
-          </div>
-
-          <div className="form-group">
-            <label className="form-label required">Collect Amount (₹)</label>
-            <input type="number" className="form-input" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0" min="0" step="1" />
-          </div>
-=======
           {/* Summary row */}
           <div style={{display:'flex',gap:10,marginBottom:20}}>
             <div style={{flex:1,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)'}}>
@@ -291,7 +231,6 @@ function CollectModal({ client, onClose, onCollected }) {
                   ))}
                 </select>
               </div>
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
               {/* Case details card */}
               {selectedCase && (
@@ -364,10 +303,6 @@ function CollectModal({ client, onClose, onCollected }) {
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
-<<<<<<< HEAD
-          <button className="btn btn-primary" onClick={handleCollect} disabled={loading || !selCaseId}>
-            {loading ? <><div className="spinner" style={{width:14,height:14}}/> Processing...</> : 'Collect Payment'}
-=======
           <button
             className="btn btn-primary"
             onClick={handleCollect}
@@ -376,7 +311,6 @@ function CollectModal({ client, onClose, onCollected }) {
             {loading
               ? <><div className="spinner" style={{width:14,height:14}}/> Processing...</>
               : `Collect ₹${enteredAmount > 0 ? enteredAmount.toLocaleString('en-IN') : 0}`}
->>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
           </button>
         </div>
       </div>
