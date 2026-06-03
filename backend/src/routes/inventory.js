@@ -387,48 +387,6 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
       }
     }
 
-    // Auto-create purchase + expense if unit_cost is set
-    if (item.unit_cost && parseFloat(item.unit_cost) > 0) {
-      try {
-        const total = parseFloat(item.unit_cost) * (parseInt(item.quantity, 10) || 1);
-        const numResult = await query('SELECT COUNT(*) FROM accounting_purchases');
-        const count = parseInt(numResult.rows[0].count, 10) || 0;
-        const seq = String(count + 1).padStart(4, '0');
-        const purchaseNumber = `PUR-${new Date().getFullYear()}-${seq}`;
-        const vendor = item.company || item.brand || 'Inventory Purchase';
-
-        await transaction(async (client) => {
-          const pRes = await client.query(
-            `INSERT INTO accounting_purchases
-               (purchase_number, vendor_name, description, amount, total, purchase_date, notes, created_by, tenant_id, inventory_item_id, case_id, case_number)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-            [purchaseNumber, vendor, `[Inventory] ${item.name} (${item.stock_number || item.sku})`,
-             item.unit_cost, total, new Date().toISOString().slice(0, 10),
-             `Auto-created from inventory item ${item.stock_number || item.sku}`,
-             req.user.id, tenantAdminId(req.user), item.id,
-             item.reserved_for_case || item.source_case_id || null, null]
-          );
-
-          await client.query(
-            `INSERT INTO accounting_expenses
-               (date, category, description, vendor, amount, total, receipt_note, created_by, tenant_id, purchase_id, case_id, case_number)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-            [new Date().toISOString().slice(0, 10), 'consumables',
-             `[Purchase ${purchaseNumber}] ${item.name}`, vendor,
-             item.unit_cost, total,
-             `Auto-created from inventory item ${item.stock_number || item.sku}`,
-             req.user.id, tenantAdminId(req.user), pRes.rows[0].id,
-             item.reserved_for_case || item.source_case_id || null, null]
-          );
-        });
-        console.log(`✅ Auto-created purchase ${purchaseNumber} for inventory item ${item.stock_number || item.sku}`);
-      } catch (err) {
-        console.error('❌ Auto purchase/expense creation failed:', err.message);
-      }
-    } else {
-      console.log(`ℹ️  No purchase created — unit_cost: ${item.unit_cost}, parseFloat: ${parseFloat(item.unit_cost || 0)}`);
-    }
-
     await recordTransfer(req, item, body);
     const { labeled } = await loadCustomFieldValues(item.id);
     res.status(201).json(formatItemRow({ ...item, custom_fields_display: labeled }));
@@ -493,25 +451,58 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
     const updated = result.rows[0];
     await saveInventoryCustomFields(req.params.id, body.customFieldValues);
 
-    // Sync unit_cost change to linked purchase & expense
-    if (updated.unit_cost) {
+    // When unit_cost is set on edit, create or update linked accounting purchase + expense
+    if (updated.unit_cost && parseFloat(updated.unit_cost) > 0) {
       try {
         const linkedPurchases = await query(
           `SELECT id FROM accounting_purchases WHERE inventory_item_id=$1 LIMIT 1`,
           [req.params.id]
         );
+        const qty = parseInt(updated.quantity, 10) || 1;
+        const total = parseFloat(updated.unit_cost) * qty;
+        const vendor = updated.company || updated.brand || 'Inventory Purchase';
+
         if (linkedPurchases.rows.length) {
+          // Price changed — update existing purchase + expense
           const pId = linkedPurchases.rows[0].id;
-          const qty = parseInt(updated.quantity, 10) || 1;
-          const newTotal = parseFloat(updated.unit_cost) * qty;
           await query(
-            `UPDATE accounting_purchases SET amount=$1, total=$2, updated_at=NOW() WHERE id=$3`,
-            [updated.unit_cost, newTotal, pId]
+            `UPDATE accounting_purchases SET amount=$1, total=$2, vendor_name=$3, updated_at=NOW() WHERE id=$4`,
+            [updated.unit_cost, total, vendor, pId]
           );
           await query(
             `UPDATE accounting_expenses SET amount=$1, total=$2 WHERE purchase_id=$3`,
-            [updated.unit_cost, newTotal, pId]
+            [updated.unit_cost, total, pId]
           );
+        } else {
+          // Unit price set for the first time — item was purchased, create purchase + expense
+          const numResult = await query('SELECT COUNT(*) FROM accounting_purchases');
+          const count = parseInt(numResult.rows[0].count, 10) || 0;
+          const seq = String(count + 1).padStart(4, '0');
+          const purchaseNumber = `PUR-${new Date().getFullYear()}-${seq}`;
+
+          await transaction(async (client) => {
+            const pRes = await client.query(
+              `INSERT INTO accounting_purchases
+                 (purchase_number, vendor_name, description, amount, total, purchase_date, notes, created_by, tenant_id, inventory_item_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+              [purchaseNumber, vendor,
+               `[Inventory] ${updated.name} (${updated.stock_number || updated.sku || ''})`,
+               updated.unit_cost, total,
+               new Date().toISOString().slice(0, 10),
+               `Purchase recorded from inventory item ${updated.stock_number || updated.sku || updated.name}`,
+               req.user.id, tenantAdminId(req.user), updated.id]
+            );
+            await client.query(
+              `INSERT INTO accounting_expenses
+                 (date, category, description, vendor, amount, total, receipt_note, created_by, tenant_id, purchase_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+              [new Date().toISOString().slice(0, 10), 'consumables',
+               `[Purchase ${purchaseNumber}] ${updated.name}`, vendor,
+               updated.unit_cost, total,
+               `Auto-created from inventory item ${updated.stock_number || updated.sku || updated.name}`,
+               req.user.id, tenantAdminId(req.user), pRes.rows[0].id]
+            );
+          });
         }
       } catch (syncErr) {
         console.error('❌ Failed to sync purchase/expense with inventory update:', syncErr.message);
