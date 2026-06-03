@@ -135,6 +135,26 @@ async function verifyTemplateAccess(templateId, user, table = 'marketing_email_t
   return result.rows.length > 0;
 }
 
+async function syncInvoiceFromCasePayment(client, caseId) {
+  const invoices = await client.query(
+    `SELECT id, total, amount_paid, invoice_number FROM accounting_invoices WHERE (case_id = $1 OR case_number = (SELECT case_number FROM cases WHERE id = $1))`,
+    [caseId]
+  );
+  if (!invoices.rows.length) return;
+  const paidRes = await client.query(
+    `SELECT COALESCE(SUM(amount), 0) as total_paid FROM payments WHERE case_id = $1 AND status = 'paid'`,
+    [caseId]
+  );
+  const totalPaid = parseFloat(paidRes.rows[0].total_paid);
+  for (const inv of invoices.rows) {
+    const newStatus = totalPaid >= parseFloat(inv.total) ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+    await client.query(
+      `UPDATE accounting_invoices SET amount_paid = LEAST($1, total), status = $2, updated_at = NOW() WHERE id = $3`,
+      [totalPaid, newStatus, inv.id]
+    );
+  }
+}
+
 module.exports = {
   isSuperAdmin,
   tenantAdminId,
@@ -154,4 +174,5 @@ module.exports = {
   verifyInventoryAccess,
   verifyCampaignAccess,
   verifyTemplateAccess,
+  syncInvoiceFromCasePayment,
 };

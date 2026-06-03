@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { accountingApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
+import { generateInvoicePDF, savePDF, openPDFPreview } from '../utils/pdfGenerator';
 import { openPrintPreviewWindow } from '../utils/printPreview';
 
 const fmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -160,143 +161,9 @@ function StatusBadge({ status, map }) {
 }
 
 //  Invoice Print View 
-function InvoicePrintModal({ invoice, onClose }) {
-  const handlePrint = () => window.print();
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 860 }}>
-        <div className="modal-header">
-          <h3 className="modal-title"> Invoice — {invoice.invoice_number}</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-primary btn-sm" onClick={handlePrint}> Print / Save PDF</button>
-            <button className="btn btn-ghost btn-icon" onClick={onClose}></button>
-          </div>
-        </div>
-        <div className="modal-body" id="print-invoice" style={{ background: '#fff', color: '#111', borderRadius: 8, padding: 40, fontFamily: 'Inter, sans-serif' }}>
-          {/* Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, borderBottom: '2px solid #00d4ff', paddingBottom: 20 }}>
-            <div>
-              {(() => {
-                const co = (() => { try { return JSON.parse(localStorage.getItem('crm_company')) || {}; } catch { return {}; }})();
-                return (
-                  <>
-                    {co.logo_data ? <img src={co.logo_data} alt="logo" style={{ maxHeight: 50, marginBottom: 4 }} /> : null}
-                    <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0d1117', letterSpacing: '-0.03em' }}>{co.name || 'RecoverLab'}</div>
-                    {co.tagline && <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: 2 }}>{co.tagline}</div>}
-                    {co.address && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>{co.address}</div>}
-                    {co.phone && <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{co.phone} {co.email ? '| ' + co.email : ''}</div>}
-                    {co.gstin && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 4, fontWeight: 700 }}>GSTIN: {co.gstin}</div>}
-                  </>
-                );
-              })()}
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#00d4ff' }}>INVOICE</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#0d1117', marginTop: 4 }}>{invoice.invoice_number}</div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 4 }}>Date: {fmtDate(invoice.created_at)}</div>
-              <div style={{ fontSize: '0.72rem', color: '#ef4444', marginTop: 2 }}>Due: {fmtDate(invoice.due_date)}</div>
-            </div>
-          </div>
-          {/* Client */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Bill To</div>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0d1117' }}>{invoice.client_name}</div>
-            {invoice.company && <div style={{ color: '#475569', fontSize: '0.8rem' }}>{invoice.company}</div>}
-            {invoice.client_address && <div style={{ color: '#64748b', fontSize: '0.78rem' }}>{invoice.client_address}</div>}
-            {invoice.client_gstin && <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 4 }}>GSTIN: {invoice.client_gstin}</div>}
-            {invoice.case_number && <div style={{ fontSize: '0.72rem', color: '#00d4ff', marginTop: 4 }}>Ref: {invoice.case_number}</div>}
-          </div>
-          {/* Line items */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20 }}>
-            <thead>
-              <tr style={{ background: '#f1f5f9' }}>
-                <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: '0.72rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>Description</th>
-                <th style={{ padding: '8px 12px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', width: 60 }}>Qty</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '0.72rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', width: 120 }}>Unit Price</th>
-                <th style={{ padding: '8px 12px', textAlign: 'right', fontSize: '0.72rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', width: 120 }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {invoice.line_items.map((l, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                  <td style={{ padding: '10px 12px', fontSize: '0.82rem', color: '#1e293b' }}>{l.description}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center', fontSize: '0.82rem', color: '#475569' }}>{l.qty}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: '0.82rem', color: '#475569' }}>₹{parseFloat(l.unit_price).toLocaleString('en-IN')}</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'right', fontSize: '0.82rem', fontWeight: 600, color: '#1e293b' }}>₹{((l.qty||1)*(l.unit_price||0)).toLocaleString('en-IN')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {/* Totals */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <div style={{ width: 280 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.82rem', color: '#475569' }}>
-                <span>Subtotal</span><span>₹{parseFloat(invoice.subtotal||0).toLocaleString('en-IN')}</span>
-              </div>
-              {invoice.discount_amt > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.82rem', color: '#10b981' }}>
-                  <span>Discount</span><span>—₹{parseFloat(invoice.discount_amt).toLocaleString('en-IN')}</span>
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: '0.82rem', color: '#475569' }}>
-                <span>GST ({invoice.tax_pct}%)</span><span>₹{parseFloat(invoice.tax_amt||0).toLocaleString('en-IN')}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', background: '#0d1117', borderRadius: 8, marginTop: 6 }}>
-                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#fff' }}>Total</span>
-                <span style={{ fontSize: '1rem', fontWeight: 900, color: '#00d4ff' }}>₹{parseFloat(invoice.total||0).toLocaleString('en-IN')}</span>
-              </div>
-            </div>
-          </div>
-          {invoice.notes && <div style={{ marginTop: 24, padding: '10px 14px', background: '#f8fafc', borderRadius: 6, fontSize: '0.78rem', color: '#64748b' }}>{invoice.notes}</div>}
-          <div style={{ marginTop: 32, paddingTop: 16, borderTop: '1px solid #e2e8f0', fontSize: '0.7rem', color: '#94a3b8', textAlign: 'center' }}>Thank you for choosing RecoverLab — Your Data, Recovered.</div>
-        </div>
-      </div>
-      <style>{`@page{margin:0}@media print{@page{margin:0}body *{visibility:hidden}#print-invoice,#print-invoice *{visibility:visible}#print-invoice{position:fixed;inset:0;padding:20px}}`}</style>
-    </div>
-  );
-}
+
 
 //  Record Payment Modal 
-function RecordPaymentModal({ invoice, onClose, onDone }) {
-  const [form, setForm] = useState({ amount: invoice.total - (invoice.amount_paid || 0), method: 'UPI', reference: '', note: '' });
-  const [loading, setLoading] = useState(false);
-  const handle = async () => {
-    setLoading(true);
-    try { await accountingApi.recordPayment(invoice.id, form); onDone(); onClose(); }
-    catch (err) { alert(err.message); } finally { setLoading(false); }
-  };
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header"><h3 className="modal-title"> Record Payment — {invoice.invoice_number}</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
-        <div className="modal-body">
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-            <span className="text-xs text-muted">Invoice Total</span><span className="font-mono" style={{ fontWeight: 800, color: 'var(--accent-primary)' }}>{fmt(invoice.total)}</span>
-          </div>
-          <div className="form-group"><label className="form-label required">Amount (₹)</label><input type="number" className="form-input" value={form.amount} onChange={e => setForm({ ...form, amount: parseFloat(e.target.value) })} /></div>
-          <div className="form-group">
-            <label className="form-label">Discount Amount (₹)</label>
-            <input type="number" className="form-input" min="0" step="0.01"
-              value={form?.discount || ''}
-              onChange={e => setForm(f => ({ ...f, discount: e.target.value }))}
-              placeholder="0.00" />
-          </div>
-          <div className="form-row form-row-2">
-            <div className="form-group"><label className="form-label">Payment Method</label>
-              <select className="form-select" value={form.method} onChange={e => setForm({ ...form, method: e.target.value })}>
-                {PAY_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-            <div className="form-group"><label className="form-label">Reference / Transaction ID</label><input className="form-input" value={form.reference} onChange={e => setForm({ ...form, reference: e.target.value })} placeholder="UPI ref, cheque no..." /></div>
-          </div>
-          <div className="form-group"><label className="form-label">Note</label><input className="form-input" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} /></div>
-        </div>
-        <div className="modal-footer"><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={loading || !form.amount} onClick={handle}>{loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Recording…</> : ' Record Payment'}</button></div>
-      </div>
-    </div>
-  );
-}
-
 //  Purchase Form Modal 
 function PurchaseModal({ onClose, onDone }) {
   const [form, setForm] = useState({ vendor_name: '', description: '', case_number: '', amount: '', tax_amt: '', purchase_date: new Date().toISOString().slice(0, 10), notes: '',
@@ -514,8 +381,8 @@ export default function AccountingPage() {
   const netProfitValue = getSummaryNumber('netProfit', 'net_profit') || totalRevenueValue - totalExpensesValue;
   // Modals
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
-  const [payInvoice, setPayInvoice] = useState(null);
-  const [printInvoice, setPrintInvoice] = useState(null);
+  const [pdfInvoice, setPdfInvoice] = useState(null);
+
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [editExpense, setEditExpense] = useState(null);
   const [recycleBin, setRecycleBin] = useState({ expenses: [], purchases: [], invoices: [] });
@@ -764,9 +631,8 @@ export default function AccountingPage() {
                         <td><StatusBadge status={inv.status} map={I_STATUS} /></td>
                         <td>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                            <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}>🖨 Print</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => { const doc = generateInvoicePDF(inv); setPdfInvoice({ doc, invoice: inv }); }}>⬇ PDF</button>
                             <button className="btn btn-secondary btn-sm" onClick={() => printCourierSlip(inv)}>📦 Courier</button>
-                            {['unpaid', 'overdue', 'partial'].includes(inv.status) && <button className="btn btn-primary btn-sm" onClick={() => setPayInvoice(inv)}>💳 Pay</button>}
                             {inv.status !== 'paid' && (
                               <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move invoice to recycle bin?')) { await accountingApi.deleteInvoice(inv.id); load(); loadRecycleBin('invoices'); } }}>
                                 <IconTrash />
@@ -833,8 +699,24 @@ export default function AccountingPage() {
 
       {/* Modals */}
       {showPurchaseForm && <PurchaseModal onClose={() => setShowPurchaseForm(false)} onDone={load} />}
-      {payInvoice && <RecordPaymentModal invoice={payInvoice} onClose={() => setPayInvoice(null)} onDone={load} />}
-      {printInvoice && <InvoicePrintModal invoice={printInvoice} onClose={() => setPrintInvoice(null)} />}
+      {pdfInvoice && (
+        <div className="modal-overlay" onClick={() => setPdfInvoice(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <h3 className="modal-title"> Invoice — {pdfInvoice.invoice.invoice_number}</h3>
+              <button className="btn btn-ghost btn-icon" onClick={() => setPdfInvoice(null)}></button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '24px 32px' }}>
+              <button className="btn btn-primary" style={{ width: '100%', padding: '12px 0', fontSize: '0.95rem' }} onClick={() => { savePDF(pdfInvoice.doc, pdfInvoice.invoice.invoice_number); setPdfInvoice(null); }}>
+                ⬇ Download PDF
+              </button>
+              <button className="btn btn-secondary" style={{ width: '100%', padding: '12px 0', fontSize: '0.95rem' }} onClick={() => { openPDFPreview(pdfInvoice.doc); setPdfInvoice(null); }}>
+                🖨 Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showExpenseForm && <ExpenseModal edit={editExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} onDone={load} />}
 
       {/* Recycle Bin Modal */}

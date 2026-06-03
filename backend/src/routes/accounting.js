@@ -17,10 +17,10 @@ router.use(authenticate);
 
 function tenantScope(req, alias = '') {
   if (isSuperAdmin(req.user)) return { clause: '', params: [] };
-  const prefix = alias ? `${alias}.` : '';
+  const pre = alias ? `${alias}.` : '';
   return {
-    clause: `${prefix}tenant_id = $1`,
-    params: [tenantAdminId(req.user)],
+    clause: `(${pre}created_by = $1 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = ${pre}created_by AND cu.tenant_owner_id = $1))`,
+    params: [req.user.id],
   };
 }
 
@@ -223,8 +223,9 @@ router.get('/quotes', async (req, res) => {
     const conditions = [], params = [];
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
-      conditions.push(`tenant_id = $${pi++}`);
-      params.push(tenantAdminId(req.user));
+      conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`);
+      params.push(req.user.id);
+      pi++;
     }
     if (status) { conditions.push(`status = $${pi++}`); params.push(status); }
     if (search) {
@@ -292,7 +293,7 @@ router.put('/quotes/:id', requireMinRole('staff'), auditLog('update_quote', 'acc
          title=$1, client_name=$2, company=$3, case_number=$4, line_items=$5,
          discount_pct=$6, discount_amt=$7, tax_pct=$8, tax_amt=$9, subtotal=$10,
          total=$11, valid_until=$12, notes=$13, updated_at=NOW()
-       WHERE id=$14${!isSuperAdmin(req.user) ? ' AND tenant_id = $15' : ''} RETURNING *`,
+       WHERE id=$14${!isSuperAdmin(req.user) ? ` AND (created_by = $15 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $15))` : ''} RETURNING *`,
       !isSuperAdmin(req.user)
         ? [title, client_name, company || null, case_number || null, JSON.stringify(li),
        discount_pct || 0, discountAmt, tax_pct || 18, taxAmt, subtotal,
@@ -312,7 +313,7 @@ router.patch('/quotes/:id/status', requireMinRole('staff'), async (req, res) => 
     const valid = ['draft', 'sent', 'accepted', 'rejected', 'invoiced'];
     if (!valid.includes(status)) return res.status(400).json({ error: 'Invalid status' });
     const result = await query(
-      `UPDATE accounting_quotes SET status=$1, updated_at=NOW() WHERE id=$2${!isSuperAdmin(req.user) ? ' AND tenant_id = $3' : ''} RETURNING *`,
+      `UPDATE accounting_quotes SET status=$1, updated_at=NOW() WHERE id=$2${!isSuperAdmin(req.user) ? ` AND (created_by = $3 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $3))` : ''} RETURNING *`,
       !isSuperAdmin(req.user) ? [status, req.params.id, tenantAdminId(req.user)] : [status, req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Quote not found' });
@@ -323,7 +324,7 @@ router.patch('/quotes/:id/status', requireMinRole('staff'), async (req, res) => 
 router.delete('/quotes/:id', requireMinRole('staff'), auditLog('delete_quote', 'accounting'), async (req, res) => {
   try {
     const result = await query(
-      `DELETE FROM accounting_quotes WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} RETURNING id`,
+      `DELETE FROM accounting_quotes WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} RETURNING id`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Quote not found' });
@@ -335,7 +336,7 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
   try {
     const { client_address, client_gstin } = req.body;
     const quote = await query(
-      `SELECT * FROM accounting_quotes WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
+      `SELECT * FROM accounting_quotes WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''}`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!quote.rows.length) return res.status(404).json({ error: 'Quote not found' });
@@ -362,7 +363,7 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
     );
 
     await query(
-      `UPDATE accounting_quotes SET status='invoiced', updated_at=NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
+      `UPDATE accounting_quotes SET status='invoiced', updated_at=NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''}`,
       !isSuperAdmin(req.user) ? [q.id, tenantAdminId(req.user)] : [q.id]
     );
     res.status(201).json(result.rows[0]);
@@ -376,8 +377,9 @@ router.get('/invoices', async (req, res) => {
     const conditions = ['deleted_at IS NULL'], params = [];
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
-      conditions.push(`tenant_id = $${pi++}`);
-      params.push(tenantAdminId(req.user));
+      conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`);
+      params.push(req.user.id);
+      pi++;
     }
     if (status) { conditions.push(`status = $${pi++}`); params.push(status); }
     if (case_number) { conditions.push(`case_number = $${pi++}`); params.push(case_number); }
@@ -397,7 +399,7 @@ router.get('/invoices/recycle-bin', requireMinRole('staff'), async (req, res) =>
     const conditions = ['deleted_at IS NOT NULL'];
     const params = [];
     let pi = 1;
-    if (!isSuperAdmin(req.user)) { conditions.push(`tenant_id = $${pi++}`); params.push(tenantAdminId(req.user)); }
+    if (!isSuperAdmin(req.user)) { conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`); params.push(req.user.id); pi++; }
     const where = 'WHERE ' + conditions.join(' AND ');
     const result = await query(`SELECT * FROM accounting_invoices ${where} ORDER BY deleted_at DESC`, params);
     res.json({ invoices: result.rows });
@@ -407,7 +409,7 @@ router.get('/invoices/recycle-bin', requireMinRole('staff'), async (req, res) =>
 router.post('/invoices/:id/restore', requireMinRole('staff'), async (req, res) => {
   try {
     const result = await query(
-      `UPDATE accounting_invoices SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id=$2' : ''} AND deleted_at IS NOT NULL RETURNING *`,
+      `UPDATE accounting_invoices SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NOT NULL RETURNING *`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found in recycle bin' });
@@ -474,7 +476,7 @@ router.patch('/invoices/:id/status', requireMinRole('staff'), async (req, res) =
     const valid = ['unpaid', 'paid', 'partial', 'overdue', 'cancelled'];
     if (!valid.includes(status)) return res.status(400).json({ error: 'Invalid status' });
     const result = await query(
-      `UPDATE accounting_invoices SET status=$1, updated_at=NOW() WHERE id=$2${!isSuperAdmin(req.user) ? ' AND tenant_id = $3' : ''} RETURNING *`,
+      `UPDATE accounting_invoices SET status=$1, updated_at=NOW() WHERE id=$2${!isSuperAdmin(req.user) ? ` AND (created_by = $3 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $3))` : ''} RETURNING *`,
       !isSuperAdmin(req.user) ? [status, req.params.id, tenantAdminId(req.user)] : [status, req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
@@ -485,7 +487,7 @@ router.patch('/invoices/:id/status', requireMinRole('staff'), async (req, res) =
 router.delete('/invoices/:id', requireMinRole('staff'), auditLog('delete_invoice', 'accounting'), async (req, res) => {
   try {
     const result = await query(
-      `UPDATE accounting_invoices SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} AND deleted_at IS NULL RETURNING id`,
+      `UPDATE accounting_invoices SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NULL RETURNING id`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
@@ -497,7 +499,7 @@ router.post('/invoices/:id/payments', requireMinRole('staff'), auditLog('record_
   try {
     const { amount, method, reference, note, discount } = req.body;
     const inv = await query(
-      `SELECT * FROM accounting_invoices WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
+      `SELECT * FROM accounting_invoices WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''}`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!inv.rows.length) return res.status(404).json({ error: 'Invoice not found' });
@@ -527,7 +529,7 @@ router.post('/invoices/:id/payments', requireMinRole('staff'), auditLog('record_
         pi++;
       }
       if (!isSuperAdmin(req.user)) {
-        updateSQL += ` WHERE id=$${pi} AND tenant_id = $${pi+1}`;
+        updateSQL += ` WHERE id=$${pi} AND (created_by = $${pi+1} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi+1}))`;
         updateParams.push(req.params.id, tenantAdminId(req.user));
       } else {
         updateSQL += ` WHERE id=$${pi}`;
@@ -591,8 +593,9 @@ router.get('/expenses', async (req, res) => {
     const conditions = ['deleted_at IS NULL'];
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
-      conditions.push(`tenant_id = $${pi++}`);
-      params.push(tenantAdminId(req.user));
+      conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`);
+      params.push(req.user.id);
+      pi++;
     }
     if (search) {
       conditions.push(`(description ILIKE $${pi} OR vendor ILIKE $${pi})`);
@@ -612,7 +615,7 @@ router.get('/expenses/recycle-bin', requireMinRole('staff'), async (req, res) =>
     const conditions = ['deleted_at IS NOT NULL'];
     const params = [];
     let pi = 1;
-    if (!isSuperAdmin(req.user)) { conditions.push(`tenant_id = $${pi++}`); params.push(tenantAdminId(req.user)); }
+    if (!isSuperAdmin(req.user)) { conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`); params.push(req.user.id); pi++; }
     const where = 'WHERE ' + conditions.join(' AND ');
     const result = await query(`SELECT * FROM accounting_expenses ${where} ORDER BY deleted_at DESC`, params);
     res.json({ expenses: result.rows });
@@ -622,7 +625,7 @@ router.get('/expenses/recycle-bin', requireMinRole('staff'), async (req, res) =>
 router.post('/expenses/:id/restore', requireMinRole('staff'), async (req, res) => {
   try {
     const result = await query(
-      `UPDATE accounting_expenses SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id=$2' : ''} AND deleted_at IS NOT NULL RETURNING *`,
+      `UPDATE accounting_expenses SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NOT NULL RETURNING *`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Expense not found in recycle bin' });
@@ -664,7 +667,7 @@ router.put('/expenses/:id', requireMinRole('staff'), auditLog('update_expense', 
     const result = await query(
       `UPDATE accounting_expenses SET date=$1, category=$2, description=$3, vendor=$4, amount=$5, tax_amt=$6, total=$7,
        receipt_note=$8, case_id=$9, case_number=$10, updated_at=NOW()
-       WHERE id=$11${!isSuperAdmin(req.user) ? ' AND tenant_id = $12' : ''} RETURNING *`,
+       WHERE id=$11${!isSuperAdmin(req.user) ? ` AND (created_by = $12 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $12))` : ''} RETURNING *`,
       [date, category, description, vendor, amount, tax_amt || 0, total, receipt_note,
        case_id || null, case_number || null, req.params.id, ...(!isSuperAdmin(req.user) ? [tenantAdminId(req.user)] : [])]
     );
@@ -676,7 +679,7 @@ router.put('/expenses/:id', requireMinRole('staff'), auditLog('update_expense', 
 router.delete('/expenses/:id', requireMinRole('staff'), auditLog('delete_expense', 'accounting'), async (req, res) => {
   try {
     const result = await query(
-      `UPDATE accounting_expenses SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} AND deleted_at IS NULL RETURNING id`,
+      `UPDATE accounting_expenses SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NULL RETURNING id`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Expense not found' });
@@ -691,8 +694,9 @@ router.get('/purchases', async (req, res) => {
     const conditions = ['p.deleted_at IS NULL'], params = [];
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
-      conditions.push(`p.tenant_id = $${pi++}`);
-      params.push(tenantAdminId(req.user));
+      conditions.push(`(p.created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = p.created_by AND cu.tenant_owner_id = $${pi}))`);
+      params.push(req.user.id);
+      pi++;
     }
     if (case_id) { conditions.push(`p.case_id = $${pi++}`); params.push(case_id); }
     if (search) {
@@ -716,7 +720,7 @@ router.get('/purchases/recycle-bin', requireMinRole('staff'), async (req, res) =
     const conditions = ['p.deleted_at IS NOT NULL'];
     const params = [];
     let pi = 1;
-    if (!isSuperAdmin(req.user)) { conditions.push(`p.tenant_id = $${pi++}`); params.push(tenantAdminId(req.user)); }
+    if (!isSuperAdmin(req.user)) { conditions.push(`(p.created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = p.created_by AND cu.tenant_owner_id = $${pi}))`); params.push(req.user.id); pi++; }
     const where = 'WHERE ' + conditions.join(' AND ');
     const result = await query(
       `SELECT p.*, u.full_name as created_by_name FROM accounting_purchases p LEFT JOIN users u ON p.created_by = u.id ${where} ORDER BY p.deleted_at DESC`,
@@ -730,7 +734,7 @@ router.post('/purchases/:id/restore', requireMinRole('staff'), async (req, res) 
   try {
     await transaction(async (client) => {
       const r = await client.query(
-        `UPDATE accounting_purchases SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id=$2' : ''} AND deleted_at IS NOT NULL RETURNING *`,
+        `UPDATE accounting_purchases SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NOT NULL RETURNING *`,
         !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
       );
       if (!r.rows.length) throw Object.assign(new Error('Purchase not found in recycle bin'), { status: 404 });
@@ -833,7 +837,7 @@ router.delete('/purchases/:id', requireMinRole('staff'), auditLog('delete_purcha
         [req.params.id]
       );
       const result = await client.query(
-        `UPDATE accounting_purchases SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} AND deleted_at IS NULL RETURNING id`,
+        `UPDATE accounting_purchases SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NULL RETURNING id`,
         !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
       );
       if (!result.rows.length) throw new Error('Purchase not found');

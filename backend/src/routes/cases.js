@@ -6,7 +6,7 @@ const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { upload } = require('../middleware/upload');
 const { solutionUpload } = require('../middleware/solutionUpload');
-const { isSuperAdmin, tenantAdminId, tenantCaseCondition, caseTenantExpression, verifyClientAccess } = require('../utils/tenantAccess');
+const { isSuperAdmin, tenantAdminId, tenantCaseCondition, caseTenantExpression, verifyClientAccess, syncInvoiceFromCasePayment } = require('../utils/tenantAccess');
 const solutionsRouter = require('./solutions');
 const mediaRecycle = require('../services/mediaRecycle');
 const { normalizeFailureType, isValidFailureType } = require('../utils/failureTypes');
@@ -1056,6 +1056,9 @@ router.post('/:id/payments', requireMinRole('junior_engineer'), auditLog('record
         );
       }
 
+      // Sync linked invoice status
+      await syncInvoiceFromCasePayment(client, req.params.id);
+
       return insertRes.rows[0];
     });
 
@@ -1148,6 +1151,8 @@ router.post('/:id/collect-payment', requireMinRole('junior_engineer'), auditLog(
           [pendingAmount, caseData.client_id]
         );
       }
+      // Sync linked invoice status
+      await syncInvoiceFromCasePayment(client, req.params.id);
       return pay.rows[0];
     });
 

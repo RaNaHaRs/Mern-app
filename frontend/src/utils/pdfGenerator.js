@@ -41,7 +41,8 @@ function getCompanySettings() {
 
 function formatCurrency(amount, currency = 'INR') {
   if (amount == null) return '—';
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency, minimumFractionDigits: 0 }).format(amount);
+  const num = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0 }).format(amount);
+  return 'Rs. ' + num;
 }
 
 function formatDate(dateStr) {

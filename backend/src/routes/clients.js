@@ -3,7 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
-const { isSuperAdmin, tenantClientCondition, tenantAdminId, verifyClientAccess } = require('../utils/tenantAccess');
+const { isSuperAdmin, tenantClientCondition, tenantAdminId, verifyClientAccess, syncInvoiceFromCasePayment } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -334,7 +334,8 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       return res.status(400).json({ error: 'case_selections array is required with at least one entry' });
     }
 
-    // Verify case belongs to client and get pending amount
+    // Verify cases belong to client and get pending amounts
+    const caseIds = case_selections.map(s => s.case_id);
     const caseRes = await query(
       `SELECT
          c.id AS case_id,
@@ -356,12 +357,12 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
          FROM payments p
          WHERE p.case_id = c.id
        ) paid ON TRUE
-       WHERE c.id = $1 AND c.client_id = $2`,
-      [case_id, req.params.id]
+       WHERE c.id = ANY($1::uuid[]) AND c.client_id = $2`,
+      [caseIds, req.params.id]
     );
 
     const pendingMap = {};
-    for (const row of pendingCases.rows) {
+    for (const row of caseRes.rows) {
       const pending = parseFloat(row.pending_amount || 0);
       if (pending > 0) {
         pendingMap[row.case_id] = { ...row, pending_amount: pending };
@@ -426,6 +427,11 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
 
       if (totalRequested > 0) {
         await client.query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2', [totalRequested, req.params.id]);
+      }
+
+      // Sync linked invoice status for each case
+      for (const sel of case_selections) {
+        await syncInvoiceFromCasePayment(client, sel.case_id);
       }
 
       return { collected: totalRequested, updatedCases, allocationDetails };

@@ -2,7 +2,7 @@ const express = require('express');
 const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
-const { isSuperAdmin, tenantAdminId, verifyCaseAccess } = require('../utils/tenantAccess');
+const { isSuperAdmin, tenantAdminId, verifyCaseAccess, syncInvoiceFromCasePayment } = require('../utils/tenantAccess');
 const { loadCompanySettings } = require('./settings');
 const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
 
@@ -77,6 +77,7 @@ router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'),
         'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)',
         [parsedAmount, case_id]
       );
+      await syncInvoiceFromCasePayment(client, case_id);
       return pay.rows[0];
     });
     res.status(201).json(result);
