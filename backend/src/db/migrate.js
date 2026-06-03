@@ -208,6 +208,17 @@ async function migrate() {
     }
 
     try {
+      const activityLogsSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '017_create_activity_logs.sql'),
+        'utf8'
+      );
+      await client.query(activityLogsSchema);
+      console.log('✅ Activity logs table migration applied');
+    } catch (activityLogsErr) {
+      console.warn('⚠️  Activity logs migration warning (non-fatal):', activityLogsErr.message);
+    }
+
+    try {
       const caseStageSchema = fs.readFileSync(
         path.join(__dirname, 'migrations', '020_case_stage_to_varchar.sql'),
         'utf8'

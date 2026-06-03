@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { inventoryApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
-import { isHddCategoryKey } from '../constants/inventoryConfig';
+import { isHddCategoryKey, normalizeCategoryKey } from '../constants/inventoryConfig';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import InventoryHddFields from '../components/InventoryHddFields';
 import MediaFileGrid from '../components/MediaFileGrid';
@@ -47,7 +47,6 @@ function StatusBadge({ status }) {
   return <span style={{ fontSize:'0.68rem',fontWeight:700,padding:'3px 8px',borderRadius:999,color:s.color,background:s.bg,fontFamily:'var(--font-mono)',textTransform:'uppercase' }}>{status?.replace(/_/g,' ')}</span>;
 }
 
-const HEALTH_OPTIONS = ['Good', 'Fair', 'Damaged', 'Repair Needed', 'Untested', 'For Parts', 'Other'];
 
 function formatNoteDateTime(iso) {
   if (!iso) return { date: '—', time: '' };
@@ -285,6 +284,13 @@ export default function InventoryDetail() {
     load();
   };
 
+  const invFieldSkipKeys = {
+    hdd: [],
+    ssd: ['capacity'],
+    pcb: ['model', 'pcb_number', 'notes'],
+    other: [],
+  };
+
   const handleSaveEdit = async () => {
     setSavingEdit(true);
     try {
@@ -478,9 +484,10 @@ export default function InventoryDetail() {
                 {!isOtherCat && (
                   <div style={{ gridColumn: '1/-1' }}>
                     <InventoryHddFields
-                      category={uiCat}
+                      category={normalizeCategoryKey(uiCat)}
                       form={editForm}
                       setForm={setEditForm}
+                      skipKeys={invFieldSkipKeys[normalizeCategoryKey(uiCat)] || []}
                       customFieldValues={editForm.custom_field_values || {}}
                       setCustomFieldValues={(fn) => setEditForm(f => ({
                         ...f,
@@ -520,16 +527,40 @@ export default function InventoryDetail() {
                 )}
                 <div className="form-group" style={{ gridColumn: '1/-1' }}>
                   <label className="form-label">Health</label>
-                  <select
-                    className="form-select"
-                    value={editForm.health || ''}
-                    onChange={(e) => setEditForm((f) => ({ ...f, health: e.target.value }))}
-                  >
-                    <option value="">Select condition…</option>
-                    {HEALTH_OPTIONS.map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={editForm.health ?? 100}
+                        onChange={(e) => setEditForm((f) => ({ ...f, health: e.target.value }))}
+                        style={{ flex: 1, accentColor: (editForm.health ?? 100) >= 76 ? '#16a34a' : (editForm.health ?? 100) >= 51 ? '#eab308' : (editForm.health ?? 100) >= 26 ? '#f59e0b' : '#dc2626' }}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={editForm.health ?? 100}
+                        onChange={(e) => setEditForm((f) => ({ ...f, health: Math.min(100, Math.max(0, e.target.value)) }))}
+                        style={{ width: 60, padding: '6px 8px', fontSize: '0.85rem', border: '1px solid var(--border-subtle)', borderRadius: 4, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'center', outline: 'none' }}
+                      />
+                    </div>
+                    <div style={{ width: '100%', height: 8, background: 'var(--bg-elevated)', borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
+                      <div style={{
+                        width: `${editForm.health ?? 100}%`,
+                        height: '100%',
+                        background: (editForm.health ?? 100) >= 76 ? '#16a34a' : (editForm.health ?? 100) >= 51 ? '#eab308' : (editForm.health ?? 100) >= 26 ? '#f59e0b' : '#dc2626',
+                        borderRadius: 4,
+                        transition: 'width 0.15s ease'
+                      }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      <span>0%</span>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{editForm.health ?? 100}%</span>
+                      <span>100%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -598,10 +629,29 @@ export default function InventoryDetail() {
                   </div>
                 )}
                 <div className="card" style={{ padding: 14, marginBottom: item.description ? 12 : 0 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6, fontSize: '0.82rem' }}> Health</div>
-                  <p style={{ fontSize: '0.84rem', color: item.health ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                    {item.health || 'Not specified'}
-                  </p>
+                  <div style={{ fontWeight: 700, marginBottom: 8, fontSize: '0.82rem' }}> Health</div>
+                  {item.health && !isNaN(parseFloat(item.health)) ? (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                        <span>0%</span>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{Math.round(parseFloat(item.health))}%</span>
+                        <span>100%</span>
+                      </div>
+                      <div style={{ width: '100%', height: 12, background: 'var(--bg-elevated)', borderRadius: 6, overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${Math.min(100, Math.max(0, parseFloat(item.health)))}%`,
+                          height: '100%',
+                          background: parseFloat(item.health) >= 76 ? '#16a34a' : parseFloat(item.health) >= 51 ? '#eab308' : parseFloat(item.health) >= 26 ? '#f59e0b' : '#dc2626',
+                          borderRadius: 6,
+                          transition: 'width 0.3s ease'
+                        }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: '0.84rem', color: item.health ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                      {item.health || 'Not specified'}
+                    </p>
+                  )}
                 </div>
                 {item.description && (
                   <div className="card" style={{ padding:14 }}>

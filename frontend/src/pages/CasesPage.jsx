@@ -59,6 +59,8 @@ export default function CasesPage() {
   const [showNewCase, setShowNewCase] = useState(false);
   const [filters, setFilters] = useState({ stage: '', search: '', priority: '', failure_type: '' });
   const [page, setPage] = useState(1);
+  const [sortField, setSortField] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState('desc');
   const [deletingIds, setDeletingIds] = useState(new Set());
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -76,7 +78,7 @@ export default function CasesPage() {
   const loadCases = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit: 25 };
+      const params = { page, limit: 25, sort: sortField, order: sortOrder };
       if (filters.stage) params.stage = filters.stage;
       if (filters.search) params.search = filters.search;
       if (filters.priority) params.priority = filters.priority;
@@ -90,7 +92,7 @@ export default function CasesPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, page]);
+  }, [filters, page, sortField, sortOrder]);
 
   const load = useCallback(async () => {
     await loadCases();
@@ -140,6 +142,21 @@ export default function CasesPage() {
   const activePagination = pagination;
   const activePage = page;
   const resetActivePage = () => setPage(1);
+
+  const toggleSort = (field) => {
+    setPage(1);
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const renderSortIcon = (field) => {
+    if (sortField !== field) return ' ↕';
+    return sortOrder === 'asc' ? ' ↑' : ' ↓';
+  };
 
   useEffect(() => {
     fieldConfigApi.loadCaseSettingsToLocalStorage().catch(() => {});
@@ -244,18 +261,27 @@ export default function CasesPage() {
                       />
                     </th>
                   )}
-                  <th>Case #</th>
+                  <th onClick={() => toggleSort('case_number')} style={{cursor:'pointer',userSelect:'none'}}>
+                    Case #{renderSortIcon('case_number')}
+                  </th>
                   <th>Client</th>
                   <th>Device</th>
-                  <th>Stage</th>
-                    <>
-                      <th>Priority</th>
-                      <th>Failure</th>
-                      <th>Risk</th>
-                      <th>Transfer to Client</th>
-                      <th>Engineer</th>
-                      <th>Received</th>
-                    </>
+                  <th onClick={() => toggleSort('stage')} style={{cursor:'pointer',userSelect:'none'}}>
+                    Stage{renderSortIcon('stage')}
+                  </th>
+                  <th onClick={() => toggleSort('priority')} style={{cursor:'pointer',userSelect:'none'}}>
+                    Priority{renderSortIcon('priority')}
+                  </th>
+                  <th>Failure</th>
+                  <th>Risk</th>
+                  <th onClick={() => toggleSort('pending_amount')} style={{cursor:'pointer',userSelect:'none'}}>
+                    Pending{renderSortIcon('pending_amount')}
+                  </th>
+                  <th>Transfer</th>
+                  <th>Engineer</th>
+                  <th onClick={() => toggleSort('created_at')} style={{cursor:'pointer',userSelect:'none'}}>
+                    Received{renderSortIcon('created_at')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -295,6 +321,9 @@ export default function CasesPage() {
                         </div>
                       </td>
                       <td>{c.ai_risk_level && <span className={`badge badge-risk-${c.ai_risk_level}`}>{c.ai_risk_level}</span>}</td>
+                      <td className="font-mono text-xs" style={{fontWeight:700,color:parseFloat(c.pending_amount||0)>0?'var(--danger)':'var(--status-success)'}}>
+                        ₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}
+                      </td>
                       <td>
                         {c.transfer_to_client ? (
                           <span className="badge badge-completed" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>Yes</span>
@@ -309,7 +338,7 @@ export default function CasesPage() {
                   </tr>
                 ))}
                 {!displayCases.length && (
-                  <tr><td colSpan={canDeleteCases ? 11 : 10}>
+                    <tr><td colSpan={canDeleteCases ? 12 : 11}>
                     <div className="empty-state">
                       <div className="empty-icon">📂</div>
                       <div className="empty-title">No cases found</div>

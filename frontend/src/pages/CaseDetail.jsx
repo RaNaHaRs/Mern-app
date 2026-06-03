@@ -975,7 +975,7 @@ export default function CaseDetail() {
       .catch(err => { if(err.status===404) navigate('/cases'); })
       .finally(() => setLoading(false));
     // Load invoices for this case
-    fetch(`${BASE_URL}/accounting/invoices?case_number=${id}&limit=10`,{ headers:{ Authorization:`Bearer ${getToken()}` } })
+    fetch(`${BASE_URL}/accounting/invoices?case_id=${id}`,{ headers:{ Authorization:`Bearer ${getToken()}` } })
       .then(r=>r.json()).then(d=>setCaseInvoices(d.invoices||[])).catch(()=>{});
   }, [id]);
 
@@ -1088,12 +1088,13 @@ export default function CaseDetail() {
 
   const downloadInvoicePDF = (inv) => {
     const html = `<!DOCTYPE html><html><head><title>Invoice ${inv.invoice_number}</title>
-    <style>body{font-family:Inter,Arial,sans-serif;padding:30px;color:#111;max-width:800px;margin:0 auto}
-    .header{display:flex;justify-content:space-between;border-bottom:3px solid #0284c7;padding-bottom:16px;margin-bottom:20px}
-    .co-name{font-size:22px;font-weight:900;color:#0284c7}.inv-title{font-size:20px;font-weight:800;color:#0284c7;text-align:right}
-    table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px;font-size:12px}
-    th{background:#f1f5f9;font-weight:700;text-transform:uppercase;font-size:10px}
-    .total-row{font-weight:900;background:#0d1117;color:#00d4ff}.footer{margin-top:30px;padding-top:12px;border-top:1px solid #ddd;font-size:10px;color:#94a3b8;text-align:center}</style></head>
+    <style>@page{margin:0}
+    body{font-family:Inter,Arial,sans-serif;padding:20px;color:#111;max-width:800px;margin:0 auto}
+    .header{display:flex;justify-content:space-between;border-bottom:3px solid #0284c7;padding-bottom:10px;margin-bottom:14px}
+    .co-name{font-size:20px;font-weight:900;color:#0284c7}.inv-title{font-size:18px;font-weight:800;color:#0284c7;text-align:right}
+    table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:5px 10px;font-size:10px}
+    th{background:#f1f5f9;font-weight:700;text-transform:uppercase;font-size:9px}
+    .total-row{font-weight:900;background:#0d1117;color:#00d4ff}.footer{margin-top:16px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#94a3b8;text-align:center}</style></head>
     <body>
     <div class="header"><div><div class="co-name">RecoverLab</div><div style="font-size:11px;color:#64748b">Data Recovery Services</div></div>
     <div><div class="inv-title">INVOICE</div><div style="font-size:13px;font-weight:700">${inv.invoice_number}</div>
@@ -2260,13 +2261,16 @@ function InvoiceModal({ caseData, companyData, caseInvoices, onClose }) {
   
   const defaultNotes = `1. Payment is due upon receipt of this invoice.\n2. Verify all recovered data within 7 days.\n3. All disputes are subject to local jurisdiction.`;
   const [notesTerms, setNotesTerms] = useState(defaultNotes);
+  const [saving, setSaving] = useState(false);
 
   const subtotal = parseFloat(recoveryCharges || 0) + parseFloat(additionalCharges || 0);
   const taxAmount = (subtotal * parseFloat(taxGst || 0)) / 100;
   const totalAmount = subtotal + taxAmount;
   const pendingAmount = Math.max(0, totalAmount - parseFloat(paidAmount || 0));
+  const invoiceExists = caseInvoices && caseInvoices.length > 0;
 
-  const handleGeneratePdf = () => {
+  const handleGeneratePdf = async () => {
+    setSaving(true);
     const co = companyData;
     const clientName = customerName;
     const caseDate = new Date().toLocaleString('en-IN');
@@ -2276,35 +2280,64 @@ function InvoiceModal({ caseData, companyData, caseInvoices, onClose }) {
     const totalAmountVal = subtotalVal + taxAmountVal;
     const pendingAmountVal = Math.max(0, totalAmountVal - parseFloat(paidAmount || 0));
 
+    // Save invoice to Accounting backend
+    try {
+      const line_items = [
+        { description: serviceType, qty: 1, unit_price: parseFloat(recoveryCharges || 0) }
+      ];
+      if (parseFloat(additionalCharges || 0) > 0) {
+        line_items.push({ description: 'Additional Charges', qty: 1, unit_price: parseFloat(additionalCharges || 0) });
+      }
+      await accountingApi.createInvoice({
+        title: serviceType,
+        client_name: customerName,
+        company: caseData.company || '',
+        case_number: caseData.case_number,
+        line_items,
+        tax_pct: parseFloat(taxGst || 0),
+        due_date: deliveryDate,
+        notes: notesTerms,
+        case_id: caseData.id,
+        client_id: caseData.client_id,
+        invoice_date: new Date().toISOString(),
+      });
+    } catch (err) {
+      alert('Failed to save invoice: ' + (err.data?.error || err.message));
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice - ${caseData.case_number}</title>
-    <style id="pageStyle">@page{size:A4 portrait;margin:15mm}</style>
+    <style id="pageStyle">@page{size:A4 portrait;margin:0}</style>
     <style>
       *{box-sizing:border-box;margin:0;padding:0}
       @media print{
+        @page{margin:0}
         .controls{display:none!important}
-        body{background:#fff;padding:0}
-        .page-wrap{padding:0;box-shadow:none}
+        body{background:#fff;padding:0;min-height:auto}
+        .page-wrap{padding:0;box-shadow:none;min-height:auto}
         body{print-color-adjust:exact;-webkit-print-color-adjust:exact}
       }
       body{font-family:Arial,sans-serif;background:#e2e8f0;min-height:100vh;padding:20px}
       .controls{background:#1e293b;color:#f8fafc;padding:10px 18px;display:flex;align-items:center;gap:12px;width:794px;margin:0 auto 10px;border-radius:6px;font-size:12px}
       .btn-print{background:#0284c7;color:#fff;border:none;padding:7px 18px;border-radius:5px;font-weight:800;font-size:12px;cursor:pointer;margin-left:auto}
       .btn-close{background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid #475569;padding:6px 12px;border-radius:5px;font-size:11px;cursor:pointer}
-      .page-wrap{background:#fff;width:794px;margin:0 auto;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:36px 44px;min-height:1123px;position:relative}
-      .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0284c7;padding-bottom:14px;margin-bottom:20px}
-      .co-name{font-size:24px;font-weight:900;color:#0284c7}
-      .co-meta{font-size:10px;color:#64748b;margin-top:3px;line-height:1.5}
-      .form-title{font-size:18px;font-weight:900;text-transform:uppercase;text-align:right;color:#111;letter-spacing:0.04em}
-      .case-ref{font-size:13px;font-weight:800;text-align:right;margin-top:5px;font-family:'Courier New',monospace;color:#0284c7}
-      .form-date{font-size:10px;color:#64748b;text-align:right;margin-top:3px}
-      .sec-title{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;background:#0f172a;color:#00d4ff;padding:4px 10px;display:inline-block;border-radius:3px;margin:14px 0 6px}
-      table{width:100%;border-collapse:collapse;margin-bottom:8px}
-      th,td{border:1px solid #ddd;padding:7px 11px;font-size:11px;text-align:left}
-      th{background:#f1f5f9;font-weight:700;width:25%;color:#334155;font-size:10px;text-transform:uppercase;letter-spacing:0.04em}
-      .disclaimer{font-size:9px;color:#64748b;line-height:1.5;margin-top:16px;padding:8px 10px;background:#f8fafc;border-left:3px solid #0284c7;border-radius:3px}
-      .sig-row{display:flex;gap:40px;margin-top:40px;position:absolute;bottom:44px;left:44px;right:44px}
-      .sig-box{flex:1;text-align:center;font-size:10px;font-weight:700;color:#334155}
-      .sig-line{border-top:1.5px solid #334155;margin-top:35px;padding-top:6px}
+      .page-wrap{background:#fff;width:794px;margin:0 auto;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:28px 36px;min-height:1123px}
+      .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0284c7;padding-bottom:10px;margin-bottom:14px}
+      .co-name{font-size:22px;font-weight:900;color:#0284c7}
+      .co-meta{font-size:9px;color:#64748b;margin-top:2px;line-height:1.4}
+      .form-title{font-size:16px;font-weight:900;text-transform:uppercase;text-align:right;color:#111;letter-spacing:0.04em}
+      .case-ref{font-size:12px;font-weight:800;text-align:right;margin-top:4px;font-family:'Courier New',monospace;color:#0284c7}
+      .form-date{font-size:9px;color:#64748b;text-align:right;margin-top:2px}
+      .sec-title{font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;background:#0f172a;color:#00d4ff;padding:3px 8px;display:inline-block;border-radius:3px;margin:10px 0 4px}
+      table{width:100%;border-collapse:collapse;margin-bottom:4px}
+      th,td{border:1px solid #ddd;padding:5px 9px;font-size:10px;text-align:left}
+      th{background:#f1f5f9;font-weight:700;width:25%;color:#334155;font-size:9px;text-transform:uppercase;letter-spacing:0.04em}
+      .disclaimer{font-size:8px;color:#64748b;line-height:1.4;margin-top:10px;padding:6px 8px;background:#f8fafc;border-left:3px solid #0284c7;border-radius:3px}
+      .sig-row{display:flex;gap:30px;margin-top:16px}
+      .sig-box{flex:1;text-align:center;font-size:9px;font-weight:700;color:#334155}
+      .sig-line{border-top:1.5px solid #334155;margin-top:25px;padding-top:5px}
     </style></head>
     <body>
     <div class="controls">
@@ -2451,8 +2484,9 @@ function InvoiceModal({ caseData, companyData, caseInvoices, onClose }) {
           </div>
         </div>
         <div className="modal-footer">
+          {invoiceExists && <div style={{ color: 'var(--status-warning)', fontSize: '0.8rem', fontWeight: 700, marginRight: 'auto' }}> Invoice already created for this case</div>}
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleGeneratePdf}>⚡ Download PDF</button>
+          <button className="btn btn-primary" disabled={saving || invoiceExists} onClick={handleGeneratePdf}>{saving ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving…</> : '⚡ Download PDF & Save'}</button>
         </div>
       </div>
     </div>

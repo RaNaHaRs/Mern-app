@@ -84,3 +84,5 @@ export function resetInventoryFields(deviceFamily) {
   if (!deviceFamily) return;
   localStorage.removeItem(`${STORAGE_PREFIX}${deviceFamily}`);
 }
+
+export { DEFAULT_FIELDS as INV_DEFAULTS };

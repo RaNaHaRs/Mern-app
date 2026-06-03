@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { loadInventoryFields } from '../utils/inventoryFieldSettings';
 
-export default function InventoryHddFields({ category, form, setForm }) {
+export default function InventoryHddFields({ category, form, setForm, skipKeys = [] }) {
   const [fields, setFields] = useState([]);
 
   useEffect(() => {
@@ -14,7 +14,7 @@ export default function InventoryHddFields({ category, form, setForm }) {
 
   if (!category || !fields.length) return null;
 
-  const visibleFields = fields.filter(field => !field.hidden);
+  const visibleFields = fields.filter(field => !field.hidden && !skipKeys.includes(field.key));
   if (!visibleFields.length) return null;
 
   const handleFieldChange = (fieldKey, value) => {

@@ -41,7 +41,7 @@ function exportCSV(filename, headers, rows) {
 //  PDF Export (proper colorful HTML → PDF) 
 function exportPDF(title, headers, rows, summaryStats) {
   const styles = `
-    @page { margin: 15mm; size: A4 landscape; }
+    @page { margin: 0; size: A4 landscape; }
     * { box-sizing: border-box; }
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b; background: white; margin: 0; padding: 0; }
     .header { background: linear-gradient(135deg, #0d1117 0%, #1e2a3a 100%); color: white; padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; }

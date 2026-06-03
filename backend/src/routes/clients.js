@@ -252,13 +252,20 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       return res.status(404).json({ error: 'Client not found' });
     }
 
-    const amountRequested = parseFloat(req.body.amount || 0);
+    const { case_id } = req.body;
+    const paymentAmount = parseFloat(req.body.amount || 0);
     const notes = req.body.notes || 'Collected from Clients page';
-    if (isNaN(amountRequested) || amountRequested <= 0) {
+
+    if (!case_id) {
+      return res.status(400).json({ error: 'Case ID is required' });
+    }
+
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
-    const pendingCases = await query(
+    // Verify case belongs to client and get pending amount
+    const caseRes = await query(
       `SELECT
          c.id AS case_id,
          c.case_number,
@@ -279,71 +286,53 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
          FROM payments p
          WHERE p.case_id = c.id
        ) paid ON TRUE
-       WHERE c.client_id = $1
-       ORDER BY c.created_at ASC`,
-      [req.params.id]
+       WHERE c.id = $1 AND c.client_id = $2`,
+      [case_id, req.params.id]
     );
 
-    const toCollect = pendingCases.rows.filter((row) => parseFloat(row.pending_amount || 0) > 0);
-    if (!toCollect.length) {
-      return res.json({ ok: true, message: 'No pending amount to collect.', collected_amount: 0, updated_cases: 0, allocation_details: [] });
+    if (!caseRes.rows.length) {
+      return res.status(400).json({ error: 'Case not found for this client' });
     }
 
-    const totalPending = toCollect.reduce((s, r) => s + parseFloat(r.pending_amount || 0), 0);
-    if (amountRequested > totalPending) {
-      return res.status(400).json({ error: 'Amount exceeds total pending amount', total_pending: totalPending });
+    const caseData = caseRes.rows[0];
+    const pendingAmt = parseFloat(caseData.pending_amount || 0);
+
+    if (pendingAmt <= 0) {
+      return res.status(400).json({ error: 'This case has no pending amount' });
     }
 
-    // ✅ CRITICAL FIX: Sort by pending_amount DESC (highest first) for intelligent allocation
-    // This ensures payment is allocated to the case with the highest outstanding balance first
-    const sortedByPending = toCollect.sort((a, b) => parseFloat(b.pending_amount || 0) - parseFloat(a.pending_amount || 0));
+    if (paymentAmount > pendingAmt) {
+      return res.status(400).json({ error: 'Amount exceeds case pending amount', pending_amount: pendingAmt });
+    }
 
     // Run inserts/updates inside a transaction
     const result = await require('../config/database').transaction(async (client) => {
-      let remaining = amountRequested;
-      let updatedCases = 0;
-      const allocationDetails = [];
-      
-      for (const row of sortedByPending) {
-        if (remaining <= 0) break;
-        const pendingAmt = parseFloat(row.pending_amount || 0);
-        if (pendingAmt <= 0) continue;
-        
-        const pay = Math.min(pendingAmt, remaining);
-        
-        await client.query(
-          `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
-           VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
-          [row.case_id, row.quotation_id || null, pay, notes, req.user.id]
-        );
-        
-        // Track allocation for response
-        allocationDetails.push({
-          case_id: row.case_id,
-          case_number: row.case_number,
-          allocated_amount: pay,
-          previous_pending: pendingAmt,
-          new_pending: Math.max(0, pendingAmt - pay)
-        });
-        
-        remaining -= pay;
-        updatedCases += 1;
-      }
+      await client.query(
+        `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
+         VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
+        [caseData.case_id, caseData.quotation_id || null, paymentAmount, notes, req.user.id]
+      );
 
-      const collected = amountRequested - remaining;
-      if (collected > 0) {
-        await client.query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2', [collected, req.params.id]);
-      }
+      await client.query(
+        'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1, updated_at = NOW() WHERE id = $2',
+        [paymentAmount, req.params.id]
+      );
 
-      return { collected, updatedCases, allocationDetails };
+      return { collected: paymentAmount };
     });
 
-    res.json({ 
-      ok: true, 
-      message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`, 
-      collected_amount: result.collected, 
-      updated_cases: result.updatedCases,
-      allocation_details: result.allocationDetails || []
+    res.json({
+      ok: true,
+      message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`,
+      collected_amount: result.collected,
+      updated_cases: 1,
+      allocation_details: [{
+        case_id: caseData.case_id,
+        case_number: caseData.case_number,
+        allocated_amount: paymentAmount,
+        previous_pending: pendingAmt,
+        new_pending: Math.max(0, pendingAmt - paymentAmount)
+      }]
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

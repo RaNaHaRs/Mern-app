@@ -3354,6 +3354,45 @@ app.delete('/api/recycle-bin/:id/permanent-delete', authenticate, requireSuperAd
   res.json({ ok: true, message: `${gone.case_number} permanently deleted. Cannot be recovered.` });
 });
 
+const fs = require('fs');
+const path = require('path');
+
+// --- LOCAL BACKUP SERVICE ---
+const BACKUP_DIR = 'C:\\crm_backup';
+function runLocalBackup() {
+  const casesWithData = DEMO_CASES.map(c => ({
+    ...c,
+    _images: CASE_IMAGES[c.id] || [],
+    _solution: CASE_SOLUTIONS[c.id] || null,
+  }));
+  const backupData = {
+    version: '2.0', backup_type: 'full', created_at: new Date().toISOString(),
+    platform: 'RecoverLab CRM',
+    data: {
+      cases: casesWithData, clients: DEMO_CLIENTS, inventory: DEMO_INVENTORY,
+      recycle_bin: RECYCLE_BIN,
+      settings: { ...COMPANY_SETTINGS },
+      users: [...DEMO_USERS, ...TEAM_USERS].map(({ password_hash, ...u }) => u),
+    },
+  };
+  const filename = `RecoverLab_Backup_${new Date().toISOString().replace(/:/g, '-').slice(0, 19)}.selk`;
+  fs.writeFileSync(path.join(BACKUP_DIR, filename), JSON.stringify(backupData));
+  console.log(`[BackupService] Local backup created: ${filename}`);
+}
+
+// Every 7 days (7 * 24 * 60 * 60 * 1000)
+setInterval(runLocalBackup, 604800000);
+// --- END LOCAL BACKUP ---
+
+app.post('/api/backup/create-local', authenticate, requireAdmin, (req, res) => {
+  try {
+    runLocalBackup();
+    res.json({ ok: true, message: 'Local backup created in C:\\crm_backup' });
+  } catch(err) {
+    res.status(500).json({ error: 'Failed to create local backup: ' + err.message });
+  }
+});
+
 // â”€â”€â”€ BACKUP & RESTORE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 app.post('/api/backup/create', authenticate, requireAdmin, (req, res) => {
@@ -3433,7 +3472,7 @@ app.post('/api/backup/restore', authenticate, requireAdmin, upload.single('backu
 app.get('/api/backup/google-drive/auth-url', authenticate, requireAdmin, (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.json({ ok: false, setup_required: true, message: 'Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env to enable Google Drive backup.' });
-  const redirect = `${process.env.APP_URL || 'http://localhost:5173'}/settings`;
+  const redirect = `${process.env.APP_URL || 'http://localhost:5174'}/settings`;
   const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&access_type=offline&prompt=consent`;
   res.json({ ok: true, auth_url: url });
 });
@@ -3630,5 +3669,6 @@ app.listen(PORT, () => {
   console.log(`\nðŸ”— API URL:           http://localhost:${PORT}`);
   console.log(`ðŸ“‹ Client Portal:     http://localhost:5173/client-portal`);
   console.log(`ðŸ‘‘ Super Admin:       http://localhost:5173/super-admin\n`);
+  console.log('DEBUG: GOOGLE_CLIENT_ID is', process.env.GOOGLE_CLIENT_ID);
 });
 

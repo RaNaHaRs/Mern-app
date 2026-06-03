@@ -202,7 +202,7 @@ export default function InventoryStockConfigManager() {
                   key: {c.key} {c.brand ? `· ${c.brand}` : ''} {c.isHdd === false ? '· non-HDD' : ''}
                 </div>
               </div>
-              <button type="button" className="btn btn-danger btn-sm" onClick={() => deleteCategory(c)}></button>
+              <button type="button" className="btn btn-danger btn-sm" onClick={() => deleteCategory(c)}>✕</button>
             </div>
           ))}
           <div className="card" style={{ padding: 14 }}>

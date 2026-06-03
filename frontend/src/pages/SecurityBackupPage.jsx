@@ -284,6 +284,32 @@ function BackupRestorePanel() {
 
   useEffect(() => { loadHistory(); loadDrive(); loadDriveAuth(); }, [loadHistory, loadDrive, loadDriveAuth]);
 
+  // Handle Google OAuth callback (frontend redirect contains ?code=...)
+  useEffect(() => {
+    (async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        if (!code) return;
+        setDriveMsg('Completing Google Drive authorization...');
+        const redirect_uri = `${window.location.origin}/settings`;
+        const resp = await fetch(`${API}/backup/google-drive/exchange`, {
+          method: 'POST', headers: headers(), body: JSON.stringify({ code, redirect_uri })
+        });
+        const d = await resp.json();
+        if (!resp.ok) throw new Error(d.error || 'Authorization failed');
+        setDriveMsg('Google Drive connected successfully');
+        // remove params from URL
+        params.delete('code'); params.delete('scope'); params.delete('state');
+        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+        window.history.replaceState({}, document.title, newUrl);
+        loadDriveAuth(); loadDrive();
+      } catch (e) {
+        setDriveMsg('Google connect failed: ' + e.message);
+      }
+    })();
+  }, []);
+
   const createBackup = async () => {
     setLoading(true); setError('');
     try {
@@ -335,6 +361,20 @@ function BackupRestorePanel() {
   const connectGoogleDrive = () => {
     if (driveAuth?.auth_url) window.open(driveAuth.auth_url, '_blank', 'width=500,height=600');
     else setDriveMsg('Configure GOOGLE_CLIENT_ID in backend .env file to enable Google Drive backup.');
+  };
+
+  const createDriveBackup = async () => {
+    setLoading(true); setError(''); setMsg('');
+    try {
+      const res = await fetch(`${API}/backup/create-drive`, {
+        method: 'POST', headers: headers(), body: JSON.stringify({ include_images: includeImages })
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Drive backup failed');
+      setMsg('Backup uploaded to Google Drive');
+      loadHistory(); loadDrive();
+    } catch (e) { setError(e.message); }
+    setLoading(false);
   };
 
   return (
@@ -405,6 +445,9 @@ function BackupRestorePanel() {
           <button className="btn btn-secondary" onClick={connectGoogleDrive} style={{ marginLeft: 'auto' }}>
              Connect Google Drive
           </button>
+           <button className="btn btn-primary" onClick={createDriveBackup} style={{ marginLeft: 8 }} disabled={loading}>
+             {loading ? 'Uploading...' : 'Create Backup to Drive'}
+           </button>
         </div>
 
         {driveMsg && (

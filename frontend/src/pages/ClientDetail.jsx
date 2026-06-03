@@ -397,17 +397,18 @@ export default function ClientDetail() {
       {showEdit && <EditClientModal client={cl} onClose={() => setShowEdit(false)} onSaved={load} />}
       {showCourier && <CourierSlip client={cl} company={company} onClose={() => setShowCourier(false)} />}
       {showComm && <AddCommModal clientId={id} onClose={() => setShowComm(false)} onDone={load} />}
-      {showCollectPayment && selectedCaseForCollection && (
+      {showCollectPayment && (
         <CollectPaymentModal
           isOpen={showCollectPayment}
           onClose={() => {
             setShowCollectPayment(false);
             setSelectedCaseForCollection(null);
           }}
-          caseData={selectedCaseForCollection}
+          cases={cl.cases || []}
+          clientId={id}
           clientName={`${cl.first_name} ${cl.last_name}`}
-          onSuccess={(updatedCase) => {
-            // Refresh client data to get updated pending amounts
+          selectedCaseId={selectedCaseForCollection?.id}
+          onSuccess={() => {
             load();
           }}
         />

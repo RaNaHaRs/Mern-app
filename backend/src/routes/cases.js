@@ -159,7 +159,7 @@ router.get('/', async (req, res) => {
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-    const allowedSort = ['created_at', 'updated_at', 'priority', 'stage', 'case_number'];
+    const allowedSort = ['created_at', 'updated_at', 'priority', 'stage', 'case_number', 'pending_amount'];
     const sortCol = allowedSort.includes(sort) ? sort : 'created_at';
     const orderDir = order === 'asc' ? 'ASC' : 'DESC';
 
@@ -177,7 +177,12 @@ router.get('/', async (req, res) => {
               cl.id as client_id, cl.first_name, cl.last_name, cl.phone, cl.company,
               u.full_name as engineer_name, u.role as engineer_role,
               sm.model_number as storage_model_number,
-              (SELECT amount FROM payments WHERE case_id = c.id ORDER BY created_at LIMIT 1) as first_payment
+               (SELECT amount FROM payments WHERE case_id = c.id ORDER BY created_at LIMIT 1) as first_payment,
+               GREATEST(
+                 COALESCE((SELECT q2.total_amount FROM quotations q2 WHERE q2.case_id = c.id ORDER BY q2.created_at DESC LIMIT 1), 0) -
+                 COALESCE((SELECT SUM(p2.amount) FILTER (WHERE p2.status = 'paid') FROM payments p2 WHERE p2.case_id = c.id), 0),
+                 0
+               ) as pending_amount
        FROM cases c
        LEFT JOIN clients cl ON c.client_id = cl.id
        LEFT JOIN users u ON c.assigned_engineer = u.id

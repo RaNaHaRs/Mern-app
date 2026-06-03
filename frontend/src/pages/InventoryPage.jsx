@@ -76,7 +76,7 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
     status: 'available', company: '', stock_number: '', brand: '', model: '',
     name: '', description: '', serial_number: '', pcb_number: '', capacity: '', interface: '', form_factor: '',
     firmware: '', site_code: '', family: '', date_code: '', head_map: '',
-    location: '', unit_cost: '', notes: '',
+    location: '', unit_cost: '', notes: '', health: '100',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -89,39 +89,17 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
   const isSsd = form.category === 'ssd';
   const isOther = form.category === 'other';
   const showStockNumber = !isPcb;
-  const showDynamicFields = isHDD && !isPcb;
 
   useEffect(() => {
     setInventoryFields(loadInventoryFields(form.category));
   }, [form.category]);
 
-  const RESERVED_INVENTORY_KEYS = new Set([
-    'stock_number', 'category', 'company', 'brand', 'model', 'name', 'serial_number', 'pcb_number',
-    'capacity', 'interface', 'form_factor', 'firmware', 'site_code', 'date_code', 'head_map', 'family',
-    'condition', 'status', 'quantity', 'min_quantity', 'unit_cost', 'location', 'notes', 'description',
-  ]);
-
-  const renderInventorySettingsField = (field) => {
-    const value = form[field.key] ?? '';
-    const onChange = (e) => setForm(prev => ({ ...prev, [field.key]: e.target.value }));
-    return (
-      <div key={field.key} className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">{field.label}</label>
-        {field.type === 'select' ? (
-          <select className="form-select" value={value} onChange={onChange}>
-            <option value="">Select…</option>
-            {(field.options || []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-          </select>
-        ) : field.type === 'textarea' ? (
-          <textarea className="form-textarea" style={{ minHeight: 56 }} value={value} onChange={onChange} />
-        ) : (
-          <input className="form-input" type={field.type === 'number' ? 'number' : 'text'} value={value} onChange={onChange} />
-        )}
-      </div>
-    );
+  const invFieldSkipKeys = {
+    ssd: ['capacity'],
+    pcb: ['model', 'pcb_number', 'notes'],
+    hdd: [],
+    other: [],
   };
-
-  const customInventoryFields = inventoryFields.filter(f => !RESERVED_INVENTORY_KEYS.has(f.key));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -193,6 +171,45 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
               )}
             </div>
 
+            {/* Health field — required for all items */}
+            <div style={{ marginBottom: 12 }}>
+              <InventoryFormField label="Health" field="health" required form={form} setForm={setForm}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={form.health ?? 100}
+                    onChange={e => setForm(f => ({ ...f, health: e.target.value }))}
+                    style={{ flex: 1, accentColor: form.health >= 76 ? '#16a34a' : form.health >= 51 ? '#eab308' : form.health >= 26 ? '#f59e0b' : '#dc2626' }}
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    required
+                    value={form.health ?? 100}
+                    onChange={e => setForm(f => ({ ...f, health: Math.min(100, Math.max(0, e.target.value)) }))}
+                    style={{ width: 60, padding: '6px 8px', fontSize: '0.85rem', border: '1px solid var(--border-subtle)', borderRadius: 4, background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'center', outline: 'none' }}
+                  />
+                </div>
+              </InventoryFormField>
+              <div style={{ width: '100%', height: 8, background: 'var(--bg-elevated)', borderRadius: 4, overflow: 'hidden', marginTop: 4 }}>
+                <div style={{
+                  width: `${form.health ?? 100}%`,
+                  height: '100%',
+                  background: form.health >= 76 ? '#16a34a' : form.health >= 51 ? '#eab308' : form.health >= 26 ? '#f59e0b' : '#dc2626',
+                  borderRadius: 4,
+                  transition: 'width 0.15s ease'
+                }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                <span>0%</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{form.health ?? 100}%</span>
+                <span>100%</span>
+              </div>
+            </div>
+
             {isPcb && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                 <InventoryFormField label="Model" field="model" placeholder="Enter model" required form={form} setForm={setForm} />
@@ -232,26 +249,12 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
               </div>
             )}
 
-            {showDynamicFields && (
-              <InventoryHddFields
-                category={form.category === 'hdd' ? 'harddisk' : form.category}
-                form={form}
-                setForm={setForm}
-                customFieldValues={customFieldValues}
-                setCustomFieldValues={setCustomFieldValues}
-              />
-            )}
-
-            {customInventoryFields.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-primary)', marginBottom: 10 }}>
-                  Inventory settings fields — {form.category?.replace(/_/g, ' ') || 'Category'}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  {customInventoryFields.map(renderInventorySettingsField)}
-                </div>
-              </div>
-            )}
+            <InventoryHddFields
+              category={form.category}
+              form={form}
+              setForm={setForm}
+              skipKeys={invFieldSkipKeys[form.category] || []}
+            />
 
             {isHDD && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
