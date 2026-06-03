@@ -428,6 +428,12 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
     }
 
     const companySettings = await loadCompanySettings();
+    let caseId = case_id || null;
+    if (!caseId && case_number) {
+      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [case_number]);
+      if (caseRes.rows.length) caseId = caseRes.rows[0].id;
+    }
+
     let result;
     const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -440,13 +446,13 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
         result = await query(
           `INSERT INTO accounting_invoices
              (invoice_number, title, client_name, company, client_address, client_gstin, case_number,
-              line_items, discount_pct, discount_amt, tax_pct, tax_amt, subtotal, total, due_date, notes, created_by, tenant_id,
-              case_id, client_id, invoice_date)
+              case_id, line_items, discount_pct, discount_amt, tax_pct, tax_amt, subtotal, total, due_date, notes, created_by, tenant_id,
+              client_id, invoice_date)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
           [invNum, title, client_name, company || null, client_address || null, client_gstin || null,
-           case_number || null, JSON.stringify(li), discount_pct || 0, discountAmt, tax_pct || 18,
+           case_number || null, caseId, JSON.stringify(li), discount_pct || 0, discountAmt, tax_pct || 18,
            taxAmt, subtotal, total, due_date || null, notes || null, req.user.id, tenantAdminId(req.user),
-           case_id || null, client_id || null, invoice_date || null]
+           client_id || null, invoice_date || null]
         );
         break;
       } catch (err) {
@@ -457,22 +463,6 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
       }
     }
 
-    // Resolve case_id from case_number
-    let caseId = null;
-    if (case_number) {
-      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [case_number]);
-      if (caseRes.rows.length) caseId = caseRes.rows[0].id;
-    }
-
-    const result = await query(
-      `INSERT INTO accounting_invoices
-         (invoice_number, title, client_name, company, client_address, client_gstin, case_number,
-          case_id, line_items, discount_pct, discount_amt, tax_pct, tax_amt, subtotal, total, due_date, notes, created_by, tenant_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
-      [invNum, title, client_name, company || null, client_address || null, client_gstin || null,
-       case_number || null, caseId, JSON.stringify(li), discount_pct || 0, discountAmt, tax_pct || 18,
-       taxAmt, subtotal, total, due_date || null, notes || null, req.user.id, tenantAdminId(req.user)]
-    );
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

@@ -123,13 +123,6 @@ function CollectModal({ client, onClose, onCollected }) {
       .finally(() => setCasesLoading(false));
   }, [client?.id]);
 
-  useEffect(() => {
-    if (!client?.id) return;
-    setLoadingCases(true);
-    clientsApi.get(client.id).then(d => {
-      setCases(d?.cases || []);
-    }).catch(() => {}).finally(() => setLoadingCases(false));
-  }, [client?.id]);
 
   if (!client) return null;
 
@@ -142,17 +135,6 @@ function CollectModal({ client, onClose, onCollected }) {
     setSelectedCaseId(id);
     setAmount('');
     setError('');
-  };
-
-  const handleCaseChange = (e) => {
-    const id = e.target.value;
-    setSelCaseId(id);
-    if (id) {
-      const c = validCases.find(x => x.id === id);
-      if (c) setAmount(String(Math.floor(parseFloat(c.pending_amount || 0))));
-    } else {
-      setAmount('');
-    }
   };
 
   const handleCollect = async () => {
