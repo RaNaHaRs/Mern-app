@@ -719,6 +719,127 @@ CREATE TABLE media_recycle_bin (
 );
 
 -- ============================================================
+-- INVENTORY ↔ CASES INTEGRATION
+-- ============================================================
+
+-- Immutable log of all inventory usage across cases
+CREATE TABLE inventory_usage_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
+  case_id UUID REFERENCES cases(id) ON DELETE SET NULL,  -- NULL for non-case activities
+  log_type VARCHAR(50) NOT NULL,  -- PURCHASED, ALLOCATED, RETURNED, CONSUMED, TRANSFERRED, ADJUSTED
+  quantity_change INTEGER NOT NULL,  -- positive or negative
+  quantity_before INTEGER,  -- stock before this transaction
+  quantity_after INTEGER,  -- stock after this transaction
+  unit_cost DECIMAL(10,2),  -- cost at time of transaction
+  cost_impact DECIMAL(12,2),  -- total impact on inventory value
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  -- Immutable: no updates allowed, only inserts
+  CONSTRAINT inventory_usage_logs_immutable CHECK (true)
+);
+
+-- Track items used in specific cases with usage types
+CREATE TABLE case_inventory_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT,
+  usage_type VARCHAR(50) NOT NULL,  -- CONSUMED, TEMPORARY_TOOL, CASE_PURCHASE
+  -- Quantities
+  qty_allocated INTEGER NOT NULL DEFAULT 1,
+  qty_used INTEGER NOT NULL DEFAULT 0,
+  qty_returned INTEGER NOT NULL DEFAULT 0,
+  qty_damaged INTEGER NOT NULL DEFAULT 0,
+  -- Cost tracking
+  unit_cost DECIMAL(10,2) NOT NULL,  -- cost per unit at time of allocation
+  total_allocated_cost DECIMAL(12,2) GENERATED ALWAYS AS (qty_allocated * unit_cost) STORED,
+  total_used_cost DECIMAL(12,2) GENERATED ALWAYS AS (qty_used * unit_cost) STORED,
+  -- Status
+  status VARCHAR(50) DEFAULT 'allocated',  -- allocated, in_use, returned, consumed, damaged
+  -- For temporary/tool items
+  assigned_at TIMESTAMPTZ,
+  returned_at TIMESTAMPTZ,
+  condition_on_return VARCHAR(100),  -- new, good, damaged, missing_parts, etc.
+  -- For case purchase items
+  is_leftover_converted BOOLEAN DEFAULT false,  -- whether leftover was converted to inventory
+  leftover_qty INTEGER,  -- qty converted back to inventory if any
+  -- Tracking
+  notes TEXT,
+  created_by UUID REFERENCES users(id),
+  updated_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Track all case expenses (not just inventory)
+CREATE TABLE case_expenses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  case_id UUID NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+  expense_type VARCHAR(50) NOT NULL,  -- inventory, direct_purchase, shipping, vendor, lab, misc
+  amount DECIMAL(12,2) NOT NULL,
+  description TEXT NOT NULL,
+  reference_id UUID,  -- link to case_inventory_items if from inventory
+  reference_type VARCHAR(50),  -- inventory_item, direct_purchase, etc.
+  category VARCHAR(100),  -- optional sub-category
+  vendor_name VARCHAR(255),
+  notes TEXT,
+  recorded_by UUID REFERENCES users(id),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- CASE FINANCIALS VIEW (Computed)
+-- ============================================================
+
+CREATE OR REPLACE VIEW case_financials AS
+SELECT
+  c.id,
+  c.case_number,
+  COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) as revenue,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'inventory' THEN ce.amount ELSE 0 END), 0) as inventory_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'direct_purchase' THEN ce.amount ELSE 0 END), 0) as direct_purchase_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'shipping' THEN ce.amount ELSE 0 END), 0) as shipping_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'vendor' THEN ce.amount ELSE 0 END), 0) as vendor_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'lab' THEN ce.amount ELSE 0 END), 0) as lab_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'misc' THEN ce.amount ELSE 0 END), 0) as misc_expense,
+  COALESCE(SUM(ce.amount), 0) as total_expenses,
+  COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) -
+  COALESCE(SUM(ce.amount), 0) as gross_profit
+FROM cases c
+LEFT JOIN payments p ON c.id = p.case_id
+LEFT JOIN case_expenses ce ON c.id = ce.case_id
+GROUP BY c.id, c.case_number;
+
+-- ============================================================
+-- INDEXES FOR INVENTORY-CASE INTEGRATION
+-- ============================================================
+
+CREATE INDEX idx_inventory_usage_logs_item ON inventory_usage_logs(inventory_item_id);
+CREATE INDEX idx_inventory_usage_logs_case ON inventory_usage_logs(case_id);
+CREATE INDEX idx_inventory_usage_logs_created ON inventory_usage_logs(created_at DESC);
+CREATE INDEX idx_case_inventory_items_case ON case_inventory_items(case_id);
+CREATE INDEX idx_case_inventory_items_item ON case_inventory_items(inventory_item_id);
+CREATE INDEX idx_case_inventory_items_status ON case_inventory_items(status);
+CREATE INDEX idx_case_expenses_case ON case_expenses(case_id);
+CREATE INDEX idx_case_expenses_type ON case_expenses(expense_type);
+CREATE INDEX idx_case_expenses_created ON case_expenses(created_at DESC);
+
+-- ============================================================
+-- INVENTORY ITEMS MODIFICATIONS
+-- ============================================================
+
+-- Add columns to inventory_items if they don't exist
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS vendor VARCHAR(255);
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS vendor_id UUID REFERENCES users(id);
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS purchase_cost DECIMAL(10,2);
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS unit_cost DECIMAL(10,2);
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS tenant_id UUID;
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'available';  -- available, allocated, in_use, damaged
+ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- ============================================================
 -- SEED DATA - ADMIN USER (password: Admin@1234)
 -- ============================================================
 -- Password hash is pre-computed for 'Admin@1234' with bcrypt rounds=12

@@ -8,6 +8,7 @@ import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import { openPrintPreviewWindow } from '../utils/printPreview';
 import { formatSolutionTime } from '../utils/solutionMedia';
 import MediaFileGrid from '../components/MediaFileGrid';
+import CaseInventoryPanel from '../components/CaseInventoryPanel';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -971,12 +972,25 @@ export default function CaseDetail() {
 
   useEffect(() => {
     casesApi.get(id)
-      .then(d => { setCaseData(d); setEditForm(d); })
+      .then(d => {
+        setCaseData(d);
+        setEditForm(d);
+        // Load invoices for this case using case_id
+        fetch(`${BASE_URL}/accounting/invoices?case_id=${encodeURIComponent(id)}`, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        })
+            .then(r => r.json())
+            .then(invData => setCaseInvoices(invData.invoices || []))
+            .catch(() => {});
+      })
       .catch(err => { if(err.status===404) navigate('/cases'); })
       .finally(() => setLoading(false));
+<<<<<<< HEAD
     // Load invoices for this case
     fetch(`${BASE_URL}/accounting/invoices?case_id=${id}`,{ headers:{ Authorization:`Bearer ${getToken()}` } })
       .then(r=>r.json()).then(d=>setCaseInvoices(d.invoices||[])).catch(()=>{});
+=======
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
   }, [id]);
 
   const handleAddTimelineNote = async () => {
@@ -1406,6 +1420,7 @@ export default function CaseDetail() {
 
   const TABS = [
     { key: 'overview',     label: ' Overview' },
+    { key: 'inventory',    label: ' Inventory' },
     { key: 'photos',       label: ' Photos' },
     { key: 'solution',     label: isSolved ? ' Solution' : ' Solution' },
     { key: 'smart-assist', label: ' Smart Assist' },
@@ -1440,7 +1455,7 @@ export default function CaseDetail() {
 
         {allowedNext.length > 0 && canAccess('junior_engineer') && (
           <div style={{ display:'flex',gap:8,flexWrap:'wrap' }}>
-            <button className="btn btn-secondary btn-sm" onClick={() => { const t = prompt('Template: 1=Modern, 2=Classic, 3=Minimal','1'); const map={'1':'standard','2':'classic','3':'minimal'}; printInwardForm(caseData, map[t]||'standard'); }}> Inward Form</button>
+            <button className="btn btn-secondary btn-sm" onClick={printInwardForm}> Inward Form</button>
             <button className="btn btn-secondary btn-sm" onClick={printCourierSlip}> Courier Slip</button>
             <button className="btn btn-secondary btn-sm" onClick={() => { setEditForm({...caseData}); setShowEditCase(true); }}> Edit</button>
             <button className="btn btn-secondary btn-sm" onClick={() => setShowPayment(true)}> Payment</button>
@@ -1564,6 +1579,12 @@ export default function CaseDetail() {
                       Collected: <strong style={{color:'var(--status-success)'}}>₹{parseFloat(caseData.total_paid||0).toLocaleString('en-IN')}</strong>
                       {caseData.balance_due > 0 && <> &nbsp;·&nbsp; <span style={{color:'var(--status-danger)'}}>₹{parseFloat(caseData.balance_due||0).toLocaleString('en-IN')} due</span></>}
                     </div>
+                    {caseData.total_purchase_cost > 0 && (
+                      <div style={{fontSize:'0.78rem',color:'var(--text-muted)',marginTop:4}}>
+                        Purchase Cost: <strong style={{color:'#f472b6'}}>₹{parseFloat(caseData.total_purchase_cost||0).toLocaleString('en-IN')}</strong>
+                        {caseData.profit !== undefined && <> &nbsp;·&nbsp; Profit: <strong style={{color:parseFloat(caseData.profit||0)>=0?'var(--status-success)':'var(--status-danger)'}}>₹{parseFloat(caseData.profit||0).toLocaleString('en-IN')}</strong></>}
+                      </div>
+                    )}
                   </div>
                   <button className="btn btn-primary btn-sm" onClick={()=>setShowPayment(true)}> Collect Payment</button>
                 </div>
@@ -1572,6 +1593,8 @@ export default function CaseDetail() {
           </div>
         </div>
       )}
+
+      {activeTab === 'inventory' && <CaseInventoryPanel caseId={id} />}
 
       {activeTab === 'photos' && <CasePhotosPanel caseId={id} />}
 
@@ -1760,8 +1783,49 @@ export default function CaseDetail() {
               <div className="empty-state" style={{padding:24}}><div className="empty-icon"></div><div className="empty-title">No payments recorded</div></div>
             )}
           </div>
+
+          {/* Purchases linked to this case */}
+          {caseData.purchases?.length > 0 && (
+            <div className="card" style={{marginBottom:16}}>
+              <div className="card-title" style={{marginBottom:14}}> Purchases (Expenses)</div>
+              {caseData.purchases.map(p => (
+                <div key={p.id} style={{padding:'10px 12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)',border:'1px solid var(--border-subtle)',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:'0.82rem'}}>{p.description}</div>
+                    <div className="text-xs text-muted">{p.vendor_name} · {p.purchase_number} · {fmtDate(p.purchase_date)}</div>
+                  </div>
+                  <span className="font-mono" style={{fontWeight:700,color:'#f472b6'}}>₹{parseFloat(p.total||0).toLocaleString('en-IN')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Profit / Loss Summary */}
+          {(caseData.total_purchase_cost > 0 || caseData.quotation_total > 0) && (
+            <div className="card" style={{marginTop:16,border:'1px solid rgba(16,185,129,0.2)',background:'rgba(16,185,129,0.03)'}}>
+              <div className="card-title" style={{marginBottom:14}}> Profit / Loss</div>
+              <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)'}}>
+                  <span style={{color:'var(--text-secondary)'}}>Purchase Cost (Expense)</span>
+                  <span className="font-mono" style={{fontWeight:700,color:'#f472b6'}}>₹{parseFloat(caseData.total_purchase_cost||0).toLocaleString('en-IN')}</span>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)'}}>
+                  <span style={{color:'var(--text-secondary)'}}>Sale Amount (Quoted)</span>
+                  <span className="font-mono" style={{fontWeight:700,color:'var(--status-success)'}}>₹{parseFloat(caseData.quotation_total||0).toLocaleString('en-IN')}</span>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)',marginTop:4}}>
+                  <span style={{fontWeight:700}}>Net Profit</span>
+                  <span className="font-mono" style={{fontWeight:900,fontSize:'1.1rem',color:parseFloat(caseData.profit||0) >= 0 ? 'var(--status-success)' : 'var(--status-danger)'}}>
+                    {parseFloat(caseData.profit||0) >= 0 ? '+' : ''}₹{parseFloat(caseData.profit||0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* ── Modals (outside all tab content so they always render) ── */}
 
       {/* Stage Transition Modal */}
       {showTransition && (

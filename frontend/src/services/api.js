@@ -279,5 +279,17 @@ export const accountingApi = {
   // Expenses
   listExpenses: (params) => api.get('/accounting/expenses', params),
   createExpense: (data) => api.post('/accounting/expenses', data),
+  updateExpense: (id, data) => api.put(`/accounting/expenses/${id}`, data),
   deleteExpense: (id) => api.delete(`/accounting/expenses/${id}`),
+  // Purchases
+  listPurchases: (params) => api.get('/accounting/purchases', params),
+  createPurchase: (data) => api.post('/accounting/purchases', data),
+  deletePurchase: (id) => api.delete(`/accounting/purchases/${id}`),
+  // Recycle bin
+  listExpensesRecycleBin: () => api.get('/accounting/expenses/recycle-bin'),
+  restoreExpense: (id) => api.post(`/accounting/expenses/${id}/restore`),
+  listPurchasesRecycleBin: () => api.get('/accounting/purchases/recycle-bin'),
+  restorePurchase: (id) => api.post(`/accounting/purchases/${id}/restore`),
+  listInvoicesRecycleBin: () => api.get('/accounting/invoices/recycle-bin'),
+  restoreInvoice: (id) => api.post(`/accounting/invoices/${id}/restore`),
 };

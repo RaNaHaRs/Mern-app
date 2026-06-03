@@ -6,9 +6,40 @@ import { openPrintPreviewWindow } from '../utils/printPreview';
 const fmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
-const Q_STATUS = { draft: { color: '#94a3b8', bg: 'rgba(100,116,139,0.12)', label: 'Draft' }, sent: { color: '#60a5fa', bg: 'rgba(59,130,246,0.12)', label: 'Sent' }, accepted: { color: '#34d399', bg: 'rgba(16,185,129,0.15)', label: 'Accepted' }, rejected: { color: '#f87171', bg: 'rgba(239,68,68,0.12)', label: 'Rejected' }, invoiced: { color: '#a78bfa', bg: 'rgba(124,58,237,0.12)', label: 'Invoiced' } };
+// ── Professional SVG Icons ──────────────────────────────────────
+function IconTrash() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4h6v2" />
+    </svg>
+  );
+}
+function IconEdit() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  );
+}
+function IconRestore() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" />
+    </svg>
+  );
+}
+function iconBtnStyle(variant) {
+  const base = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6, border: '1px solid', cursor: 'pointer', transition: 'all 0.15s', padding: 0, flexShrink: 0 };
+  if (variant === 'danger') return { ...base, background: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.25)', color: '#ef4444' };
+  if (variant === 'ghost')  return { ...base, background: 'rgba(255,255,255,0.04)', borderColor: 'var(--border-subtle)', color: 'var(--text-muted)' };
+  if (variant === 'restore') return { ...base, background: 'rgba(16,185,129,0.08)', borderColor: 'rgba(16,185,129,0.25)', color: '#10b981' };
+  return base;
+}
+
+
+const P_CATS = ['equipment', 'consumables', 'parts', 'donor_drives', 'services', 'other'];
 const I_STATUS = { unpaid: { color: '#fbbf24', bg: 'rgba(245,158,11,0.12)', label: 'Unpaid' }, paid: { color: '#34d399', bg: 'rgba(16,185,129,0.15)', label: 'Paid' }, overdue: { color: '#f87171', bg: 'rgba(239,68,68,0.15)', label: 'Overdue' }, partial: { color: '#00d4ff', bg: 'rgba(0,212,255,0.12)', label: 'Partial' }, cancelled: { color: '#94a3b8', bg: 'rgba(100,116,139,0.1)', label: 'Cancelled' } };
-const EXP_CATS = ['equipment', 'consumables', 'donor_drives', 'rent', 'utilities', 'salaries', 'marketing', 'other'];
+const EXP_CATS = ['equipment', 'consumables', 'donor_drives', 'rent', 'utilities', 'salaries', 'marketing', 'purchase', 'other'];
 const PAY_METHODS = ['Cash', 'UPI', 'Card', 'Bank Transfer', 'Cheque', 'NEFT', 'RTGS'];
 
 function printCourierSlip(inv) {
@@ -128,6 +159,7 @@ function StatusBadge({ status, map }) {
   return <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999, color: s.color, background: s.bg, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</span>;
 }
 
+<<<<<<< HEAD
 //  Line Items Editor 
 function LineItemsEditor({ items, onChange }) {
   const add = () => onChange([...items, { description: '', qty: 1, unit_price: 0 }]);
@@ -240,6 +272,8 @@ function downloadInvoicePdf(inv) {
   openPrintPreviewWindow(html, { autoPrint: false });
 }
 
+=======
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 //  Invoice Print View 
 function InvoicePrintModal({ invoice, onClose }) {
   const handlePrint = () => window.print();
@@ -378,101 +412,140 @@ function RecordPaymentModal({ invoice, onClose, onDone }) {
   );
 }
 
-//  Quote / Invoice Form Modal 
-function QuoteFormModal({ existing, onClose, onDone }) {
-  const isEdit = !!existing;
-  const [form, setForm] = useState(existing ? { ...existing } : { title: '', client_name: '', company: '', case_number: '', line_items: [{ description: '', qty: 1, unit_price: 0 }], discount_pct: 0, tax_pct: 18, valid_until: '', notes: '' });
+//  Purchase Form Modal 
+function PurchaseModal({ onClose, onDone }) {
+  const [form, setForm] = useState({ vendor_name: '', description: '', case_number: '', amount: '', tax_amt: '', purchase_date: new Date().toISOString().slice(0, 10), notes: '',
+    add_to_inventory: false,
+    inv_stock_number: '', inv_category: 'hdd', inv_company: '',
+    inv_brand: '', inv_model: '', inv_serial_number: '',
+    inv_quantity: 1, inv_min_quantity: 1,
+    inv_condition: 'new', inv_status: 'available',
+    inv_location: '', inv_name: '', inv_notes: '' });
   const [loading, setLoading] = useState(false);
-  const subtotal = form.line_items.reduce((s, l) => s + (l.qty || 1) * (l.unit_price || 0), 0);
-  const discountAmt = Math.round(subtotal * (form.discount_pct || 0) / 100);
-  const taxAmt = Math.round((subtotal - discountAmt) * (form.tax_pct || 18) / 100);
-  const total = subtotal - discountAmt + taxAmt;
+  const total = (parseFloat(form.amount) || 0) + (parseFloat(form.tax_amt) || 0);
 
   const handle = async () => {
     setLoading(true);
-    try {
-      if (isEdit) await accountingApi.updateQuote(existing.id, form);
-      else await accountingApi.createQuote(form);
-      onDone(); onClose();
-    } catch (err) { alert(err.message); } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-xl" onClick={e => e.stopPropagation()}>
-        <div className="modal-header"><h3 className="modal-title">{isEdit ? ' Edit Quote' : '+ New Quote / Estimate'}</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
-        <div className="modal-body">
-          <div className="form-row form-row-2">
-            <div className="form-group"><label className="form-label required">Quote Title</label><input className="form-input" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. HDD Recovery — WD Blue" /></div>
-            <div className="form-group"><label className="form-label">Case Number</label><input className="form-input" value={form.case_number || ''} onChange={e => setForm({ ...form, case_number: e.target.value })} placeholder="DR-2026-XXXXX" /></div>
-          </div>
-          <div className="form-row form-row-2">
-            <div className="form-group"><label className="form-label required">Client Name</label><input className="form-input" value={form.client_name} onChange={e => setForm({ ...form, client_name: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label">Company</label><input className="form-input" value={form.company || ''} onChange={e => setForm({ ...form, company: e.target.value })} /></div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Line Items</label>
-            <LineItemsEditor items={form.line_items} onChange={li => setForm({ ...form, line_items: li })} />
-          </div>
-          <div className="form-row form-row-3">
-            <div className="form-group"><label className="form-label">Discount (%)</label><input type="number" className="form-input" min="0" max="100" value={form.discount_pct} onChange={e => setForm({ ...form, discount_pct: parseFloat(e.target.value) || 0 })} /></div>
-            <div className="form-group"><label className="form-label">GST (%)</label><input type="number" className="form-input" min="0" value={form.tax_pct} onChange={e => setForm({ ...form, tax_pct: parseFloat(e.target.value) || 18 })} /></div>
-            <div className="form-group"><label className="form-label">Valid Until</label><input type="date" className="form-input" value={form.valid_until || ''} onChange={e => setForm({ ...form, valid_until: e.target.value })} /></div>
-          </div>
-          <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes || ''} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
-          {/* Totals preview */}
-          <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', padding: '14px 18px', display: 'flex', justifyContent: 'flex-end' }}>
-            <div style={{ width: 260, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
-              {discountAmt > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--status-success)' }}><span>Discount ({form.discount_pct}%)</span><span>—{fmt(discountAmt)}</span></div>}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)' }}><span>GST ({form.tax_pct}%)</span><span>{fmt(taxAmt)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 800, color: 'var(--accent-primary)', marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--border-default)' }}><span>Total</span><span>{fmt(total)}</span></div>
-            </div>
-          </div>
-        </div>
-        <div className="modal-footer"><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={loading || !form.title || !form.client_name} onClick={handle}>{loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving…</> : isEdit ? ' Update Quote' : '+ Create Quote'}</button></div>
-      </div>
-    </div>
-  );
-}
-
-//  Convert to Invoice Modal 
-function ConvertModal({ quote, onClose, onDone }) {
-  const [form, setForm] = useState({ client_address: '', client_gstin: '' });
-  const [loading, setLoading] = useState(false);
-  const handle = async () => {
-    setLoading(true);
-    try { await accountingApi.convertToInvoice(quote.id, form); onDone(); onClose(); }
+    try { await accountingApi.createPurchase(form); onDone(); onClose(); }
     catch (err) { alert(err.message); } finally { setLoading(false); }
   };
+
+  const toggleInv = () => {
+    if (form.add_to_inventory) {
+      setForm({ ...form, add_to_inventory: false });
+    } else {
+      const autoStock = form.description?.replace(/[^a-zA-Z0-9]/g,'_').toUpperCase().slice(0,20) || `PUR-${Date.now()}`;
+      setForm({ ...form, add_to_inventory: true, inv_stock_number: autoStock, inv_name: form.description });
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header"><h3 className="modal-title"> Convert to Invoice — {quote.quote_number}</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
-        <div className="modal-body">
-          <div className="alert alert-info" style={{ marginBottom: 16 }}><span className="alert-icon">ℹ</span><div>An invoice will be generated from this quote for <strong>{fmt(quote.total)}</strong> due in 15 days.</div></div>
-          <div className="form-group"><label className="form-label">Client Address</label><textarea className="form-textarea" style={{ minHeight: 60 }} value={form.client_address} onChange={e => setForm({ ...form, client_address: e.target.value })} placeholder="Full billing address" /></div>
-          <div className="form-group"><label className="form-label">Client GSTIN (optional)</label><input className="form-input" value={form.client_gstin} onChange={e => setForm({ ...form, client_gstin: e.target.value })} placeholder="27XXXXX1234X1ZA" /></div>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 640 }}>
+        <div className="modal-header"><h3 className="modal-title">+ New Purchase</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
+        <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+          <div className="form-row form-row-2">
+            <div className="form-group"><label className="form-label required">Vendor / Supplier</label><input className="form-input" value={form.vendor_name} onChange={e => setForm({...form, vendor_name: e.target.value})} placeholder="e.g. TechParts India" /></div>
+            <div className="form-group"><label className="form-label required">Date</label><input type="date" className="form-input" value={form.purchase_date} onChange={e => setForm({...form, purchase_date: e.target.value})} /></div>
+          </div>
+          <div className="form-group"><label className="form-label required">Description</label><input className="form-input" value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="e.g. Donor drive Seagate 1TB" /></div>
+          <div className="form-group"><label className="form-label">Case Number (optional)</label><input className="form-input" value={form.case_number} onChange={e => setForm({...form, case_number: e.target.value})} placeholder="DR-2026-XXXXX" /></div>
+          <div className="form-row form-row-2">
+            <div className="form-group"><label className="form-label required">Amount (₹)</label><input type="number" className="form-input" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></div>
+            <div className="form-group"><label className="form-label">Tax / GST (₹)</label><input type="number" className="form-input" value={form.tax_amt} onChange={e => setForm({...form, tax_amt: e.target.value})} /></div>
+          </div>
+          <div style={{ background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',padding:'10px 14px',marginBottom:16,display:'flex',justifyContent:'space-between' }}>
+            <span className="text-xs text-muted">Total</span><span className="font-mono" style={{ fontWeight:800,color:'var(--accent-primary)' }}>{fmt(total)}</span>
+          </div>
+          <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" style={{ minHeight:50 }} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} /></div>
+
+          {/* Toggle: Add to Inventory */}
+          <label style={{ display:'flex',alignItems:'center',gap:8,cursor:'pointer',marginTop:12,padding:'8px 0',borderTop:'1px solid var(--border-subtle)' }}>
+            <input type="checkbox" checked={form.add_to_inventory} onChange={toggleInv} />
+            <span style={{ fontWeight:600,fontSize:'0.85rem' }}>📦 Also add as Inventory item</span>
+          </label>
+
+          {form.add_to_inventory && (
+            <div style={{ marginTop:8,padding:12,background:'var(--bg-elevated)',borderRadius:'var(--radius-md)' }}>
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label required">Category</label>
+                  <select className="form-select" value={form.inv_category} onChange={e => setForm({...form, inv_category: e.target.value})}>
+                    <option value="hdd">HDD</option>
+                    <option value="ssd">SSD</option>
+                    <option value="pcb">PCB</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div className="form-group"><label className="form-label required">Stock Number</label><input className="form-input" value={form.inv_stock_number} onChange={e => setForm({...form, inv_stock_number: e.target.value})} placeholder="Unique stock ID" /></div>
+              </div>
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label">Company / Manufacturer</label>
+                  <select className="form-select" value={form.inv_company} onChange={e => setForm({...form, inv_company: e.target.value, inv_brand: e.target.value !== 'Other' ? e.target.value : form.inv_brand})}>
+                    <option value="">Select Company…</option>
+                    {['Western Digital','Seagate','Toshiba','Samsung','Hitachi','Other'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="form-group"><label className="form-label">{form.inv_company === 'Other' ? 'Custom Brand Name' : 'Brand'}</label>
+                  {form.inv_company === 'Other'
+                    ? <input className="form-input" value={form.inv_brand} onChange={e => setForm({...form, inv_brand: e.target.value})} placeholder="Enter brand name" />
+                    : <input className="form-input" value={form.inv_brand || form.inv_company} readOnly />}
+                </div>
+              </div>
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label">Model / Part No.</label><input className="form-input" value={form.inv_model} onChange={e => setForm({...form, inv_model: e.target.value})} placeholder="e.g. WD10EZEX" /></div>
+                <div className="form-group"><label className="form-label">Serial Number</label><input className="form-input" value={form.inv_serial_number} onChange={e => setForm({...form, inv_serial_number: e.target.value})} placeholder="Enter serial number" /></div>
+              </div>
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label">Condition</label>
+                  <select className="form-select" value={form.inv_condition} onChange={e => setForm({...form, inv_condition: e.target.value})}>
+                    <option value="new">New (Unused)</option>
+                    <option value="used">Used / Working</option>
+                    <option value="refurb">Refurbished</option>
+                    <option value="for_parts">For Parts / Faulty</option>
+                    <option value="untested">Untested</option>
+                  </select>
+                </div>
+                <div className="form-group"><label className="form-label">Status</label>
+                  <select className="form-select" value={form.inv_status} onChange={e => setForm({...form, inv_status: e.target.value})}>
+                    <option value="available">Available</option>
+                    <option value="reserved">Reserved</option>
+                    <option value="used">Used / Consumed</option>
+                    <option value="damaged">Damaged</option>
+                    <option value="donated">Donated to Case</option>
+                  </select>
+                </div>
+              </div>
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label">Quantity</label><input type="number" className="form-input" value={form.inv_quantity} onChange={e => setForm({...form, inv_quantity: e.target.value})} min="1" /></div>
+                <div className="form-group"><label className="form-label">Min Stock Alert</label><input type="number" className="form-input" value={form.inv_min_quantity} onChange={e => setForm({...form, inv_min_quantity: e.target.value})} min="1" placeholder="Reorder threshold" /></div>
+              </div>
+              <div className="form-group"><label className="form-label">Shelf Location</label><input className="form-input" value={form.inv_location} onChange={e => setForm({...form, inv_location: e.target.value})} placeholder="e.g. Cabinet A, Row 3" /></div>
+              <div className="form-group"><label className="form-label">Notes / Problem</label><textarea className="form-textarea" style={{ minHeight:50 }} value={form.inv_notes} onChange={e => setForm({...form, inv_notes: e.target.value})} placeholder="Any additional notes" /></div>
+            </div>
+          )}
         </div>
-        <div className="modal-footer"><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={loading} onClick={handle}>{loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Creating…</> : ' Generate Invoice'}</button></div>
+        <div className="modal-footer"><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={loading || !form.vendor_name || !form.description || !form.amount || (form.add_to_inventory && !form.inv_stock_number)} onClick={handle}>{loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving…</> : '+ Add Purchase'}</button></div>
       </div>
     </div>
   );
 }
 
 //  Expense Form Modal 
-function ExpenseModal({ onClose, onDone }) {
-  const [form, setForm] = useState({ date: new Date().toISOString().slice(0, 10), category: 'consumables', description: '', vendor: '', amount: '', tax_amt: '', receipt_note: '' });
+function ExpenseModal({ onClose, onDone, edit }) {
+  const [form, setForm] = useState(edit || { date: new Date().toISOString().slice(0, 10), category: 'consumables', description: '', vendor: '', amount: '', tax_amt: '', receipt_note: '', case_number: '' });
   const [loading, setLoading] = useState(false);
   const handle = async () => {
     setLoading(true);
-    try { await accountingApi.createExpense(form); onDone(); onClose(); }
-    catch (err) { alert(err.message); } finally { setLoading(false); }
+    try {
+      if (edit?.id) { await accountingApi.updateExpense(edit.id, form); }
+      else { await accountingApi.createExpense(form); }
+      onDone(); onClose();
+    } catch (err) { alert(err.message); } finally { setLoading(false); }
   };
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header"><h3 className="modal-title">+ Record Expense</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
+        <div className="modal-header"><h3 className="modal-title">{edit?.id ? '✏️ Edit Expense' : '+ Record Expense'}</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
         <div className="modal-body">
           <div className="form-row form-row-2">
             <div className="form-group"><label className="form-label required">Date</label><input type="date" className="form-input" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
@@ -491,9 +564,10 @@ function ExpenseModal({ onClose, onDone }) {
             <div className="form-group"><label className="form-label">Tax / GST (₹)</label><input type="number" className="form-input" value={form.tax_amt} onChange={e => setForm({ ...form, tax_amt: e.target.value })} /></div>
             <div className="form-group"><label className="form-label">Total</label><input className="form-input" readOnly value={form.amount || form.tax_amt ? fmt((parseFloat(form.amount) || 0) + (parseFloat(form.tax_amt) || 0)) : ''} style={{ color: 'var(--accent-primary)', fontWeight: 700 }} /></div>
           </div>
+          <div className="form-group"><label className="form-label">Case Number (optional)</label><input className="form-input" value={form.case_number} onChange={e => setForm({ ...form, case_number: e.target.value })} placeholder="DR-2026-XXXXX" /></div>
           <div className="form-group"><label className="form-label">Receipt Note</label><input className="form-input" value={form.receipt_note} onChange={e => setForm({ ...form, receipt_note: e.target.value })} /></div>
         </div>
-        <div className="modal-footer"><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={loading || !form.description || !form.amount} onClick={handle}>{loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving…</> : '+ Add Expense'}</button></div>
+        <div className="modal-footer"><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={loading || !form.description || !form.amount} onClick={handle}>{loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving…</> : edit?.id ? 'Update' : '+ Add Expense'}</button></div>
       </div>
     </div>
   );
@@ -504,7 +578,7 @@ export default function AccountingPage() {
   const { canAccess } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
   const [summary, setSummary] = useState(null);
-  const [quotes, setQuotes] = useState([]);
+  const [purchases, setPurchases] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -519,11 +593,16 @@ export default function AccountingPage() {
     });
     const map = Object.fromEntries(days.map(d => [d.date, d]));
     invoices.forEach(inv => {
+<<<<<<< HEAD
       if (!inv) return;
       const paidDate = inv.invoice_date || inv.paid_at || inv.updated_at || inv.created_at;
+=======
+      if (!inv || inv.status !== 'paid') return;
+      const paidDate = inv.paid_at;
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
       const dayKey = paidDate ? paidDate.slice(0, 10) : null;
       if (!dayKey || !map[dayKey]) return;
-      map[dayKey].amount += parseFloat(inv.amount_paid ?? inv.total ?? 0) || 0;
+      map[dayKey].amount += parseFloat(inv.amount_paid || inv.total || 0) || 0;
     });
     return days;
   })();
@@ -554,30 +633,55 @@ export default function AccountingPage() {
   const overdueValue = getSummaryNumber('case_total_pending_overdue', 'overdueRevenue', 'overdue_revenue');
   const netProfitValue = getSummaryNumber('netProfit', 'net_profit') || totalRevenueValue - totalExpensesValue;
   // Modals
+<<<<<<< HEAD
   const [showQuoteForm, setShowQuoteForm] = useState(false);
   const [editQuote, setEditQuote] = useState(null);
   const [convertQuote, setConvertQuote] = useState(null);
+=======
+  const [showPurchaseForm, setShowPurchaseForm] = useState(false);
+  const [payInvoice, setPayInvoice] = useState(null);
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
   const [printInvoice, setPrintInvoice] = useState(null);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [editExpense, setEditExpense] = useState(null);
+  const [recycleBin, setRecycleBin] = useState({ expenses: [], purchases: [], invoices: [] });
+  const [showRecycleBin, setShowRecycleBin] = useState(false);
+
+  const loadRecycleBin = useCallback(async (type) => {
+    try {
+      if (type === 'expenses' || !type) {
+        const r = await accountingApi.listExpensesRecycleBin();
+        setRecycleBin(prev => ({ ...prev, expenses: r.expenses || [] }));
+      }
+      if (type === 'purchases' || !type) {
+        const r = await accountingApi.listPurchasesRecycleBin();
+        setRecycleBin(prev => ({ ...prev, purchases: r.purchases || [] }));
+      }
+      if (type === 'invoices' || !type) {
+        const r = await accountingApi.listInvoicesRecycleBin();
+        setRecycleBin(prev => ({ ...prev, invoices: r.invoices || [] }));
+      }
+    } catch (e) { console.error('Recycle bin load error:', e); }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, q, inv, exp] = await Promise.all([
+      const [s, p, inv, exp] = await Promise.all([
         accountingApi.summary(),
-        accountingApi.listQuotes({ search, status: statusFilter }),
+        accountingApi.listPurchases({ search }),
         accountingApi.listInvoices({ search, status: statusFilter }),
         accountingApi.listExpenses({ search }),
       ]);
-      setSummary(s); setQuotes(q.quotes || []); setInvoices(inv.invoices || []); setExpenses(exp.expenses || []);
+      setSummary(s); setPurchases(p.purchases || []); setInvoices(inv.invoices || []); setExpenses(exp.expenses || []);
     } catch (e) { console.error(e); } finally { setLoading(false); }
   }, [search, statusFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); loadRecycleBin(); }, [load, loadRecycleBin]);
 
   const TABS = [
     { key: 'overview', label: ' Overview' },
-    { key: 'quotes', label: ` Quotes (${quotes.length})` },
+    { key: 'purchases', label: ` Purchases (${purchases.length})` },
     { key: 'invoices', label: ` Invoices (${invoices.length})` },
     { key: 'expenses', label: ` Expenses (${expenses.length})` },
   ];
@@ -588,18 +692,32 @@ export default function AccountingPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h2 style={{ marginBottom: 4 }}>Accounting</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Quotes, Invoices, Payments & Expenses</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>Purchases, Invoices, Payments & Expenses</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          {canAccess('junior_engineer') && activeTab === 'quotes' && <button className="btn btn-primary" onClick={() => setShowQuoteForm(true)}>+ New Quote</button>}
-          {canAccess('junior_engineer') && activeTab === 'expenses' && <button className="btn btn-primary" onClick={() => setShowExpenseForm(true)}>+ Record Expense</button>}
-          {canAccess('junior_engineer') && activeTab === 'invoices' && <button className="btn btn-secondary" onClick={() => setShowQuoteForm(true)}>+ Quote → Invoice</button>}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {canAccess('junior_engineer') && activeTab === 'purchases' && <button className="btn btn-primary" onClick={() => setShowPurchaseForm(true)}>+ New Purchase</button>}
+            {canAccess('junior_engineer') && activeTab === 'expenses' && <button className="btn btn-primary" onClick={() => setShowExpenseForm(true)}>+ Record Expense</button>}
+          </div>
+          {['purchases', 'invoices', 'expenses'].includes(activeTab) && (() => {
+            const count = recycleBin[activeTab]?.length || 0;
+            return (
+              <button
+                onClick={() => { setShowRecycleBin(true); loadRecycleBin(activeTab); }}
+                title="Recycle Bin — View deleted items"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, color: count > 0 ? '#ef4444' : 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                <IconTrash />
+                Recycle Bin{count > 0 && <span style={{ background: '#ef4444', color: '#fff', borderRadius: 99, padding: '1px 6px', fontSize: '0.65rem', fontWeight: 700, marginLeft: 2 }}>{count}</span>}
+              </button>
+            );
+          })()}
         </div>
       </div>
 
       {/* Tabs */}
       <div className="tabs" style={{ marginBottom: 24 }}>
-        {TABS.map(t => <button key={t.key} className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => { setActiveTab(t.key); setSearch(''); setStatusFilter(''); }}>{t.label}</button>)}
+        {TABS.map(t => <button key={t.key} className={`tab-btn ${activeTab === t.key ? 'active' : ''}`} onClick={() => { setActiveTab(t.key); setSearch(''); setStatusFilter(''); loadRecycleBin(t.key !== 'overview' ? t.key : undefined); }}>{t.label}</button>)}
       </div>
 
       {/*  OVERVIEW  */}
@@ -707,21 +825,18 @@ export default function AccountingPage() {
         </div>
       )}
 
-      {/*  QUOTES  */}
-      {activeTab === 'quotes' && (
+      {/*  PURCHASES  */}
+      {activeTab === 'purchases' && (
         <div>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-            <div className="search-bar"><span className="search-icon"></span><input className="search-input" placeholder="Search quotes…" value={search} onChange={e => setSearch(e.target.value)} /></div>
-            <select className="form-select" style={{ width: 'auto', fontSize: '0.8rem' }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-              <option value="">All Statuses</option>
-              {Object.keys(Q_STATUS).map(s => <option key={s} value={s}>{Q_STATUS[s].label}</option>)}
-            </select>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+            <div className="search-bar"><span className="search-icon"></span><input className="search-input" placeholder="Search purchases…" value={search} onChange={e => setSearch(e.target.value)} /></div>
           </div>
           <div className="table-container">
             <table>
-              <thead><tr><th>Quote #</th><th>Client</th><th>Title</th><th>Total</th><th>Valid Until</th><th>Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Purchase #</th><th>Vendor</th><th>Description</th><th>Case</th><th>Amount</th><th>Date</th><th></th></tr></thead>
               <tbody>
                 {loading ? <tr><td colSpan={7}><div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" /></div></td></tr>
+<<<<<<< HEAD
                   : quotes.length === 0 ? <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No quotes found</div></div></td></tr>
                     : quotes.map(q => (
                       <tr key={q.id}>
@@ -742,10 +857,31 @@ export default function AccountingPage() {
                             {q.status === 'draft' && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm('Delete this quote?')) { await accountingApi.deleteQuote(q.id); load(); } }}>✕</button>}
                           </div>
                         </td>
+=======
+                  : purchases.length === 0 ? <tr><td colSpan={7}><div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No purchases recorded</div></div></td></tr>
+                    : purchases.map(p => (
+                      <tr key={p.id}>
+                        <td><span className="font-mono text-xs" style={{ color: 'var(--accent-primary)' }}>{p.purchase_number}</span></td>
+                        <td><div style={{ fontWeight: 600 }}>{p.vendor_name}</div></td>
+                        <td style={{ maxWidth: 250 }}><div style={{ fontSize: '0.82rem' }}>{p.description}</div></td>
+                        <td className="text-xs font-mono text-muted">{p.case_number || '—'}</td>
+                        <td><span className="font-mono" style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{fmt(p.total)}</span></td>
+                        <td className="text-xs text-muted">{fmtDate(p.purchase_date)}</td>
+                        <td>{canAccess('admin') && (
+                          <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move this purchase to recycle bin? The linked expense will also be moved.')) { await accountingApi.deletePurchase(p.id); load(); loadRecycleBin('purchases'); } }}>
+                            <IconTrash />
+                          </button>
+                        )}</td>
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
                       </tr>
                     ))}
               </tbody>
             </table>
+            {purchases.length > 0 && (
+              <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 24 }}>
+                <span className="text-xs text-muted">Total Purchases: <strong style={{ color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>{fmt(purchases.reduce((s, p) => s + parseFloat(p.total || 0), 0))}</strong></span>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -776,11 +912,23 @@ export default function AccountingPage() {
                         <td><span className={`text-xs ${inv.status === 'overdue' ? '' : 'text-muted'}`} style={inv.status === 'overdue' ? { color: 'var(--status-danger)', fontWeight: 700 } : {}}>{fmtDate(inv.due_date)}</span></td>
                         <td><StatusBadge status={inv.status} map={I_STATUS} /></td>
                         <td>
+<<<<<<< HEAD
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             <button className="btn btn-ghost btn-sm" onClick={() => downloadInvoicePdf(inv)}> Download</button>
                             <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}> Print</button>
                             <button className="btn btn-secondary btn-sm" onClick={() => printCourierSlip(inv)}> Courier</button>
                             {inv.status !== 'paid' && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm('Delete invoice?')) { await accountingApi.deleteInvoice(inv.id); load(); } }}>✕</button>}
+=======
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}>🖨 Print</button>
+                            <button className="btn btn-secondary btn-sm" onClick={() => printCourierSlip(inv)}>📦 Courier</button>
+                            {['unpaid', 'overdue', 'partial'].includes(inv.status) && <button className="btn btn-primary btn-sm" onClick={() => setPayInvoice(inv)}>💳 Pay</button>}
+                            {inv.status !== 'paid' && (
+                              <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move invoice to recycle bin?')) { await accountingApi.deleteInvoice(inv.id); load(); loadRecycleBin('invoices'); } }}>
+                                <IconTrash />
+                              </button>
+                            )}
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
                           </div>
                         </td>
                       </tr>
@@ -799,27 +947,45 @@ export default function AccountingPage() {
           </div>
           <div className="table-container">
             <table>
-              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Vendor</th><th>Amount</th><th>Tax</th><th>Total</th><th></th></tr></thead>
+              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Vendor</th><th>Case</th><th>Amount</th><th>Tax</th><th>Total</th><th></th></tr></thead>
               <tbody>
-                {loading ? <tr><td colSpan={8}><div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" /></div></td></tr>
-                  : expenses.length === 0 ? <tr><td colSpan={8}><div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No expenses recorded</div></div></td></tr>
+                {loading ? <tr><td colSpan={9}><div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}><div className="spinner" /></div></td></tr>
+                  : expenses.length === 0 ? <tr><td colSpan={9}><div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No expenses recorded</div></div></td></tr>
                     : expenses.map(exp => (
                       <tr key={exp.id}>
                         <td className="text-xs font-mono">{fmtDate(exp.date)}</td>
                         <td><span style={{ fontSize: '0.7rem', padding: '2px 7px', borderRadius: 999, background: 'rgba(124,58,237,0.1)', color: '#a78bfa', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>{exp.category?.replace('_', ' ')}</span></td>
                         <td><div style={{ fontWeight: 500 }}>{exp.description}</div>{exp.receipt_note && <div className="text-xs text-muted">{exp.receipt_note}</div>}</td>
                         <td className="text-xs text-muted">{exp.vendor || '—'}</td>
+                        <td className="text-xs font-mono">{exp.case_number || '—'}</td>
                         <td className="font-mono text-xs">{fmt(exp.amount)}</td>
                         <td className="font-mono text-xs text-muted">{exp.tax_amt > 0 ? fmt(exp.tax_amt) : '—'}</td>
                         <td><span className="font-mono" style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{fmt(exp.total)}</span></td>
+<<<<<<< HEAD
                         <td>{canAccess('admin') && <button className="btn btn-danger btn-sm" onClick={async () => { if (confirm('Delete expense?')) { await accountingApi.deleteExpense(exp.id); load(); } }}>✕</button>}</td>
+=======
+                        <td>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            {canAccess('staff') && (
+                              <button title="Edit" style={iconBtnStyle('ghost')} onClick={() => { setEditExpense(exp); setShowExpenseForm(true); }}>
+                                <IconEdit />
+                              </button>
+                            )}
+                            {canAccess('admin') && (
+                              <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move expense to recycle bin?')) { await accountingApi.deleteExpense(exp.id); load(); loadRecycleBin('expenses'); } }}>
+                                <IconTrash />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
                       </tr>
                     ))}
               </tbody>
             </table>
             {expenses.length > 0 && (
               <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: 24 }}>
-                <span className="text-xs text-muted">Total Expenses: <strong style={{ color: '#f472b6', fontFamily: 'var(--font-mono)' }}>{fmt(expenses.reduce((s, e) => s + e.total, 0))}</strong></span>
+                <span className="text-xs text-muted">Total Expenses: <strong style={{ color: '#f472b6', fontFamily: 'var(--font-mono)' }}>{fmt(expenses.reduce((s, e) => s + parseFloat(e.total || 0), 0))}</strong></span>
               </div>
             )}
           </div>
@@ -827,10 +993,99 @@ export default function AccountingPage() {
       )}
 
       {/* Modals */}
+<<<<<<< HEAD
       {showQuoteForm && <QuoteFormModal existing={editQuote} onClose={() => { setShowQuoteForm(false); setEditQuote(null); }} onDone={load} />}
       {convertQuote && <ConvertModal quote={convertQuote} onClose={() => setConvertQuote(null)} onDone={() => { load(); setActiveTab('invoices'); }} />}
+=======
+      {showPurchaseForm && <PurchaseModal onClose={() => setShowPurchaseForm(false)} onDone={load} />}
+      {payInvoice && <RecordPaymentModal invoice={payInvoice} onClose={() => setPayInvoice(null)} onDone={load} />}
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
       {printInvoice && <InvoicePrintModal invoice={printInvoice} onClose={() => setPrintInvoice(null)} />}
-      {showExpenseForm && <ExpenseModal onClose={() => setShowExpenseForm(false)} onDone={load} />}
+      {showExpenseForm && <ExpenseModal edit={editExpense} onClose={() => { setShowExpenseForm(false); setEditExpense(null); }} onDone={load} />}
+
+      {/* Recycle Bin Modal */}
+      {showRecycleBin && (
+        <div className="modal-overlay" onClick={() => setShowRecycleBin(false)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 780 }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <IconTrash />
+                <h3 className="modal-title">Recycle Bin — {activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h3>
+                {recycleBin[activeTab]?.length > 0 && (
+                  <span style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', borderRadius: 99, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700 }}>
+                    {recycleBin[activeTab].length} item{recycleBin[activeTab].length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowRecycleBin(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ padding: 0 }}>
+              {!recycleBin[activeTab]?.length ? (
+                <div className="empty-state" style={{ padding: 48 }}>
+                  <div className="empty-icon">🗑️</div>
+                  <div className="empty-title">Recycle Bin is Empty</div>
+                  <div className="empty-desc">No deleted {activeTab} found</div>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-default)' }}>
+                      <th style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem' }}>Description / #</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem' }}>Vendor / Client</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem' }}>Amount</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem' }}>Deleted On</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'center', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.75rem' }}>Restore</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recycleBin[activeTab].map(item => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '10px 16px' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                            {item.description || item.title || '—'}
+                          </div>
+                          {(item.purchase_number || item.invoice_number) && (
+                            <div className="text-xs text-muted font-mono">{item.purchase_number || item.invoice_number}</div>
+                          )}
+                          {item.category && (
+                            <span style={{ fontSize: '0.68rem', padding: '1px 6px', borderRadius: 3, background: 'rgba(124,58,237,0.1)', color: '#a78bfa', marginTop: 2, display: 'inline-block' }}>{item.category}</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 16px', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                          {item.vendor_name || item.vendor || item.client_name || '—'}
+                          {item.status && <div style={{ marginTop: 2 }}><StatusBadge status={item.status} map={I_STATUS} /></div>}
+                        </td>
+                        <td style={{ padding: '10px 16px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {fmt(item.total || item.amount || 0)}
+                        </td>
+                        <td style={{ padding: '10px 16px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {fmtDate(item.deleted_at)}
+                        </td>
+                        <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                            onClick={async () => {
+                              try {
+                                if (activeTab === 'expenses') await accountingApi.restoreExpense(item.id);
+                                else if (activeTab === 'purchases') await accountingApi.restorePurchase(item.id);
+                                else if (activeTab === 'invoices') await accountingApi.restoreInvoice(item.id);
+                                load(); loadRecycleBin(activeTab);
+                              } catch (err) { alert(err.message); }
+                            }}
+                          >
+                            <IconRestore /> Restore
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

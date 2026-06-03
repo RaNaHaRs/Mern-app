@@ -4,6 +4,7 @@ const { pool } = require('../config/database');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const { migrateInventoryCasesIntegration } = require('./migrations/inventory_cases_integration');
 
 async function migrate() {
 
@@ -185,15 +186,23 @@ async function migrate() {
       console.warn('⚠️  Case soft delete migration warning (non-fatal):', softDeleteErr.message);
     }
 
+    // Ensure stock_number column exists on inventory_items before tenant migration
+    try {
+      await client.query("ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS stock_number VARCHAR(100)");
+    } catch (stockErr) {
+      console.warn('⚠️  stock_number column addition warning (non-fatal):', stockErr.message);
+    }
+
     try {
       const unifiedTenantSchema = fs.readFileSync(
         path.join(__dirname, 'migrations', '016_unified_tenant_id.sql'),
         'utf8'
       );
       await client.query(unifiedTenantSchema);
-      console.log('âœ… Unified tenant_id migration applied');
+      console.log('✅ Unified tenant_id migration applied');
     } catch (unifiedTenantErr) {
-      console.warn('âš ï¸  Unified tenant_id migration warning (non-fatal):', unifiedTenantErr.message);
+      console.warn('⚠️  Unified tenant_id migration warning (non-fatal):', unifiedTenantErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
     }
 
     try {
@@ -205,6 +214,7 @@ async function migrate() {
       console.log('✅ Assigned admin migration applied');
     } catch (assignedAdminErr) {
       console.warn('⚠️  Assigned admin migration warning (non-fatal):', assignedAdminErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
     }
 
     try {
@@ -227,6 +237,75 @@ async function migrate() {
       console.log('✅ Case stage enum conversion migration applied');
     } catch (caseStageErr) {
       console.warn('⚠️  Case stage migration warning (non-fatal):', caseStageErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+
+    try {
+      const purchasesSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '021_create_accounting_purchases.sql'),
+        'utf8'
+      );
+      await client.query(purchasesSchema);
+      console.log('✅ Accounting purchases migration applied');
+    } catch (purchasesErr) {
+      console.warn('⚠️  Accounting purchases migration warning (non-fatal):', purchasesErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+
+    try {
+      const discountCaseSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '022_add_discount_and_case_id.sql'),
+        'utf8'
+      );
+      await client.query(discountCaseSchema);
+      console.log('✅ Payments discount fields & invoice case_id migration applied');
+    } catch (discountCaseErr) {
+      console.warn('⚠️  Payments discount / invoice case_id migration warning (non-fatal):', discountCaseErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+
+    try {
+      const caseIdExpSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '023_add_case_id_to_expenses.sql'),
+        'utf8'
+      );
+      await client.query(caseIdExpSchema);
+      console.log('✅ Case ID added to accounting_expenses migration applied');
+    } catch (caseIdExpErr) {
+      console.warn('⚠️  Case ID to expenses migration warning (non-fatal):', caseIdExpErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+
+    try {
+      const invItemPurchSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '024_add_inventory_item_id_to_purchases.sql'),
+        'utf8'
+      );
+      await client.query(invItemPurchSchema);
+      console.log('✅ Inventory item ID added to accounting_purchases migration applied');
+    } catch (invItemPurchErr) {
+      console.warn('⚠️  Inventory item to purchases migration warning (non-fatal):', invItemPurchErr.message);
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+
+    try {
+      const clientFieldsSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '025_add_client_missing_fields.sql'),
+        'utf8'
+      );
+      await client.query(clientFieldsSchema);
+      console.log('✅ Client missing fields (state, pincode, whatsapp, middle_name) migration applied');
+    } catch (clientFieldsErr) {
+      console.warn('⚠️  Client fields migration warning (non-fatal):', clientFieldsErr.message);
+    }
+
+    // =========================================================
+    // INVENTORY ↔ CASES INTEGRATION TABLES
+    // =========================================================
+    try {
+      await migrateInventoryCasesIntegration();
+    } catch (invCasesErr) {
+      console.warn('⚠️  Inventory-cases integration migration warning (non-fatal):', invCasesErr.message);
     }
 
     const hasRoleEnum = await client.query("SELECT 1 FROM pg_type WHERE typname = 'user_role'");

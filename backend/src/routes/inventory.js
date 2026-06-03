@@ -1,4 +1,5 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
@@ -386,6 +387,48 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
       }
     }
 
+    // Auto-create purchase + expense if unit_cost is set
+    if (item.unit_cost && parseFloat(item.unit_cost) > 0) {
+      try {
+        const total = parseFloat(item.unit_cost) * (parseInt(item.quantity, 10) || 1);
+        const numResult = await query('SELECT COUNT(*) FROM accounting_purchases');
+        const count = parseInt(numResult.rows[0].count, 10) || 0;
+        const seq = String(count + 1).padStart(4, '0');
+        const purchaseNumber = `PUR-${new Date().getFullYear()}-${seq}`;
+        const vendor = item.company || item.brand || 'Inventory Purchase';
+
+        await transaction(async (client) => {
+          const pRes = await client.query(
+            `INSERT INTO accounting_purchases
+               (purchase_number, vendor_name, description, amount, total, purchase_date, notes, created_by, tenant_id, inventory_item_id, case_id, case_number)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+            [purchaseNumber, vendor, `[Inventory] ${item.name} (${item.stock_number || item.sku})`,
+             item.unit_cost, total, new Date().toISOString().slice(0, 10),
+             `Auto-created from inventory item ${item.stock_number || item.sku}`,
+             req.user.id, tenantAdminId(req.user), item.id,
+             item.reserved_for_case || item.source_case_id || null, null]
+          );
+
+          await client.query(
+            `INSERT INTO accounting_expenses
+               (date, category, description, vendor, amount, total, receipt_note, created_by, tenant_id, purchase_id, case_id, case_number)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [new Date().toISOString().slice(0, 10), 'consumables',
+             `[Purchase ${purchaseNumber}] ${item.name}`, vendor,
+             item.unit_cost, total,
+             `Auto-created from inventory item ${item.stock_number || item.sku}`,
+             req.user.id, tenantAdminId(req.user), pRes.rows[0].id,
+             item.reserved_for_case || item.source_case_id || null, null]
+          );
+        });
+        console.log(`✅ Auto-created purchase ${purchaseNumber} for inventory item ${item.stock_number || item.sku}`);
+      } catch (err) {
+        console.error('❌ Auto purchase/expense creation failed:', err.message);
+      }
+    } else {
+      console.log(`ℹ️  No purchase created — unit_cost: ${item.unit_cost}, parseFloat: ${parseFloat(item.unit_cost || 0)}`);
+    }
+
     await recordTransfer(req, item, body);
     const { labeled } = await loadCustomFieldValues(item.id);
     res.status(201).json(formatItemRow({ ...item, custom_fields_display: labeled }));
@@ -413,7 +456,7 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
         serial_number=$5, pcb_number=$6, head_map=$7,
         quantity=COALESCE($8,quantity), min_quantity=COALESCE($9,min_quantity),
         unit_cost=$10, location=$11, condition=COALESCE($12,condition),
-        notes=$13, storage_model_id=$14, reserved_for_case=$15, health=$16,
+        notes=COALESCE($13,notes), storage_model_id=$14, reserved_for_case=$15, health=$16,
         firmware_version=$17, firmware=$18,
         company=$19, brand=$20, model=$21,
         site_code=$22, date_code=$23, family=$24,
@@ -431,7 +474,7 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
         body.min_quantity != null ? parseInt(body.min_quantity, 10) : null,
         body.unit_cost || null, body.location || null,
         body.condition || null,
-        isOtherCatPayload(body) ? (body.notes || null) : null,
+        body.notes !== undefined ? (body.notes || null) : null,
         body.storage_model_id || null,
         body.reserved_for_case || null, body.health || null,
         built.firmware, built.firmware,
@@ -447,9 +490,36 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
     );
 
     if (!result.rows.length) return res.status(404).json({ error: 'Item not found' });
+    const updated = result.rows[0];
     await saveInventoryCustomFields(req.params.id, body.customFieldValues);
+
+    // Sync unit_cost change to linked purchase & expense
+    if (updated.unit_cost) {
+      try {
+        const linkedPurchases = await query(
+          `SELECT id FROM accounting_purchases WHERE inventory_item_id=$1 LIMIT 1`,
+          [req.params.id]
+        );
+        if (linkedPurchases.rows.length) {
+          const pId = linkedPurchases.rows[0].id;
+          const qty = parseInt(updated.quantity, 10) || 1;
+          const newTotal = parseFloat(updated.unit_cost) * qty;
+          await query(
+            `UPDATE accounting_purchases SET amount=$1, total=$2, updated_at=NOW() WHERE id=$3`,
+            [updated.unit_cost, newTotal, pId]
+          );
+          await query(
+            `UPDATE accounting_expenses SET amount=$1, total=$2 WHERE purchase_id=$3`,
+            [updated.unit_cost, newTotal, pId]
+          );
+        }
+      } catch (syncErr) {
+        console.error('❌ Failed to sync purchase/expense with inventory update:', syncErr.message);
+      }
+    }
+
     const { labeled } = await loadCustomFieldValues(req.params.id);
-    res.json(formatItemRow({ ...result.rows[0], custom_fields_display: labeled }));
+    res.json(formatItemRow({ ...updated, custom_fields_display: labeled }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -482,6 +552,31 @@ router.patch('/:id/quantity', requireMinRole('junior_engineer'), auditLog('adjus
       );
     } catch (err) {
       console.log('Transaction insert failed (non-blocking):', err.message);
+    }
+
+    // Link purchase/expense to case when stock is consumed
+    if (type === 'out' && case_id && itemResult.rows[0].unit_cost) {
+      try {
+        const caseRes = await query('SELECT case_number FROM cases WHERE id=$1', [case_id]);
+        if (caseRes.rows.length) {
+          await transaction(async (client) => {
+            const pRes = await client.query(
+              `UPDATE accounting_purchases SET case_id=$1, case_number=$2
+               WHERE inventory_item_id=$3 AND case_id IS NULL RETURNING id`,
+              [case_id, caseRes.rows[0].case_number, req.params.id]
+            );
+            if (pRes.rows.length) {
+              await client.query(
+                `UPDATE accounting_expenses SET case_id=$1, case_number=$2
+                 WHERE purchase_id=$3`,
+                [case_id, caseRes.rows[0].case_number, pRes.rows[0].id]
+              );
+            }
+          });
+        }
+      } catch (err) {
+        console.log('Link purchase to case failed (non-blocking):', err.message);
+      }
     }
 
     res.json({ id: req.params.id, newQuantity: newQty });
@@ -584,10 +679,10 @@ router.post('/import', requireMinRole('admin'), async (req, res) => {
             serial_number, pcb_number, firmware, firmware_version,
             condition, quantity, min_quantity, unit_cost, location, notes,
             company, brand, model, capacity, dynamic_fields, tenant_id, added_by
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
           [
             sku, stockNumber, itemName, built.mappedCategory, built.uiCategory,
-            built.serial_number, built.pcb_number, built.firmware,
+            built.serial_number, built.pcb_number, built.firmware, built.firmware,
             row.condition || 'used', parseInt(row.quantity, 10) || 0,
             parseInt(row.min_quantity, 10) || 1, row.unit_cost || null,
             row.location || null, row.notes || null,
@@ -995,6 +1090,212 @@ router.post('/:id/revoke-transfer', requireMinRole('junior_engineer'), auditLog(
       message: 'Transfer revoked successfully',
       item: formatItemRow({ ...item.rows[0], custom_fields_display: labeled }),
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// INVENTORY ↔ CASES INTEGRATION ENDPOINTS
+// ============================================================
+
+// PUT /api/inventory/:itemId/cost-info — Update vendor and cost information
+router.put('/:itemId/cost-info',
+  requireMinRole('staff'),
+  [
+    body('vendor').optional().trim(),
+    body('purchase_cost').optional().isDecimal(),
+    body('unit_cost').optional().isDecimal(),
+  ],
+  auditLog('update_inventory_cost', 'inventory_item'),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+    try {
+      if (!await ensureInventoryItemAccessible(req.params.itemId, req.user)) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      const { vendor, purchase_cost, unit_cost } = req.body;
+
+      const result = await query(
+        `UPDATE inventory_items SET
+          vendor = COALESCE($1, vendor),
+          purchase_cost = COALESCE($2, purchase_cost),
+          unit_cost = COALESCE($3, unit_cost),
+          updated_at = NOW()
+         WHERE id = $4
+         RETURNING *`,
+        [vendor, purchase_cost ? parseFloat(purchase_cost) : null,
+         unit_cost ? parseFloat(unit_cost) : null, req.params.itemId]
+      );
+
+      if (!result.rows.length) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      res.json(result.rows[0]);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// POST /api/inventory/:itemId/convert-from-case-purchase — Convert leftover qty back to inventory
+router.post('/:itemId/convert-from-case-purchase',
+  requireMinRole('staff'),
+  [
+    body('case_inventory_item_id').isUUID('Invalid case inventory item ID'),
+    body('qty').isInt({ min: 1 }),
+  ],
+  auditLog('convert_case_purchase_leftover', 'inventory_item'),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+    try {
+      if (!await ensureInventoryItemAccessible(req.params.itemId, req.user)) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      const { case_inventory_item_id, qty, notes } = req.body;
+
+      await transaction(async client => {
+        // Get case_inventory_item
+        const ciiResult = await client.query(
+          'SELECT * FROM case_inventory_items WHERE id = $1 AND inventory_item_id = $2',
+          [case_inventory_item_id, req.params.itemId]
+        );
+        if (!ciiResult.rows.length) {
+          throw new Error('Case inventory item not found');
+        }
+
+        const cii = ciiResult.rows[0];
+        if (cii.usage_type !== 'CASE_PURCHASE') {
+          throw new Error('Only CASE_PURCHASE items can have leftovers converted');
+        }
+
+        // Update inventory quantity
+        await client.query(
+          'UPDATE inventory_items SET quantity = quantity + $1 WHERE id = $2',
+          [qty, req.params.itemId]
+        );
+
+        // Update case_inventory_item to mark leftover as converted
+        await client.query(
+          `UPDATE case_inventory_items
+           SET leftover_qty = $1, is_leftover_converted = true, updated_at = NOW()
+           WHERE id = $2`,
+          [qty, case_inventory_item_id]
+        );
+
+        // Create inventory usage log
+        const itemData = await client.query(
+          'SELECT quantity FROM inventory_items WHERE id = $1',
+          [req.params.itemId]
+        );
+        const qtyBefore = itemData.rows[0].quantity - qty;
+        const qtyAfter = itemData.rows[0].quantity;
+
+        await client.query(
+          `INSERT INTO inventory_usage_logs (
+            inventory_item_id, case_id, log_type, quantity_change,
+            quantity_before, quantity_after, unit_cost, user_id, notes
+          ) VALUES ($1, $2, 'TRANSFERRED', $3, $4, $5, $6, $7, $8)`,
+          [req.params.itemId, cii.case_id, qty, qtyBefore, qtyAfter,
+           cii.unit_cost, req.user.id, 
+           `Case purchase leftover converted back to inventory: ${notes || ''}`]
+        );
+      });
+
+      res.json({ message: 'Leftover quantity converted to inventory', qty_converted: qty });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// GET /api/inventory/:itemId/case-history — Get usage history in cases
+// GET /api/inventory/:itemId/usage-history — Full usage history with logs, cases, and analytics
+router.get('/:itemId/usage-history', async (req, res) => {
+  try {
+    if (!await ensureInventoryItemAccessible(req.params.itemId, req.user)) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    const [logsResult, casesResult, analyticsResult] = await Promise.all([
+      query(
+        `SELECT iul.*, c.case_number, u.full_name as user_name
+         FROM inventory_usage_logs iul
+         LEFT JOIN cases c ON iul.case_id = c.id
+         LEFT JOIN users u ON iul.user_id = u.id
+         WHERE iul.inventory_item_id = $1
+         ORDER BY iul.created_at DESC`,
+        [req.params.itemId]
+      ),
+      query(
+        `SELECT cii.id, c.id as case_id, c.case_number, c.stage,
+                cii.usage_type, cii.qty_allocated, cii.qty_used, cii.qty_returned,
+                cii.unit_cost, cii.total_allocated_cost as total_cost,
+                COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) as case_revenue
+         FROM case_inventory_items cii
+         JOIN cases c ON cii.case_id = c.id
+         LEFT JOIN payments p ON c.id = p.case_id
+         WHERE cii.inventory_item_id = $1
+         GROUP BY cii.id, c.id, c.case_number, c.stage,
+                  cii.usage_type, cii.qty_allocated, cii.qty_used, cii.qty_returned,
+                  cii.unit_cost, cii.total_allocated_cost
+         ORDER BY c.created_at DESC`,
+        [req.params.itemId]
+      ),
+      query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN log_type = 'ALLOCATED' THEN ABS(quantity_change) ELSE 0 END), 0) as total_consumed_qty,
+           COALESCE(SUM(CASE WHEN log_type = 'RETURNED' THEN quantity_change ELSE 0 END), 0) as total_returned_qty,
+           COALESCE(SUM(CASE WHEN log_type = 'ALLOCATED' THEN ABS(cost_impact) ELSE 0 END), 0) as total_consumed_value,
+           COUNT(DISTINCT CASE WHEN log_type = 'PURCHASE' THEN id END) as purchase_count,
+           COALESCE(SUM(CASE WHEN log_type = 'PURCHASE' THEN quantity_change ELSE 0 END), 0) as total_purchased_qty
+         FROM inventory_usage_logs
+         WHERE inventory_item_id = $1`,
+        [req.params.itemId]
+      )
+    ]);
+
+    res.json({
+      logs: logsResult.rows,
+      cases: casesResult.rows,
+      analytics: analyticsResult.rows[0] || {}
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:itemId/case-history', async (req, res) => {
+  try {
+    if (!await ensureInventoryItemAccessible(req.params.itemId, req.user)) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    // Get cases this item appears in
+    const cases = await query(
+      `SELECT cii.id, c.id as case_id, c.case_number, c.stage, c.created_at,
+              cii.usage_type, cii.qty_allocated, cii.qty_used, cii.qty_returned,
+              cii.qty_damaged, cii.unit_cost, cii.total_allocated_cost,
+              SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END) as case_revenue
+       FROM case_inventory_items cii
+       JOIN cases c ON cii.case_id = c.id
+       LEFT JOIN payments p ON c.id = p.case_id
+       WHERE cii.inventory_item_id = $1
+       GROUP BY cii.id, c.id, c.case_number, c.stage, c.created_at,
+                cii.usage_type, cii.qty_allocated, cii.qty_used, cii.qty_returned,
+                cii.qty_damaged, cii.unit_cost, cii.total_allocated_cost
+       ORDER BY c.created_at DESC`,
+      [req.params.itemId]
+    );
+
+    res.json(cases.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

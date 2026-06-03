@@ -5,6 +5,7 @@ import { useAuth } from '../store/AuthContext';
 import { isHddCategoryKey, normalizeCategoryKey } from '../constants/inventoryConfig';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import InventoryHddFields from '../components/InventoryHddFields';
+import InventoryUsageHistoryPanel from '../components/InventoryUsageHistoryPanel';
 import MediaFileGrid from '../components/MediaFileGrid';
 
 const BASE_URL = '/api';
@@ -357,7 +358,8 @@ export default function InventoryDetail() {
   const TABS = [
     { key: 'overview', label: ' Overview' },
     { key: 'photos', label: ` Media (${images.length})` },
-    { key: 'history', label: ' History' },
+    { key: 'usage-history', label: ' Usage History' },
+    { key: 'history', label: ' Activity Log' },
     ...(compareWithCase ? [{ key: 'compare', label: '🔬 Comparison' }] : []),
   ];
 
@@ -691,6 +693,13 @@ export default function InventoryDetail() {
               variant="gallery"
             />
           )}
+        </div>
+      )}
+
+      {/* Usage History Tab */}
+      {activeTab === 'usage-history' && (
+        <div className="card">
+          <InventoryUsageHistoryPanel itemId={id} />
         </div>
       )}
 

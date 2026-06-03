@@ -922,6 +922,7 @@ function StepClient({
   form,
   setForm,
   clients,
+  setClients,
   clientSearch,
   setClientSearch,
   selectedClient,
@@ -1310,7 +1311,7 @@ function StepDevice({ form, setForm, capacities, stepErrors, caseSettings, hddTy
             aria-invalid={!!stepErrors.interface}
           >
             <option value="">Select...</option>
-            {getCaseSettingsList(caseSettings, "interfaces", ["SATA", "NVMe", "SAS", "IDE", "USB", "PCIe", "M.2", "eSATA"]).map(
+            {getCaseSettingsList(caseSettings, "interfaces", ["SATA", "NVMe", "SAS", "IDE", "USB", "PCIe", "M2", "eSATA"]).map(
               (i) => (
                 <option key={i} value={i}>
                   {i}
@@ -1441,6 +1442,8 @@ function StepHddFieldsView({ form, setForm, stepErrors, showStepErrors, hddTypes
             customFieldValues={customFieldValues}
             setCustomFieldValues={setCustomFieldValues}
             caseSettings={caseSettings}
+            stepErrors={stepErrors}
+            showStepErrors={showStepErrors}
           />
         </>
       ) : (
@@ -1962,6 +1965,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
       form={form}
       setForm={setForm}
       clients={clients}
+      setClients={setClients}
       clientSearch={clientSearch}
       setClientSearch={setClientSearch}
       selectedClient={selectedClient}

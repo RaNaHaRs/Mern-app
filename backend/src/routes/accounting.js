@@ -1,5 +1,5 @@
 const express = require('express');
-const { query } = require('../config/database');
+const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
@@ -9,6 +9,7 @@ const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = 
 const router = express.Router();
 router.use(authenticate);
 
+<<<<<<< HEAD
 // Ensure new columns exist on accounting_invoices
 (async () => {
   try {
@@ -19,6 +20,12 @@ router.use(authenticate);
     // columns may already exist or table may not exist yet
   }
 })();
+=======
+// Ensure soft-delete column exists on accounting tables (non-blocking)
+['accounting_expenses', 'accounting_purchases', 'accounting_invoices'].forEach(table => {
+  query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`).catch(() => {});
+});
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
 function tenantScope(req, alias = '') {
   if (isSuperAdmin(req.user)) return { clause: '', params: [] };
@@ -85,7 +92,9 @@ router.get('/summary', async (req, res) => {
     const expenseScope = tenantScope(req);
     const caseScope = tenantScope(req, 'c');
 
-    const [qStats, invStats, expStats, casePaymentStats] = await Promise.all([
+    const purchaseScope = tenantScope(req);
+
+    const [qStats, invStats, expStats, casePaymentStats, purchStats] = await Promise.all([
       query(`SELECT
         COUNT(*) as total_quotes,
         COUNT(*) FILTER (WHERE status IN ('accepted','invoiced')) as accepted_quotes,
@@ -114,6 +123,11 @@ router.get('/summary', async (req, res) => {
         JOIN cases c ON p.case_id = c.id
         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}`,
         caseScope.params),
+      query(`SELECT
+        COALESCE(SUM(total), 0) as total_purchases,
+        COALESCE(SUM(total) FILTER (WHERE purchase_date >= NOW() - INTERVAL '30 days'), 0) as purchases_month
+        FROM accounting_purchases${purchaseScope.clause ? ` WHERE ${purchaseScope.clause}` : ''}`,
+        purchaseScope.params),
     ]);
 
     const pendingQuotes = await query(
@@ -141,12 +155,61 @@ router.get('/summary', async (req, res) => {
     const exp = expStats.rows[0];
     const caseStats = casePaymentStats.rows[0];
     const pendingStats = pendingQuotes.rows[0];
-    const profit_month = parseFloat(inv.collected_month) - parseFloat(exp.expenses_month);
+    const purch = purchStats.rows[0];
+    const profit_month = parseFloat(caseStats.revenue_month) - parseFloat(exp.expenses_month);
+
+    // Get invoice counts by status
+    const invoiceCountsQuery = await query(
+      `SELECT status, COUNT(*)::int as count FROM accounting_invoices
+       ${invoiceScope.clause ? `WHERE ${invoiceScope.clause}` : ''}
+       GROUP BY status`,
+      invoiceScope.params
+    );
+    const invoiceCounts = {};
+    invoiceCountsQuery.rows.forEach(r => { invoiceCounts[r.status] = r.count; });
+
+    // Get expense breakdown by category
+    const expenseByCat = await query(
+      `SELECT category, COALESCE(SUM(total), 0) as total FROM accounting_expenses
+       ${expenseScope.clause ? `WHERE ${expenseScope.clause}` : ''}
+       GROUP BY category ORDER BY total DESC`,
+      expenseScope.params
+    );
+    const expenseByCategory = {};
+    expenseByCat.rows.forEach(r => { expenseByCategory[r.category] = parseFloat(r.total); });
+
+    // Monthly revenue vs expenses (last 6 months) — uses case payments for revenue
+    const monthlyData = await query(
+      `SELECT TO_CHAR(d, 'YYYY-MM') as month,
+              COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) as revenue,
+              COALESCE(SUM(exp.total), 0) as expenses
+       FROM generate_series(
+         DATE_TRUNC('month', NOW()) - INTERVAL '5 months',
+         DATE_TRUNC('month', NOW()),
+         INTERVAL '1 month'
+       ) d
+       LEFT JOIN (
+         SELECT p.amount, p.status, p.paid_at
+         FROM payments p
+         JOIN cases c ON p.case_id = c.id
+         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}
+       ) p ON DATE_TRUNC('month', p.paid_at) = d
+       LEFT JOIN accounting_expenses exp ON DATE_TRUNC('month', exp.date) = d
+         ${expenseScope.clause ? `AND ${expenseScope.clause.replace(/tenant_id/, 'exp.tenant_id')}` : ''}
+       GROUP BY d ORDER BY d`,
+      [...new Set([...caseScope.params, ...expenseScope.params])]
+    );
+
+    // Quote conversion rate
+    const totalQuotes = parseInt(qStats.rows[0].total_quotes, 10) || 0;
+    const acceptedQuotes = parseInt(qStats.rows[0].accepted_quotes, 10) || 0;
+    const conversionRate = totalQuotes ? Math.round((acceptedQuotes / totalQuotes) * 100) : 0;
 
     res.json({
       ...qStats.rows[0],
       ...inv,
       ...exp,
+      ...purch,
       profit_month,
       totalRevenue: parseFloat(caseStats.total_paid),
       pendingRevenue: parseFloat(pendingStats.pending_amount),
@@ -157,6 +220,10 @@ router.get('/summary', async (req, res) => {
       case_total_pending_overdue: parseFloat(pendingStats.overdue_amount),
       accounting_total_collected: parseFloat(inv.total_collected),
       accounting_outstanding: parseFloat(inv.outstanding),
+      invoiceCounts,
+      expenseByCategory,
+      monthlyRevenue: monthlyData.rows,
+      conversionRate,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -289,6 +356,7 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
     const companySettings = await loadCompanySettings();
     const dueDate = new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0, 10);
 
+<<<<<<< HEAD
     let caseId = null;
     if (q.case_number) {
       const caseResult = await query('SELECT id FROM cases WHERE case_number = $1 LIMIT 1', [q.case_number]);
@@ -326,6 +394,24 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
       }
     }
 
+=======
+    // Resolve case_id from case_number
+    let caseId = null;
+    if (q.case_number) {
+      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [q.case_number]);
+      if (caseRes.rows.length) caseId = caseRes.rows[0].id;
+    }
+
+    const result = await query(
+      `INSERT INTO accounting_invoices
+         (invoice_number, quote_id, title, client_name, company, client_address, client_gstin,
+          case_number, case_id, line_items, discount_pct, discount_amt, tax_pct, tax_amt, subtotal, total, due_date, notes, created_by, tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
+      [invNum, q.id, q.title, q.client_name, q.company, client_address || null, client_gstin || null,
+       q.case_number, caseId, q.line_items, q.discount_pct, q.discount_amt, q.tax_pct, q.tax_amt,
+       q.subtotal, q.total, dueDate, q.notes, req.user.id, q.tenant_id || tenantAdminId(req.user)]
+    );
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
 
     await query(
       `UPDATE accounting_quotes SET status='invoiced', updated_at=NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
@@ -338,22 +424,54 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
 // ─── Invoices ─────────────────────────────────────────────────────
 router.get('/invoices', async (req, res) => {
   try {
+<<<<<<< HEAD
     const { search, status, case_id } = req.query;
     const conditions = [], params = [];
+=======
+    const { search, status, case_number, case_id } = req.query;
+    const conditions = ['deleted_at IS NULL'], params = [];
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
       conditions.push(`tenant_id = $${pi++}`);
       params.push(tenantAdminId(req.user));
     }
     if (status) { conditions.push(`status = $${pi++}`); params.push(status); }
+<<<<<<< HEAD
+=======
+    if (case_number) { conditions.push(`case_number = $${pi++}`); params.push(case_number); }
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     if (case_id) { conditions.push(`case_id = $${pi++}`); params.push(case_id); }
     if (search) {
       conditions.push(`(title ILIKE $${pi} OR client_name ILIKE $${pi} OR invoice_number ILIKE $${pi} OR case_number ILIKE $${pi})`);
       params.push(`%${search}%`); pi++;
     }
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const where = 'WHERE ' + conditions.join(' AND ');
     const result = await query(`SELECT * FROM accounting_invoices ${where} ORDER BY created_at DESC`, params);
     res.json({ invoices: result.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/invoices/recycle-bin', requireMinRole('staff'), async (req, res) => {
+  try {
+    const conditions = ['deleted_at IS NOT NULL'];
+    const params = [];
+    let pi = 1;
+    if (!isSuperAdmin(req.user)) { conditions.push(`tenant_id = $${pi++}`); params.push(tenantAdminId(req.user)); }
+    const where = 'WHERE ' + conditions.join(' AND ');
+    const result = await query(`SELECT * FROM accounting_invoices ${where} ORDER BY deleted_at DESC`, params);
+    res.json({ invoices: result.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/invoices/:id/restore', requireMinRole('staff'), async (req, res) => {
+  try {
+    const result = await query(
+      `UPDATE accounting_invoices SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id=$2' : ''} AND deleted_at IS NOT NULL RETURNING *`,
+      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found in recycle bin' });
+    res.json({ message: 'Invoice restored', invoice: result.rows[0] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -400,6 +518,25 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
       }
     }
 
+<<<<<<< HEAD
+=======
+    // Resolve case_id from case_number
+    let caseId = null;
+    if (case_number) {
+      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [case_number]);
+      if (caseRes.rows.length) caseId = caseRes.rows[0].id;
+    }
+
+    const result = await query(
+      `INSERT INTO accounting_invoices
+         (invoice_number, title, client_name, company, client_address, client_gstin, case_number,
+          case_id, line_items, discount_pct, discount_amt, tax_pct, tax_amt, subtotal, total, due_date, notes, created_by, tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+      [invNum, title, client_name, company || null, client_address || null, client_gstin || null,
+       case_number || null, caseId, JSON.stringify(li), discount_pct || 0, discountAmt, tax_pct || 18,
+       taxAmt, subtotal, total, due_date || null, notes || null, req.user.id, tenantAdminId(req.user)]
+    );
+>>>>>>> 0f385f328665c375ec46fff5a5933abf09cd030d
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -421,11 +558,11 @@ router.patch('/invoices/:id/status', requireMinRole('staff'), async (req, res) =
 router.delete('/invoices/:id', requireMinRole('staff'), auditLog('delete_invoice', 'accounting'), async (req, res) => {
   try {
     const result = await query(
-      `DELETE FROM accounting_invoices WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} RETURNING id`,
+      `UPDATE accounting_invoices SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} AND deleted_at IS NULL RETURNING id`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
-    res.json({ message: 'Invoice deleted' });
+    res.json({ message: 'Invoice moved to recycle bin' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -513,16 +650,17 @@ router.get('/expenses', async (req, res) => {
   try {
     const { search } = req.query;
     const params = [];
-    let where = '';
+    const conditions = ['deleted_at IS NULL'];
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
-      where = `WHERE tenant_id = $${pi++}`;
+      conditions.push(`tenant_id = $${pi++}`);
       params.push(tenantAdminId(req.user));
     }
     if (search) {
-      where += where ? ` AND (description ILIKE $${pi} OR vendor ILIKE $${pi})` : `WHERE description ILIKE $${pi} OR vendor ILIKE $${pi}`;
-      params.push(`%${search}%`);
+      conditions.push(`(description ILIKE $${pi} OR vendor ILIKE $${pi})`);
+      params.push(`%${search}%`); pi++;
     }
+    const where = 'WHERE ' + conditions.join(' AND ');
     const result = await query(
       `SELECT * FROM accounting_expenses ${where} ORDER BY date DESC, created_at DESC`,
       params
@@ -531,27 +669,237 @@ router.get('/expenses', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.get('/expenses/recycle-bin', requireMinRole('staff'), async (req, res) => {
+  try {
+    const conditions = ['deleted_at IS NOT NULL'];
+    const params = [];
+    let pi = 1;
+    if (!isSuperAdmin(req.user)) { conditions.push(`tenant_id = $${pi++}`); params.push(tenantAdminId(req.user)); }
+    const where = 'WHERE ' + conditions.join(' AND ');
+    const result = await query(`SELECT * FROM accounting_expenses ${where} ORDER BY deleted_at DESC`, params);
+    res.json({ expenses: result.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/expenses/:id/restore', requireMinRole('staff'), async (req, res) => {
+  try {
+    const result = await query(
+      `UPDATE accounting_expenses SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id=$2' : ''} AND deleted_at IS NOT NULL RETURNING *`,
+      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found in recycle bin' });
+    res.json({ message: 'Expense restored', expense: result.rows[0] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.post('/expenses', requireMinRole('staff'), auditLog('create_expense', 'accounting'), async (req, res) => {
   try {
-    const { date, category, description, vendor, amount, tax_amt, receipt_note } = req.body;
+    let { date, category, description, vendor, amount, tax_amt, receipt_note, case_number, case_id } = req.body;
     const total = (parseFloat(amount) || 0) + (parseFloat(tax_amt) || 0);
+
+    // Resolve case_number to case_id
+    if (!case_id && case_number) {
+      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [case_number]);
+      if (caseRes.rows.length) case_id = caseRes.rows[0].id;
+    }
+
     const result = await query(
-      `INSERT INTO accounting_expenses (date, category, description, vendor, amount, tax_amt, total, receipt_note, created_by, tenant_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [date, category || 'other', description, vendor || null, amount, tax_amt || 0, total, receipt_note || null, req.user.id, tenantAdminId(req.user)]
+      `INSERT INTO accounting_expenses (date, category, description, vendor, amount, tax_amt, total, receipt_note, case_id, case_number, created_by, tenant_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [date, category || 'other', description, vendor || null, amount, tax_amt || 0, total, receipt_note || null,
+       case_id || null, case_number || null, req.user.id, tenantAdminId(req.user)]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.put('/expenses/:id', requireMinRole('staff'), auditLog('update_expense', 'accounting'), async (req, res) => {
+  try {
+    let { date, category, description, vendor, amount, tax_amt, receipt_note, case_number, case_id } = req.body;
+    const total = (parseFloat(amount) || 0) + (parseFloat(tax_amt) || 0);
+
+    if (!case_id && case_number) {
+      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [case_number]);
+      if (caseRes.rows.length) case_id = caseRes.rows[0].id;
+    }
+
+    const result = await query(
+      `UPDATE accounting_expenses SET date=$1, category=$2, description=$3, vendor=$4, amount=$5, tax_amt=$6, total=$7,
+       receipt_note=$8, case_id=$9, case_number=$10, updated_at=NOW()
+       WHERE id=$11${!isSuperAdmin(req.user) ? ' AND tenant_id = $12' : ''} RETURNING *`,
+      [date, category, description, vendor, amount, tax_amt || 0, total, receipt_note,
+       case_id || null, case_number || null, req.params.id, ...(!isSuperAdmin(req.user) ? [tenantAdminId(req.user)] : [])]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found' });
+    res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/expenses/:id', requireMinRole('staff'), auditLog('delete_expense', 'accounting'), async (req, res) => {
   try {
     const result = await query(
-      `DELETE FROM accounting_expenses WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} RETURNING id`,
+      `UPDATE accounting_expenses SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} AND deleted_at IS NULL RETURNING id`,
       !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Expense not found' });
-    res.json({ message: 'Expense deleted' });
+    res.json({ message: 'Expense moved to recycle bin' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ─── Purchases ─────────────────────────────────────────────────────
+router.get('/purchases', async (req, res) => {
+  try {
+    const { search, case_id } = req.query;
+    const conditions = ['p.deleted_at IS NULL'], params = [];
+    let pi = 1;
+    if (!isSuperAdmin(req.user)) {
+      conditions.push(`p.tenant_id = $${pi++}`);
+      params.push(tenantAdminId(req.user));
+    }
+    if (case_id) { conditions.push(`p.case_id = $${pi++}`); params.push(case_id); }
+    if (search) {
+      conditions.push(`(p.description ILIKE $${pi} OR p.vendor_name ILIKE $${pi} OR p.purchase_number ILIKE $${pi})`);
+      params.push(`%${search}%`); pi++;
+    }
+    const where = 'WHERE ' + conditions.join(' AND ');
+    const result = await query(
+      `SELECT p.*, u.full_name as created_by_name
+       FROM accounting_purchases p
+       LEFT JOIN users u ON p.created_by = u.id
+       ${where} ORDER BY p.purchase_date DESC, p.created_at DESC`,
+      params
+    );
+    res.json({ purchases: result.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/purchases/recycle-bin', requireMinRole('staff'), async (req, res) => {
+  try {
+    const conditions = ['p.deleted_at IS NOT NULL'];
+    const params = [];
+    let pi = 1;
+    if (!isSuperAdmin(req.user)) { conditions.push(`p.tenant_id = $${pi++}`); params.push(tenantAdminId(req.user)); }
+    const where = 'WHERE ' + conditions.join(' AND ');
+    const result = await query(
+      `SELECT p.*, u.full_name as created_by_name FROM accounting_purchases p LEFT JOIN users u ON p.created_by = u.id ${where} ORDER BY p.deleted_at DESC`,
+      params
+    );
+    res.json({ purchases: result.rows });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/purchases/:id/restore', requireMinRole('staff'), async (req, res) => {
+  try {
+    await transaction(async (client) => {
+      const r = await client.query(
+        `UPDATE accounting_purchases SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id=$2' : ''} AND deleted_at IS NOT NULL RETURNING *`,
+        !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      );
+      if (!r.rows.length) throw Object.assign(new Error('Purchase not found in recycle bin'), { status: 404 });
+      // Restore linked expense too
+      await client.query(`UPDATE accounting_expenses SET deleted_at = NULL WHERE purchase_id=$1 AND deleted_at IS NOT NULL`, [req.params.id]);
+      return r.rows[0];
+    });
+    res.json({ message: 'Purchase restored' });
+  } catch (err) { res.status(err.status || 500).json({ error: err.message }); }
+});
+
+router.post('/purchases', requireMinRole('staff'), auditLog('create_purchase', 'accounting'), async (req, res) => {
+  try {
+    let { vendor_name, description, case_id, case_number, amount, tax_amt, purchase_date, notes,
+          add_to_inventory, inv_stock_number, inv_brand, inv_model, inv_serial_number, inv_quantity,
+          inv_condition, inv_location, inv_company, inv_name, inv_category,
+          inv_status, inv_min_quantity, inv_notes } = req.body;
+    const total = (parseFloat(amount) || 0) + (parseFloat(tax_amt) || 0);
+
+    // Resolve case_number to case_id
+    if (!case_id && case_number) {
+      const caseRes = await query('SELECT id FROM cases WHERE case_number = $1', [case_number]);
+      if (caseRes.rows.length) case_id = caseRes.rows[0].id;
+    }
+
+    const numResult = await query('SELECT COUNT(*) FROM accounting_purchases');
+    const count = parseInt(numResult.rows[0].count, 10) || 0;
+    const seq = String(count + 1).padStart(4, '0');
+    const purchaseNumber = `PUR-${new Date().getFullYear()}-${seq}`;
+
+    // Create purchase + linked expense + optional inventory item (atomic)
+    let purchase;
+    let inventoryItem = null;
+    await transaction(async (client) => {
+      // 1. Create the purchase
+      const result = await client.query(
+        `INSERT INTO accounting_purchases
+           (purchase_number, vendor_name, description, case_id, case_number, amount, tax_amt, total, purchase_date, notes, created_by, tenant_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+        [purchaseNumber, vendor_name, description, case_id || null, case_number || null,
+         amount, tax_amt || 0, total, purchase_date, notes || null, req.user.id, tenantAdminId(req.user)]
+      );
+      purchase = result.rows[0];
+
+      // 2. Create the linked expense
+      await client.query(
+        `INSERT INTO accounting_expenses
+           (date, category, description, vendor, amount, tax_amt, total, receipt_note, created_by, tenant_id, purchase_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [purchase_date, 'purchase', `[Purchase ${purchaseNumber}] ${description}`, vendor_name,
+         amount, tax_amt || 0, total, notes || null, req.user.id, tenantAdminId(req.user), purchase.id]
+      );
+
+      // 3. Optionally create inventory item
+      if (add_to_inventory && inv_stock_number) {
+        const invCat = inv_category || 'consumable';
+        const itemName = inv_name || description || 'Inventory Item';
+        const itemQty = parseInt(inv_quantity, 10) || 1;
+        const unitCost = parseFloat(amount) || 0;
+
+        const invResult = await client.query(
+          `INSERT INTO inventory_items
+             (sku, stock_number, name, category, brand, model, serial_number, quantity, unit_cost, condition, location, company, notes, tenant_id, added_by, status, min_quantity)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+          [inv_stock_number, inv_stock_number, itemName, invCat,
+           inv_brand || null, inv_model || null, inv_serial_number || null,
+           itemQty, unitCost, inv_condition || 'new', inv_location || null,
+           inv_company || null, inv_notes || null, tenantAdminId(req.user), req.user.id,
+           inv_status || 'available', parseInt(inv_min_quantity, 10) || 1]
+        );
+        inventoryItem = invResult.rows[0];
+
+        // Record inventory transaction
+        await client.query(
+          `INSERT INTO inventory_transactions (item_id, type, quantity, notes, performed_by)
+           VALUES ($1,'in',$2,$3,$4)`,
+          [inventoryItem.id, itemQty, `Initial stock from purchase ${purchaseNumber}`, req.user.id]
+        );
+
+        // Link purchase to inventory item
+        await client.query(
+          `UPDATE accounting_purchases SET inventory_item_id=$1 WHERE id=$2`,
+          [inventoryItem.id, purchase.id]
+        );
+        purchase.inventory_item_id = inventoryItem.id;
+      }
+    });
+
+    res.status(201).json({ purchase, inventoryItem });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/purchases/:id', requireMinRole('staff'), auditLog('delete_purchase', 'accounting'), async (req, res) => {
+  try {
+    await transaction(async (client) => {
+      // Soft-delete the linked expense too
+      await client.query(
+        `UPDATE accounting_expenses SET deleted_at = NOW() WHERE purchase_id=$1 AND deleted_at IS NULL`,
+        [req.params.id]
+      );
+      const result = await client.query(
+        `UPDATE accounting_purchases SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''} AND deleted_at IS NULL RETURNING id`,
+        !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      );
+      if (!result.rows.length) throw new Error('Purchase not found');
+    });
+    res.json({ message: 'Purchase moved to recycle bin' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

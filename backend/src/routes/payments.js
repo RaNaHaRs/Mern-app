@@ -1,5 +1,5 @@
 const express = require('express');
-const { query } = require('../config/database');
+const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantAdminId, verifyCaseAccess } = require('../utils/tenantAccess');
@@ -67,14 +67,19 @@ router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'),
     if (!isSuperAdmin(req.user) && !(await verifyCaseAccess(case_id, req.user))) {
       return res.status(404).json({ error: 'Case not found' });
     }
-    const result = await query(
-      `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
-       VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
-      [case_id, quotation_id||null, parsedAmount, method, reference_number||null, notes||null, req.user.id]
-    );
-    // Update client total paid
-    await query('UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)', [parsedAmount, case_id]);
-    res.status(201).json(result.rows[0]);
+    const result = await transaction(async (client) => {
+      const pay = await client.query(
+        `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
+         VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
+        [case_id, quotation_id||null, parsedAmount, method, reference_number||null, notes||null, req.user.id]
+      );
+      await client.query(
+        'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)',
+        [parsedAmount, case_id]
+      );
+      return pay.rows[0];
+    });
+    res.status(201).json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
