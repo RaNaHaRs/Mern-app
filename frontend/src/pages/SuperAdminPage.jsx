@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../store/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useTheme, useFontSize } from '../store/ThemeContext';
@@ -59,23 +59,43 @@ function AddTenantModal({ onClose, onDone }) {
   });
   const [loading, setLoading] = useState(false);
   const [razorpayOrder, setRazorpayOrder] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
   const selPlan = dynamicPlans.find(p => p.key === form.plan) || dynamicPlans[1] || dynamicPlans[0];
 
+  const FieldErr = ({ field }) => fieldErrors[field] ? <div style={{ fontSize: '0.68rem', color: '#ef4444', marginTop: 4 }}>{fieldErrors[field]}</div> : null;
+
+  const setFormField = (field, value) => {
+    setForm(f => ({ ...f, [field]: value }));
+    setFieldErrors(f => ({ ...f, [field]: '' }));
+  };
+
   const handle = async () => {
-    if (!form.company_name || !form.admin_email || !form.admin_password) {
-      alert('Company name, admin email & password are required'); return;
-    }
+    setFieldErrors({});
+    const errs = {};
+    if (!form.company_name) errs.company_name = 'Company name is required';
+    if (!form.admin_name) errs.admin_name = 'Admin name is required';
+    if (!form.admin_email) errs.admin_email = 'Admin email is required';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.admin_email)) errs.admin_email = 'Invalid email format';
+    if (!form.admin_password) errs.admin_password = 'Password is required';
+    else if (form.admin_password.length < 8) errs.admin_password = 'Password must be at least 8 characters';
+    if (Object.keys(errs).length) { setFieldErrors(errs); return; }
     setLoading(true);
     try {
       const res = await saApi.post('/tenants', {
         ...form,
+        amount: selPlan.price * form.subscription_months,
         expiry_date: new Date(Date.now() + form.subscription_months * 30 * 86400000).toISOString().slice(0, 10),
       });
-      if (res.error) throw new Error(res.error);
+      if (res.error) { setFieldErrors({ _general: res.error }); return; }
+      if (res.errors) {
+        const errs = {};
+        res.errors.forEach(e => { errs[e.param || '_general'] = e.msg || e.message; });
+        setFieldErrors(errs); return;
+      }
       alert(`✅ Subscriber "${form.company_name}" created!\n\nLogin: ${form.admin_email}\nPassword: ${form.admin_password}`);
       onDone();
       onClose();
-    } catch (e) { alert(e.message); } finally { setLoading(false); }
+    } catch (e) { setFieldErrors({ _general: e.message }); } finally { setLoading(false); }
   };
 
   const handleRazorpay = () => {
@@ -92,45 +112,54 @@ function AddTenantModal({ onClose, onDone }) {
           <h3 className="modal-title">Create New Subscriber</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
+        {fieldErrors._general && <div style={{ padding: '10px 16px', margin: '0 20px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, color: '#ef4444', fontSize: '0.82rem', fontWeight: 600 }}>{fieldErrors._general}</div>}
         <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           {/* Left — Account Details */}
           <div>
             <div className="card-title" style={{ marginBottom: 12 }}>Account Details</div>
             <div className="form-group">
               <label className="form-label required">Company / Lab Name</label>
-              <input className="form-input" value={form.company_name} onChange={e => setForm(f => ({ ...f, company_name: e.target.value }))} placeholder="e.g. DataRescue Mumbai" />
+              <input className={`form-input${fieldErrors.company_name ? ' form-input-error' : ''}`} value={form.company_name} onChange={e => setFormField('company_name', e.target.value)} placeholder="e.g. DataRescue Mumbai" />
+              <FieldErr field="company_name" />
             </div>
             <div className="form-row form-row-2">
               <div className="form-group">
                 <label className="form-label required">Admin Name</label>
-                <input className="form-input" value={form.admin_name} onChange={e => setForm(f => ({ ...f, admin_name: e.target.value }))} placeholder="Full name" />
+                <input className={`form-input${fieldErrors.admin_name ? ' form-input-error' : ''}`} value={form.admin_name} onChange={e => setFormField('admin_name', e.target.value)} placeholder="Full name" />
+                <FieldErr field="admin_name" />
               </div>
               <div className="form-group">
                 <label className="form-label">Phone</label>
-                <input className="form-input" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 98765 43210" />
+                <input className={`form-input${fieldErrors.phone ? ' form-input-error' : ''}`} value={form.phone} onChange={e => setFormField('phone', e.target.value)} placeholder="+91 98765 43210" />
+                <FieldErr field="phone" />
               </div>
             </div>
             <div className="form-group">
               <label className="form-label required">Admin Email (Login ID)</label>
-              <input type="email" className="form-input" value={form.admin_email} onChange={e => setForm(f => ({ ...f, admin_email: e.target.value }))} placeholder="admin@theirlab.com" />
+              <input type="email" className={`form-input${fieldErrors.admin_email ? ' form-input-error' : ''}`} value={form.admin_email} onChange={e => setFormField('admin_email', e.target.value)} placeholder="admin@theirlab.com" />
+              <FieldErr field="admin_email" />
             </div>
             <div className="form-group">
               <label className="form-label required">Initial Password</label>
-              <input type="password" className="form-input" value={form.admin_password} onChange={e => setForm(f => ({ ...f, admin_password: e.target.value }))} placeholder="Min 8 chars" />
+              <input type="password" className={`form-input${fieldErrors.admin_password ? ' form-input-error' : ''}`} value={form.admin_password} onChange={e => setFormField('admin_password', e.target.value)} placeholder="Min 8 chars" />
+              <FieldErr field="admin_password" />
             </div>
             <div className="form-row form-row-2">
               <div className="form-group">
                 <label className="form-label">City</label>
-                <input className="form-input" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="Mumbai" />
+                <input className={`form-input${fieldErrors.city ? ' form-input-error' : ''}`} value={form.city} onChange={e => setFormField('city', e.target.value)} placeholder="Mumbai" />
+                <FieldErr field="city" />
               </div>
               <div className="form-group">
                 <label className="form-label">GSTIN</label>
-                <input className="form-input font-mono" value={form.gstin} onChange={e => setForm(f => ({ ...f, gstin: e.target.value }))} placeholder="27AABCT..." />
+                <input className={`form-input font-mono${fieldErrors.gstin ? ' form-input-error' : ''}`} value={form.gstin} onChange={e => setFormField('gstin', e.target.value)} placeholder="27AABCT..." />
+                <FieldErr field="gstin" />
               </div>
             </div>
             <div className="form-group">
               <label className="form-label">Internal Notes</label>
-              <textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any notes about this client..." />
+              <textarea className="form-textarea" style={{ minHeight: 60 }} value={form.notes} onChange={e => setFormField('notes', e.target.value)} placeholder="Any notes about this client..." />
+              <FieldErr field="notes" />
             </div>
           </div>
 
@@ -439,24 +468,33 @@ const getPermissions = () => { try { return JSON.parse(localStorage.getItem('sa_
 
 function PlansManager({ tenants }) {
   const [plans, setPlans] = useState(getPlans);
+  const [deletedPlans, setDeletedPlans] = useState([]);
   const [editing, setEditing] = useState(null);
   const [newPlan, setNewPlan] = useState({ key:'', label:'', price:0, maxUsers:5, color:'#3b82f6', features:[] });
   const [showAdd, setShowAdd] = useState(false);
   const [newFeature, setNewFeature] = useState('');
   const [saved, setSaved] = useState(false);
-  const [activeView, setActiveView] = useState('plans'); // 'plans' | 'permissions'
+  const [activeView, setActiveView] = useState('plans'); // 'plans' | 'permissions' | 'recycle'
   const [permissions, setPermissions] = useState(getPermissions);
   const [selPermPlan, setSelPermPlan] = useState(plans[0]?.key || 'starter');
 
-  // Load plans from backend on mount and sync to localStorage for cross-component use
-  useEffect(() => {
+  const loadActivePlans = () => {
     saApi.get('/plans').then(d => {
       if (d.plans) {
         localStorage.setItem('sa_custom_plans', JSON.stringify(d.plans));
         setPlans(d.plans);
       }
     }).catch(() => {});
-  }, []);
+  };
+
+  const loadDeletedPlans = () => {
+    saApi.get('/plans?include_inactive=true').then(d => {
+      if (d.plans) setDeletedPlans(d.plans.filter(p => !p.is_active));
+    }).catch(() => {});
+  };
+
+  // Load active plans on mount
+  useEffect(() => { loadActivePlans(); }, []);
 
   const persist = (p) => {
     localStorage.setItem('sa_custom_plans', JSON.stringify(p));
@@ -468,8 +506,38 @@ function PlansManager({ tenants }) {
     setPermissions(p); setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
   const startEdit = (plan) => setEditing({ ...plan });
-  const saveEdit  = () => { persist(plans.map(p => p.key === editing.key ? editing : p)); setEditing(null); };
-  const removePlan = (key) => { if (window.confirm('Remove plan? Existing subscribers keep their access.')) persist(plans.filter(p => p.key !== key)); };
+  const saveEdit  = async () => {
+    const editKey = editing.key;
+    const updated = plans.map(p => p.key === editKey ? editing : p);
+    persist(updated);
+    setEditing(null);
+    const plan = updated.find(p => p.key === editKey);
+    if (plan && plan.id) {
+      await saApi.patch(`/plans/${plan.id}`, {
+        label: plan.label,
+        price_monthly: plan.price,
+        max_users: plan.maxUsers,
+        color: plan.color,
+        features: plan.features,
+      }).catch(() => {});
+    }
+  };
+  const removePlan = async (key) => {
+    if (!window.confirm('Remove plan? Existing subscribers keep their access.')) return;
+    const plan = plans.find(p => p.key === key);
+    if (plan && plan.id) {
+      await saApi.del(`/plans/${plan.id}`).catch(() => {});
+    }
+    persist(plans.filter(p => p.key !== key));
+    loadDeletedPlans();
+  };
+  const restorePlan = async (plan) => {
+    if (plan && plan.id) {
+      await saApi.patch(`/plans/${plan.id}`, { is_active: true });
+    }
+    loadActivePlans();
+    loadDeletedPlans();
+  };
   const addPlan = () => {
     if (!newPlan.key || !newPlan.label) { alert('Key and label required'); return; }
     if (plans.find(p => p.key === newPlan.key)) { alert('Plan key already exists'); return; }
@@ -516,7 +584,7 @@ function PlansManager({ tenants }) {
       {/* View Toggle */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:10 }}>
         <div style={{ display:'flex', gap:4, background:'var(--bg-elevated)', borderRadius:10, padding:3, border:'1px solid var(--border-subtle)' }}>
-          {[{v:'plans',label:'Plans'},{v:'permissions',label:'Permissions & Access'}].map(t => (
+          {[{v:'plans',label:'Plans'},{v:'permissions',label:'Permissions & Access'},{v:'recycle',label:'Recycle Bin'}].map(t => (
             <button key={t.v}
               onClick={() => setActiveView(t.v)}
               style={{ padding:'6px 16px', borderRadius:8, border:'none', cursor:'pointer', fontWeight:700, fontSize:'0.79rem', fontFamily:'inherit',
@@ -690,6 +758,48 @@ function PlansManager({ tenants }) {
         </div>
       )}
 
+      {/* ── Recycle Bin View ── */}
+      {activeView === 'recycle' && (
+        <div>
+          <div style={{ marginBottom: 14, padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#ef4444' }}>Recycle Bin — Deactivated Plans</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>Deactivated plans can be restored. Previously removed plans that were only in local storage will reappear after refresh.</div>
+            </div>
+          </div>
+          {deletedPlans.length === 0 ? (
+            <div className="empty-state" style={{ padding: 40 }}>
+              <div className="empty-title">No deactivated plans</div>
+              <div className="empty-desc">Removed plans will appear here so you can restore them.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {deletedPlans.map(plan => (
+                <div key={plan.key} className="card" style={{ opacity: 0.6, border: `1px solid ${plan.color}30`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: plan.color }} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.88rem', color: plan.color }}>{plan.label}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>₹{plan.price}/mo · {plan.maxUsers === -1 ? 'Unlimited' : plan.maxUsers} users · <code>{plan.key}</code></div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', borderColor: 'rgba(16,185,129,0.2)', fontSize: '0.72rem' }}
+                      onClick={() => restorePlan(plan)}>Restore</button>
+                    <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }}
+                      onClick={async () => {
+                        if (!window.confirm(`Permanently delete "${plan.label}"? This cannot be undone.`)) return;
+                        if (plan.id) await saApi.del(`/plans/${plan.id}`).catch(() => {});
+                        loadDeletedPlans();
+                      }}>Delete Forever</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {saved && <div style={{position:'fixed',bottom:24,right:24,background:'linear-gradient(135deg,#7c3aed,#10b981)',color:'#fff',padding:'10px 18px',borderRadius:10,fontWeight:700,fontSize:'0.85rem',zIndex:9999,boxShadow:'0 4px 18px rgba(0,0,0,0.3)'}}>Saved successfully</div>}
     </div>
   );
@@ -850,6 +960,7 @@ function CouponManager() {
     if (!form.code || !form.discount_value) { alert('Code and discount value are required'); return; }
     const res = await saApi.post('/coupons', { ...form, code: form.code.toUpperCase() });
     if (res.error) { alert(res.error); return; }
+    if (res.errors) { alert(res.errors.map(e => e.msg || e.message).join(', ')); return; }
     reload();
     setForm({ code:'', type:'global', target_email:'', discount_type:'percent', discount_value:10, max_uses:'', expiry_date:'', description:'' });
     setShowAdd(false);
@@ -1737,7 +1848,7 @@ function StatCard({ icon, label, value, sub, color }) {
 }
 
 // ── Dashboard Tab ──────────────────────────────────────────────────────────
-function DashboardTab({ tenants, stats, onAddTenant }) {
+function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
   const plans = getPlans();
   const SEV_COLORS = { success:'#10b981', info:'var(--accent-primary)', warn:'#f59e0b', danger:'#ef4444' };
   const recentActivity = [
@@ -1754,6 +1865,8 @@ function DashboardTab({ tenants, stats, onAddTenant }) {
     { label:'Email (SMTP)',      status: localStorage.getItem('sa_smtp_host') ? 'configured' : 'not_configured' },
     { label:'Razorpay Webhook',  status: localStorage.getItem('sa_rzp_verified') === 'true' ? 'verified' : 'not_configured' },
   ];
+  const backendMrr = parseFloat(dashboardStats?.revenue?.mrr) || 0;
+  const backendTotalRevenue = parseFloat(dashboardStats?.revenue?.total_revenue) || 0;
   const planRevenue = plans.map(p => ({ ...p, count: tenants.filter(t => t.plan === p.key && t.status === 'active').length }));
   const maxRev = Math.max(...planRevenue.map(p => p.price * p.count), 1);
 
@@ -1779,8 +1892,8 @@ function DashboardTab({ tenants, stats, onAddTenant }) {
         <StatCard icon={statIcons.tenants}  label="Total Subscribers"   value={stats.total}  color="#00d4ff" />
         <StatCard icon={statIcons.active}   label="Active Subscribers"  value={stats.active} sub={`${stats.trial} on trial`} color="#10b981" />
         <StatCard icon={statIcons.expiring} label="Expiring Soon"   value={stats.expiringSoon} sub="Next 14 days" color="#f59e0b" />
-        <StatCard icon={statIcons.mrr}      label="Monthly Revenue" value={`₹${stats.mrr.toLocaleString('en-IN')}`} sub="Active MRR" color="#8b5cf6" />
-        <StatCard icon={statIcons.plan}     label="Top Plan"        value={stats.active ? (plans.find(p => p.key === tenants.filter(t => t.status==='active')[0]?.plan)?.label || '—') : '—'} color="#3b82f6" />
+        <StatCard icon={statIcons.mrr}      label="Monthly Revenue" value={`₹${(backendMrr || stats.mrr).toLocaleString('en-IN')}`} sub={backendMrr ? 'From purchases' : 'Active MRR'} color="#8b5cf6" />
+        <StatCard icon={statIcons.plan}     label="Total Revenue"   value={`₹${backendTotalRevenue.toLocaleString('en-IN')}`} sub="All time" color="#f59e0b" />
       </div>
 
       <div className="sa-dash-grid">
@@ -2154,11 +2267,30 @@ export default function SuperAdminPage() {
     setLoading(true);
     try {
       const data = await saApi.get('/tenants');
-      setTenants(data.tenants || []);
+      setTenants(Array.isArray(data) ? data : (data?.tenants || []));
     } catch { } finally { setLoading(false); }
   }, []);
 
+  const loadPurchases = useCallback(() => {
+    saApi.get('/purchases').then(d => {
+      if (Array.isArray(d)) setBackendPurchases(d);
+    }).catch(() => {});
+  }, []);
+
+  const onTenantChange = useCallback(() => {
+    load();
+    loadPurchases();
+  }, [load, loadPurchases]);
+
   useEffect(() => { load(); }, [load]);
+
+  // Fetch dashboard stats + purchases from backend
+  useEffect(() => {
+    saApi.get('/dashboard').then(d => {
+      if (d && d.tenants) setDashboardStats(d);
+    }).catch(() => {});
+    loadPurchases();
+  }, [loadPurchases]);
 
   const handleImpersonate = (tenant) => {
     sessionStorage.setItem('impersonating_as', tenant.company_name);
@@ -2191,10 +2323,33 @@ export default function SuperAdminPage() {
     mrr: tenants.filter(t => t.status === 'active').reduce((sum, t) => sum + (getPlans().find(p => p.key === t.plan)?.price || 0), 0),
   };
 
-  // Purchase tracking state
+  // Dashboard stats from backend
+  const [dashboardStats, setDashboardStats] = useState({ tenants: {}, revenue: { total_revenue: 0, mrr: 0 }, topActions: [], planStats: [] });
+
+  // Purchase tracking state — merge backend data + local simulated
   const [purchases, setPurchases] = useState(() => {
     try { return JSON.parse(localStorage.getItem('sa_purchase_log') || '[]'); } catch { return []; }
   });
+  const [backendPurchases, setBackendPurchases] = useState([]);
+  const allPurchases = useMemo(() => {
+    const mapped = (backendPurchases || []).map(bp => ({
+      id: bp.id,
+      timestamp: bp.created_at || bp.paid_at,
+      tenant_name: bp.full_name || bp.company_name || '',
+      tenant_email: bp.email || '',
+      plan: bp.plan_key,
+      plan_label: bp.plan_label || bp.plan_key,
+      amount: parseFloat(bp.amount) || 0,
+      status: bp.status === 'paid' ? 'success' : bp.status,
+      razorpay_payment_id: bp.razorpay_payment_id,
+      razorpay_order_id: bp.razorpay_order_id,
+      source: 'db',
+    }));
+    const merged = [...purchases, ...mapped].filter((item, idx, self) =>
+      idx === self.findIndex(t => t.id === item.id)
+    );
+    return merged.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+  }, [purchases, backendPurchases]);
   const [newPurchaseCount, setNewPurchaseCount] = useState(() => {
     try { return parseInt(localStorage.getItem('sa_new_purchase_count') || '0'); } catch { return 0; }
   });
@@ -2280,7 +2435,7 @@ export default function SuperAdminPage() {
 
       {/* Dashboard Tab */}
       {activeTab === 'dashboard' && (
-        <DashboardTab tenants={tenants} stats={stats} onAddTenant={() => setShowAdd(true)} />
+        <DashboardTab tenants={tenants} stats={stats} dashboardStats={dashboardStats} onAddTenant={() => setShowAdd(true)} />
       )}
 
       {/* Subscriber Management Tab */}
@@ -2370,8 +2525,14 @@ export default function SuperAdminPage() {
       {activeTab === 'purchases' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div className="card-title">Subscription Purchase Tracker</div>
+            <div className="card-title">
+              Subscription Purchase Tracker
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 400, marginLeft: 8 }}>
+                ({allPurchases.length} total · {backendPurchases.length} from DB · {purchases.length} local)
+              </span>
+            </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary btn-sm" onClick={loadPurchases}>Refresh</button>
               {newPurchaseCount > 0 && (
                 <span style={{ padding: '4px 12px', background: 'rgba(16,185,129,0.15)', color: '#10b981', borderRadius: 999, fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }} onClick={clearNewCount}>
                   Mark {newPurchaseCount} as seen
@@ -2390,13 +2551,13 @@ export default function SuperAdminPage() {
           {/* Stats row */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
             {[[
-              '', 'Successful', purchases.filter(p => p.status === 'success').length, '#10b981',
+              '', 'Successful', allPurchases.filter(p => p.status === 'success').length, '#10b981',
             ], [
-              '', 'Failed / Abandoned', purchases.filter(p => p.status === 'failed').length, '#ef4444',
+              '', 'Failed', allPurchases.filter(p => p.status === 'failed').length, '#ef4444',
             ], [
-              '', 'Pending', purchases.filter(p => p.status === 'pending').length, '#f59e0b',
+              '', 'Pending', allPurchases.filter(p => p.status === 'pending').length, '#f59e0b',
             ], [
-              '', 'Total Revenue', fmtAmt(purchases.filter(p => p.status === 'success').reduce((s, p) => s + (p.amount || 0), 0)), '#8b5cf6',
+              '', 'Total Revenue', fmtAmt(allPurchases.filter(p => p.status === 'success').reduce((s, p) => s + (p.amount || 0), 0)), '#8b5cf6',
             ]].map(([icon, label, val, color]) => (
               <div key={label} className="card" style={{ borderLeft: `3px solid ${color}`, padding: '12px 16px' }}>
                 <div style={{ fontSize: '1.4rem' }}>{icon}</div>
@@ -2411,24 +2572,25 @@ export default function SuperAdminPage() {
               <thead>
                 <tr>
                   <th>Date & Time</th>
-                  <th>Tenant</th>
+                  <th>Subscriber</th>
                   <th>Plan</th>
                   <th>Amount</th>
                   <th>Status</th>
                   <th>Razorpay ID</th>
                   <th>Actions</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
-                {purchases.length === 0 ? (
-                  <tr><td colSpan={7}>
+                {allPurchases.length === 0 ? (
+                  <tr><td colSpan={8}>
                     <div className="empty-state" style={{ padding: 40 }}>
                       <div className="empty-icon">📭</div>
                       <div className="empty-title">No Purchase Events</div>
-                      <div className="empty-desc">Use the "Simulate Webhook" in Plans tab to test tracking, or configure the real Razorpay webhook</div>
+                      <div className="empty-desc">Run the seed script or configure Razorpay webhook to add purchases.</div>
                     </div>
                   </td></tr>
-                ) : purchases.map(p => (
+                ) : allPurchases.map(p => (
                   <tr key={p.id}>
                     <td>
                       <div className="font-mono text-xs">{fmtDate(p.timestamp)}</div>
@@ -2443,7 +2605,7 @@ export default function SuperAdminPage() {
                         <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 999, background: `${pl.color}18`, color: pl.color, fontWeight: 700, border: `1px solid ${pl.color}30` }}>{pl.label}</span>
                       ); })()}
                     </td>
-                    <td><span className="font-mono" style={{ fontWeight: 700 }}>{fmtAmt(p.amount)}/mo</span></td>
+                    <td><span className="font-mono" style={{ fontWeight: 700 }}>{fmtAmt(p.amount)}</span></td>
                     <td>
                       <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999, fontFamily: 'var(--font-mono)',
                         background: p.status === 'success' ? 'rgba(16,185,129,0.15)' : p.status === 'failed' ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
@@ -2470,6 +2632,12 @@ export default function SuperAdminPage() {
                         )}
                       </div>
                     </td>
+                    <td>
+                      <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: 4, fontWeight: 600,
+                        background: p.source === 'db' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)',
+                        color: p.source === 'db' ? '#3b82f6' : '#f59e0b',
+                      }}>{p.source === 'db' ? 'DB' : 'Local'}</span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2488,7 +2656,7 @@ export default function SuperAdminPage() {
       {activeTab === 'homepage' && <HomepageTab />}
 
       {/* ── Invoices Tab ───────────────────────────────────────────────────── */}
-      {activeTab === 'invoices' && <InvoicesTab purchases={purchases} tenants={tenants} />}
+      {activeTab === 'invoices' && <InvoicesTab purchases={allPurchases} tenants={tenants} />}
 
       {/* ── SA Accounts Tab ────────────────────────────────────────────────── */}
       {activeTab === 'accounts' && <AccountsTab />}
@@ -2504,8 +2672,8 @@ export default function SuperAdminPage() {
 
       </div>{/* end sa-main */}
 
-      {showAdd && <AddTenantModal onClose={() => setShowAdd(false)} onDone={load} />}
-      {editTenant && <EditTenantModal tenant={editTenant} onClose={() => setEditTenant(null)} onDone={load} />}
+      {showAdd && <AddTenantModal onClose={() => setShowAdd(false)} onDone={onTenantChange} />}
+      {editTenant && <EditTenantModal tenant={editTenant} onClose={() => setEditTenant(null)} onDone={onTenantChange} />}
       {viewUsersTenant && <TenantUsersModal tenant={viewUsersTenant} onClose={() => setViewUsersTenant(null)} />}
     </div>
   );

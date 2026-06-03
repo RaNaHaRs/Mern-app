@@ -373,7 +373,7 @@ export default function App() {
     <ThemeProvider>
       <FontSizeProvider>
         <AuthProvider>
-          <BrowserRouter>
+          <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
             <React.Suspense fallback={<LoadingScreen />}>
               <Routes>
                 {/* Public routes - no auth needed */}

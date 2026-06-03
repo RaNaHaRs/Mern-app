@@ -235,7 +235,7 @@ router.get('/tenants', async (req, res) => {
        GROUP BY u.id
        ORDER BY u.created_at DESC`
     );
-    res.json(result.rows);
+    res.json({ tenants: result.rows });
   } catch (err) {
     // Fallback if columns don't exist yet
     try {
@@ -244,7 +244,7 @@ router.get('/tenants', async (req, res) => {
                 phone, is_active, last_login, created_at, notes
          FROM users WHERE role = 'admin' ORDER BY created_at DESC`
       );
-      res.json(r2.rows);
+      res.json({ tenants: r2.rows });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -255,8 +255,8 @@ router.get('/tenants', async (req, res) => {
 router.post('/tenants',
   [
     body('company_name').trim().notEmpty().withMessage('Company name required'),
-    body('admin_email').isEmail().normalizeEmail(),
-    body('admin_password').isLength({ min: 8 }),
+    body('admin_email').isEmail().withMessage('Valid email required').normalizeEmail(),
+    body('admin_password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
     body('plan').optional().isString(),
   ],
   auditLog('create_tenant', 'tenant'),
@@ -267,7 +267,7 @@ router.post('/tenants',
     const {
       company_name, admin_name, admin_email, admin_password,
       plan = 'starter', max_team_users = 5, subscription_months = 1,
-      phone, city, gstin, notes, expiry_date,
+      phone, city, gstin, notes, expiry_date, amount,
     } = req.body;
 
     try {
@@ -288,6 +288,14 @@ router.post('/tenants',
         [username, admin_email, hash, admin_name || company_name, phone || null, notes || null,
          company_name, city || null, plan, expiryTs, max_team_users]
       );
+
+      if (amount) {
+        await query(
+          `INSERT INTO saas_purchases (tenant_user_id, plan_key, plan_label, amount, months, status, paid_at)
+           VALUES ($1, $2, $3, $4, $5, 'paid', NOW())`,
+          [user.rows[0].id, plan, plan, amount, subscription_months]
+        );
+      }
 
       logger.info('Tenant provisioned', { by: req.user.id, tenant: user.rows[0].id });
       res.status(201).json({
@@ -493,7 +501,12 @@ router.patch('/settings/:key', auditLog('update_setting', 'settings'), async (re
 // GET /api/super-admin/plans
 router.get('/plans', async (req, res) => {
   try {
-    const result = await query('SELECT * FROM subscription_plans ORDER BY sort_order, created_at');
+    const includeInactive = req.query.include_inactive === 'true';
+    const result = await query(
+      includeInactive
+        ? 'SELECT * FROM subscription_plans ORDER BY sort_order, created_at'
+        : 'SELECT * FROM subscription_plans WHERE is_active = true ORDER BY sort_order, created_at'
+    );
     const plans = result.rows.map(r => ({
       key: r.key,
       label: r.label,
