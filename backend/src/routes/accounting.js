@@ -5,6 +5,7 @@ const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
 const { loadCompanySettings } = require('./settings');
 const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
+const { normalizeUiCategory, toDbCategory } = require('../utils/hddCategoryMap');
 
 const router = express.Router();
 router.use(authenticate);
@@ -774,16 +775,17 @@ router.post('/purchases', requireMinRole('staff'), auditLog('create_purchase', '
 
       // 3. Optionally create inventory item
       if (add_to_inventory && inv_stock_number) {
-        const invCat = inv_category || 'consumable';
+        const uiCategory = normalizeUiCategory(inv_category);
+        const invCat = toDbCategory(uiCategory);
         const itemName = inv_name || description || 'Inventory Item';
         const itemQty = parseInt(inv_quantity, 10) || 1;
         const unitCost = parseFloat(amount) || 0;
 
         const invResult = await client.query(
           `INSERT INTO inventory_items
-             (sku, stock_number, name, category, brand, model, serial_number, quantity, unit_cost, condition, location, company, notes, tenant_id, added_by, status, min_quantity)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
-          [inv_stock_number, inv_stock_number, itemName, invCat,
+             (sku, stock_number, name, category, ui_category, brand, model, serial_number, quantity, unit_cost, condition, location, company, notes, tenant_id, added_by, status, min_quantity)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+          [inv_stock_number, inv_stock_number, itemName, invCat, uiCategory,
            inv_brand || null, inv_model || null, inv_serial_number || null,
            itemQty, unitCost, inv_condition || 'new', inv_location || null,
            inv_company || null, inv_notes || null, tenantAdminId(req.user), req.user.id,
