@@ -149,7 +149,7 @@ function DonorPatientComparison({ donor, patientCaseId }) {
 
   return (
     <div>
-      <div className="card" style={{ marginBottom:16,padding:20,background:'linear-gradient(135deg,rgba(0,212,255,0.06),rgba(124,58,237,0.06))' }}>
+      <div className="card" style={{ marginBottom:16,padding:20,background:'var(--bg-card)' }}>
         <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12 }}>
           <div>
             <div style={{ fontSize:'1.1rem',fontWeight:800,marginBottom:4 }}>🔬 Donor ↔ Patient Comparison</div>

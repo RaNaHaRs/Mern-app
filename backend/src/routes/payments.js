@@ -2,6 +2,7 @@ const express = require('express');
 const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const automationService = require('../services/automationService');
 const { isSuperAdmin, tenantAdminId, verifyCaseAccess, syncInvoiceFromCasePayment } = require('../utils/tenantAccess');
 const { loadCompanySettings } = require('./settings');
 const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
@@ -80,6 +81,26 @@ router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'),
       await syncInvoiceFromCasePayment(client, case_id);
       return pay.rows[0];
     });
+    try {
+      const caseInfo = await query(
+        `SELECT c.case_number, cl.email, cl.first_name
+         FROM cases c
+         LEFT JOIN clients cl ON c.client_id = cl.id
+         WHERE c.id = $1`,
+        [case_id]
+      );
+      const caseRow = caseInfo.rows[0] || {};
+      await automationService.handleEvent('PAYMENT_RECEIVED', {
+        case_id,
+        case_number: caseRow.case_number || '',
+        name: caseRow.first_name || 'Client',
+        email: caseRow.email || '',
+        amount: parsedAmount,
+        payment_method: method || ''
+      });
+    } catch (eventErr) {
+      console.warn('PAYMENT_RECEIVED event emission failed:', eventErr.message);
+    }
     res.status(201).json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

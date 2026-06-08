@@ -514,7 +514,7 @@ export default function ClientDetail() {
           </div>
           <div style={{ display:'flex',flexDirection:'column',gap:10 }}>
             {(cl.communications||[]).map(comm => (
-              <div key={comm.id} style={{ padding:'12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)',borderLeft:'3px solid var(--border-accent)' }}>
+              <div key={comm.id} style={{ padding:'12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)',border:'1px solid var(--border-subtle)' }}>
                 <div style={{ display:'flex',justifyContent:'space-between',marginBottom:4 }}>
                   <div style={{ display:'flex',gap:8,alignItems:'center' }}>
                     <span style={{ fontSize:'0.72rem',padding:'2px 8px',background:'rgba(0,212,255,0.1)',borderRadius:999,color:'var(--accent-primary)',fontFamily:'var(--font-mono)' }}>{comm.type}</span>

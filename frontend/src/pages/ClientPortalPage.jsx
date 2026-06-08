@@ -109,7 +109,7 @@ export default function ClientPortalPage() {
   const progress = caseData ? (caseData.recovery_progress_pct || getStageProgress(caseData.stage)) : 0;
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0a0f1e 0%, #111827 50%, #0d1825 100%)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 16px', position: 'relative' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 16px', position: 'relative' }}>
 
       {/* Admin back-to-CRM bar */}
       {isAdminLoggedIn && (
@@ -136,7 +136,7 @@ export default function ClientPortalPage() {
       </div>
 
       {/* Search Card */}
-      <div style={{ width: '100%', maxWidth: 520, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 28, backdropFilter: 'blur(12px)', marginBottom: 24 }}>
+      <div style={{ width: '100%', maxWidth: 520, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 28, marginBottom: 24 }}>
         <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#e2e8f0', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
           🔍 Track Your Case
         </h2>
@@ -168,7 +168,7 @@ export default function ClientPortalPage() {
           <button
             type="submit"
             disabled={loading || !caseNum.trim()}
-            style={{ width: '100%', padding: '11px 0', background: loading ? '#1e3a5f' : 'linear-gradient(135deg, #0070f3, #00d4ff)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            style={{ width: '100%', padding: '11px 0', background: loading ? '#1e3a5f' : 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
           >
             {loading ? '⌛ Searching...' : '🔎 Track Case'}
           </button>

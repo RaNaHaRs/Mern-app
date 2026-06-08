@@ -94,6 +94,8 @@ export default function FloatingChat() {
   const [currentUser, setCurrentUser] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [typingUser, setTypingUser] = useState(null);
+  const typingTimerRef = useRef(null);
 
   // Refs to prevent stale closures in socket events
   const contactsRef = useRef([]);
@@ -299,13 +301,70 @@ export default function FloatingChat() {
       ));
     });
 
+    // Handle typing indicators
+    s.on('typing', ({ userName }) => {
+      const activeChat = chatsRef.current.find((c) => c.id === selectedChatIdRef.current);
+      if (!activeChat) return;
+      setTypingUser(userName);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = setTimeout(() => {
+        setTypingUser(null);
+      }, 1800);
+    });
+
     // Handle errors
     s.on('error', (err) => {
       console.error('Socket error:', err);
     });
 
-    return () => { s.disconnect(); };
+    return () => {
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      s.disconnect();
+    };
   }, []);
+
+  // Auto-select most recent conversation once contacts/chats are loaded
+  useEffect(() => {
+    if (!selectedChatId && chats.length > 0 && currentUser && socket?.connected) {
+      const first = chats[0];
+      if (first && first.participantId) {
+        const id = first.id;
+        setSelectedChatId(id);
+        setChats(prevChats => prevChats.map(c => c.id === id ? { ...c, unread: 0 } : c));
+        if (first.room) {
+          socket.emit('joinRoom', first.room);
+          socket.emit('markSeen', { room: first.room });
+          const token = localStorage.getItem('accessToken');
+          fetch(`/api/chat/conversations/${first.participantId}/messages?limit=200`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (Array.isArray(data.messages)) {
+                setChats(prev => prev.map(pc =>
+                  pc.id === id
+                    ? {
+                        ...pc,
+                        messages: data.messages.map(m => ({
+                          id: m.id,
+                          sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
+                          text: m.text || '',
+                          time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                          filePath: m.filePath,
+                          mimeType: m.mimeType,
+                          created_at: m.created_at,
+                          seen: !!m.seen_at,
+                        }))
+                      }
+                    : pc
+                ));
+              }
+            })
+            .catch(err => console.warn('Failed to load initial message history', err));
+        }
+      }
+    }
+  }, [chats, currentUser, socket?.connected]);
 
   const activeChat = chats.find(c => c.id === selectedChatId);
 
@@ -406,9 +465,10 @@ export default function FloatingChat() {
       const match = (user.full_name || user.username || '').toLowerCase().includes(q) || (user.role || '').toLowerCase().includes(q);
       if (!match) return false;
     }
-    const isFocused = true; // All fetched allowed contacts are Focused for immediate visibility
-    if (activeTab === 'focused') return isFocused;
-    return !isFocused;
+    if (activeTab === 'focused') {
+      return user.role === 'admin' || user.role === 'super_admin';
+    }
+    return user.role !== 'admin' && user.role !== 'super_admin';
   });
 
   return (
@@ -471,6 +531,15 @@ export default function FloatingChat() {
                   </div>
                 </div>
               ))}
+              {typingUser && (
+                <div className="chat-message-bubble-row them">
+                  <div className="chat-message-bubble" style={{ opacity: 0.8 }}>
+                    <div className="chat-message-text" style={{ fontStyle: 'italic' }}>
+                      {typingUser} is typing...
+                    </div>
+                  </div>
+                </div>
+              )}
               <div ref={messageEndRef} />
             </div>
 
@@ -480,7 +549,15 @@ export default function FloatingChat() {
                 type="text"
                 placeholder="Type a secure message..."
                 value={newMessageText}
-                onChange={e => setNewMessageText(e.target.value)}
+                onChange={e => {
+                  setNewMessageText(e.target.value);
+                  if (e.target.value && socket && activeChat?.room) {
+                    socket.emit('typing', {
+                      room: activeChat.room,
+                      userName: currentUser?.fullName || currentUser?.username || 'User',
+                    });
+                  }
+                }}
                 className="chat-input-field"
                 maxLength={400}
                 required

@@ -126,9 +126,9 @@ async function migrate() {
         'utf8'
       );
       await client.query(inventoryTimelineSchema);
-      console.log('âœ… Inventory notes timeline migration applied');
+      console.log('✅ Inventory notes timeline migration applied');
     } catch (inventoryTimelineErr) {
-      console.warn('âš ï¸  Inventory notes timeline migration warning (non-fatal):', inventoryTimelineErr.message);
+      console.warn('✅  Inventory notes timeline migration warning (non-fatal):', inventoryTimelineErr.message);
     }
 
     try {
@@ -240,6 +240,34 @@ async function migrate() {
       try { await client.query('ROLLBACK'); } catch (_) {}
     }
 
+    // =========================================================
+    // Automation Center migration
+    // =========================================================
+    try {
+      const automationSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '030_create_automation_center.sql'),
+        'utf8'
+      );
+      await client.query(automationSchema);
+      console.log('✅ Automation Center migration applied');
+    } catch (automationErr) {
+      console.warn('⚠️  Automation Center migration warning (non-fatal):', automationErr.message);
+    }
+
+    // =========================================================
+    // Add inward_pdf_path to cases (for storing uploaded inward PDFs)
+    // =========================================================
+    try {
+      const inwardPdfSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '040_add_inward_pdf_path_to_cases.sql'),
+        'utf8'
+      );
+      await client.query(inwardPdfSchema);
+      console.log('✅ Added inward_pdf_path column to cases');
+    } catch (inwardPdfErr) {
+      console.warn('⚠️  inward_pdf_path migration warning (non-fatal):', inwardPdfErr.message);
+    }
+
     try {
       const purchasesSchema = fs.readFileSync(
         path.join(__dirname, 'migrations', '021_create_accounting_purchases.sql'),
@@ -300,6 +328,20 @@ async function migrate() {
     }
 
     // =========================================================
+    // Tenant-specific case numbering
+    // =========================================================
+    try {
+      const tenantCaseSeqSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '041_tenant_case_sequences.sql'),
+        'utf8'
+      );
+      await client.query(tenantCaseSeqSchema);
+      console.log('✅ Tenant-specific case numbering migration applied');
+    } catch (tenantCaseSeqErr) {
+      console.warn('⚠️  Tenant case sequences migration warning (non-fatal):', tenantCaseSeqErr.message);
+    }
+
+    // =========================================================
     // INVENTORY ↔ CASES INTEGRATION TABLES
     // =========================================================
     try {
@@ -317,6 +359,28 @@ async function migrate() {
       } catch (enumErr) {
         console.log('ℹ️  user_role enum cleanup skipped (already converted or in use):', enumErr.message);
       }
+    }
+
+    try {
+      const resetPwdSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '042_add_reset_password_token_to_users.sql'),
+        'utf8'
+      );
+      await client.query(resetPwdSchema);
+      console.log('✅ Forgot/Reset password columns migration applied');
+    } catch (resetPwdErr) {
+      console.warn('⚠️  Forgot/Reset password columns migration warning (non-fatal):', resetPwdErr.message);
+    }
+
+    try {
+      const resetRateLimitSchema = fs.readFileSync(
+        path.join(__dirname, 'migrations', '043_password_reset_rate_limit.sql'),
+        'utf8'
+      );
+      await client.query(resetRateLimitSchema);
+      console.log('✅ Password reset rate-limit table migration applied');
+    } catch (resetRateLimitErr) {
+      console.warn('⚠️  Password reset rate-limit migration warning (non-fatal):', resetRateLimitErr.message);
     }
 
     // =========================================================

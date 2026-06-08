@@ -12,6 +12,23 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <div id="error-display" style="color: red; background: black; padding: 20px; font-family: monospace; white-space: pre-wrap; z-index: 99999; position: fixed; top: 0; left: 0; right: 0; display: none;"></div>
+    <script>
+      window.addEventListener('error', function(e) {
+        document.getElementById('error-display').style.display = 'block';
+        document.getElementById('error-display').innerText += '\n[ERROR] ' + e.message + '\n' + (e.error ? e.error.stack : '');
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        document.getElementById('error-display').style.display = 'block';
+        document.getElementById('error-display').innerText += '\n[PROMISE] ' + (e.reason ? e.reason.stack || e.reason : 'Unhandled Promise Rejection');
+      });
+      const originalConsoleError = console.error;
+      console.error = function(...args) {
+        document.getElementById('error-display').style.display = 'block';
+        document.getElementById('error-display').innerText += '\n[REACT] ' + args.join(' ');
+        originalConsoleError.apply(console, args);
+      };
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

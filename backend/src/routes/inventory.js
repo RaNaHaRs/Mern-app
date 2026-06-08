@@ -5,6 +5,7 @@ const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantInventoryCondition, tenantAdminId } = require('../utils/tenantAccess');
 const mediaRecycle = require('../services/mediaRecycle');
+const automationService = require('../services/automationService');
 const {
   toDbCategory, formatItemRow, isInventoryHddCategory, normalizeUiCategory, validatePcbPayload,
 } = require('../utils/hddCategoryMap');
@@ -388,6 +389,28 @@ router.post('/', requireMinRole('junior_engineer'), auditLog('create_inventory',
     }
 
     await recordTransfer(req, item, body);
+    try {
+      await automationService.handleEvent('INVENTORY_CREATED', {
+        inventory_id: item.id,
+        name: item.name,
+        category: item.category,
+        serial_number: item.serial_number || '',
+        status: item.status || 'available',
+        quantity: item.quantity || 0
+      });
+      if ((parseInt(item.quantity, 10) || 0) <= (parseInt(item.min_quantity, 10) || 0)) {
+        await automationService.handleEvent('INVENTORY_LOW_STOCK', {
+          inventory_id: item.id,
+          name: item.name,
+          category: item.category,
+          quantity: item.quantity || 0,
+          min_quantity: item.min_quantity || 0,
+          status: item.status || 'available'
+        });
+      }
+    } catch (eventErr) {
+      console.warn('INVENTORY event emission failed:', eventErr.message);
+    }
     const { labeled } = await loadCustomFieldValues(item.id);
     res.status(201).json(formatItemRow({ ...item, custom_fields_display: labeled }));
   } catch (err) {
@@ -510,6 +533,20 @@ router.put('/:id', requireMinRole('junior_engineer'), auditLog('update_inventory
     }
 
     const { labeled } = await loadCustomFieldValues(req.params.id);
+    try {
+      if ((parseInt(updated.quantity, 10) || 0) <= (parseInt(updated.min_quantity, 10) || 0)) {
+        await automationService.handleEvent('INVENTORY_LOW_STOCK', {
+          inventory_id: updated.id,
+          name: updated.name,
+          category: updated.category,
+          quantity: updated.quantity || 0,
+          min_quantity: updated.min_quantity || 0,
+          status: updated.status || 'available'
+        });
+      }
+    } catch (eventErr) {
+      console.warn('INVENTORY_LOW_STOCK event emission failed:', eventErr.message);
+    }
     res.json(formatItemRow({ ...updated, custom_fields_display: labeled }));
   } catch (err) {
     res.status(500).json({ error: err.message });

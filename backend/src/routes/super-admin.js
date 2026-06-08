@@ -17,9 +17,13 @@
 const express       = require('express');
 const bcrypt        = require('bcryptjs');
 const crypto        = require('crypto');
+const fs            = require('fs');
+const path          = require('path');
+const jwt           = require('jsonwebtoken');
+const { ZipArchive } = require('archiver');
 const { body, query: qv, validationResult } = require('express-validator');
 const { query }     = require('../config/database');
-const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+const { authenticate, requireSuperAdmin, requireSuperAdminOrPlatformStaff, requireSuperAdminPermission, generateAccessToken, JWT_SECRET } = require('../middleware/auth');
 const { auditLog }  = require('../middleware/audit');
 const logger        = require('../config/logger');
 const settingsRoutes = require('./settings');
@@ -28,13 +32,40 @@ const settingsRoutes = require('./settings');
 const razorpayService = require('../services/razorpayService');
 const invoiceService  = require('../services/invoiceService');
 const tfaService      = require('../services/twoFactorService');
+const automationService = require('../services/automationService');
 
 const router = express.Router();
 
-// Guard every route in this file
-router.use(authenticate, requireSuperAdmin);
+// POST /api/super-admin/coupons/validate  (used by checkout — no super_admin guard below)
+router.post('/coupons/validate', async (req, res) => {
+  const { code, plan_key, email } = req.body;
+  if (!code) return res.status(400).json({ error: 'Coupon code required' });
+  try {
+    const result = await query(
+      `SELECT * FROM discount_coupons
+       WHERE code = $1 AND is_active = true
+         AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
+         AND (max_uses IS NULL OR used_count < max_uses)`,
+      [code.toUpperCase()]
+    );
+    if (!result.rows.length) return res.status(404).json({ valid: false, error: 'Invalid or expired coupon' });
+
+    const coupon = result.rows[0];
+    if (coupon.type === 'user_specific' && email && coupon.target_email !== email) {
+      return res.status(403).json({ valid: false, error: 'This coupon is not valid for your account' });
+    }
+
+    res.json({ valid: true, coupon });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Guard every route in this file (allow platform staff into super-admin namespace)
+router.use(authenticate, requireSuperAdminOrPlatformStaff);
 
 const ROLE_SETTINGS_KEY = 'settings_roles';
+const STAFF_ROLE_SETTINGS_KEY = 'staff_roles';
 
 async function getSuperAdminRoles() {
   const result = await query(`SELECT value FROM platform_settings WHERE key = $1`, [ROLE_SETTINGS_KEY]);
@@ -48,6 +79,21 @@ async function saveSuperAdminRoles(roles, userId) {
      VALUES ($1, $2, $3, NOW())
      ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,
     [ROLE_SETTINGS_KEY, JSON.stringify(roles), userId]
+  );
+}
+
+async function getStaffRoles() {
+  const result = await query(`SELECT value FROM platform_settings WHERE key = $1`, [STAFF_ROLE_SETTINGS_KEY]);
+  if (!result.rows.length) return [];
+  return result.rows[0].value || [];
+}
+
+async function saveStaffRoles(roles, userId) {
+  await query(
+    `INSERT INTO platform_settings (key, value, updated_by, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,
+    [STAFF_ROLE_SETTINGS_KEY, JSON.stringify(roles), userId]
   );
 }
 
@@ -65,7 +111,7 @@ async function loadSavedRazorpayCredentials() {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/super-admin/dashboard
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', requireSuperAdminPermission('dashboard', 'view'), async (req, res) => {
   try {
     const [tenants, revenue, logs, plans] = await Promise.all([
       query(`SELECT
@@ -107,7 +153,7 @@ router.get('/dashboard', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/super-admin/admins
-router.get('/admins', async (req, res) => {
+router.get('/admins', requireSuperAdminPermission('staff', 'view'), async (req, res) => {
   try {
     const result = await query(
       `SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active,
@@ -115,7 +161,7 @@ router.get('/admins', async (req, res) => {
               json_agg(ap.*) FILTER (WHERE ap.id IS NOT NULL) AS permissions
        FROM users u
        LEFT JOIN admin_permissions ap ON ap.user_id = u.id
-       WHERE u.role IN ('admin', 'senior_engineer', 'junior_engineer', 'staff')
+       WHERE u.role IN ('admin', 'senior_engineer', 'junior_engineer', 'staff') OR u.role IN (SELECT jsonb_array_elements_text(value->'key') FROM platform_settings WHERE key = 'staff_roles')
        GROUP BY u.id
        ORDER BY u.created_at DESC`
     );
@@ -127,12 +173,20 @@ router.get('/admins', async (req, res) => {
 
 // POST /api/super-admin/admins  — Create platform staff account
 router.post('/admins',
+  requireSuperAdminPermission('staff', 'create'),
   [
     body('username').trim().isLength({ min: 3 }).withMessage('Username min 3 chars'),
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 8 }).withMessage('Password min 8 chars'),
     body('full_name').trim().notEmpty(),
-    body('role').isIn(['admin', 'senior_engineer', 'junior_engineer', 'staff']),
+    body('role').custom(async (val) => {
+      const defaults = ['admin', 'senior_engineer', 'junior_engineer', 'staff'];
+      if (defaults.includes(val)) return true;
+      const result = await query(`SELECT value FROM platform_settings WHERE key = $1`, ['staff_roles']);
+      const customRoles = result.rows.length ? (result.rows[0].value || []) : [];
+      if (customRoles.some(r => r.key === val)) return true;
+      throw new Error('Invalid platform staff role');
+    }),
   ],
   auditLog('create_admin_staff', 'user'),
   async (req, res) => {
@@ -165,6 +219,21 @@ router.post('/admins',
       }
 
       logger.info('Admin staff created', { by: req.user.id, newUser: userId });
+
+      // Send onboarding email (fire-and-forget)
+      invoiceService.sendOnboardingEmail({
+        email, name: full_name, password, role,
+      }).catch(e => logger.error('Onboarding email failed', { error: e.message }));
+
+      // Emit automation event for ADMIN_CREATED
+      automationService.handleEvent('ADMIN_CREATED', {
+        name: full_name,
+        email,
+        role,
+        login_url: process.env.LOGIN_URL || 'https://app.recoverlab.in/login',
+        password
+      }).catch(e => logger.error('Automation event ADMIN_CREATED failed', { error: e.message }));
+
       res.status(201).json({ ...user.rows[0], message: 'Admin staff account created successfully' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -173,7 +242,7 @@ router.post('/admins',
 );
 
 // PATCH /api/super-admin/admins/:id/permissions
-router.patch('/admins/:id/permissions', auditLog('update_admin_permissions', 'user'), async (req, res) => {
+router.patch('/admins/:id/permissions', requireSuperAdminPermission('staff', 'edit'), auditLog('update_admin_permissions', 'user'), async (req, res) => {
   const { permissions = [] } = req.body;
   try {
     for (const perm of permissions) {
@@ -191,11 +260,23 @@ router.patch('/admins/:id/permissions', auditLog('update_admin_permissions', 'us
 });
 
 // PATCH /api/super-admin/admins/:id/status
-router.patch('/admins/:id/status', auditLog('toggle_admin_status', 'user'), async (req, res) => {
+router.patch('/admins/:id/status', requireSuperAdminPermission('staff', 'edit'), auditLog('toggle_admin_status', 'user'), async (req, res) => {
   const { is_active } = req.body;
   if (typeof is_active !== 'boolean') return res.status(400).json({ error: 'is_active (boolean) required' });
   try {
+    const check = await query('SELECT email, full_name, role FROM users WHERE id=$1 AND role != $2', [req.params.id, 'super_admin']);
+    if (!check.rows.length) return res.status(404).json({ error: 'User not found' });
+    const target = check.rows[0];
+
     await query('UPDATE users SET is_active=$1 WHERE id=$2 AND role != $3', [is_active, req.params.id, 'super_admin']);
+
+    invoiceService.sendAccountStatusEmail({
+      email: target.email,
+      name: target.full_name,
+      status: is_active ? 'active' : 'suspended',
+      role: target.role,
+    }).catch(e => logger.error('Admin account status email failed', { error: e.message, email: target.email }));
+
     res.json({ message: `Account ${is_active ? 'activated' : 'deactivated'}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -203,7 +284,7 @@ router.patch('/admins/:id/status', auditLog('toggle_admin_status', 'user'), asyn
 });
 
 // DELETE /api/super-admin/admins/:id
-router.delete('/admins/:id', auditLog('delete_admin_staff', 'user'), async (req, res) => {
+router.delete('/admins/:id', requireSuperAdminPermission('staff', 'delete'), auditLog('delete_admin_staff', 'user'), async (req, res) => {
   try {
     const check = await query('SELECT role FROM users WHERE id=$1', [req.params.id]);
     if (!check.rows.length) return res.status(404).json({ error: 'User not found' });
@@ -297,6 +378,14 @@ router.post('/tenants',
         );
       }
 
+      invoiceService.sendOnboardingEmail({
+        email: user.rows[0].email,
+        name: user.rows[0].full_name,
+        password: admin_password,
+        role: user.rows[0].role,
+        company: company_name,
+      }).catch(e => logger.error('Tenant onboarding email failed', { error: e.message, email: user.rows[0].email }));
+
       logger.info('Tenant provisioned', { by: req.user.id, tenant: user.rows[0].id });
       res.status(201).json({
         ...user.rows[0],
@@ -315,8 +404,9 @@ router.post('/tenants',
 router.patch('/tenants/:id', auditLog('update_tenant', 'tenant'), async (req, res) => {
   const { company_name, plan, status, max_team_users, expiry_date, notes } = req.body;
   try {
-    const check = await query('SELECT id, role FROM users WHERE id=$1', [req.params.id]);
+    const check = await query('SELECT id, role, email, full_name, company_name FROM users WHERE id=$1', [req.params.id]);
     if (!check.rows.length) return res.status(404).json({ error: 'Tenant not found' });
+    const existing = check.rows[0];
 
     const updates = [];
     const vals    = [];
@@ -335,6 +425,16 @@ router.patch('/tenants/:id', auditLog('update_tenant', 'tenant'), async (req, re
     if (!updates.length) return res.json({ message: 'Nothing to update' });
     vals.push(req.params.id);
     await query(`UPDATE users SET ${updates.join(', ')}, updated_at=NOW() WHERE id=$${i}`, vals);
+
+    if (status === 'suspended' || status === 'active') {
+      invoiceService.sendAccountStatusEmail({
+        email: existing.email,
+        name: existing.full_name,
+        status,
+        company: existing.company_name,
+        role: 'Tenant Admin',
+      }).catch(e => logger.error('Tenant status email failed', { error: e.message, email: existing.email }));
+    }
 
     res.json({ message: 'Tenant updated' });
   } catch (err) {
@@ -361,6 +461,34 @@ router.get('/tenants/:id/data', async (req, res) => {
     ]);
     if (!user.rows.length) return res.status(404).json({ error: 'Tenant not found' });
     res.json({ tenant: user.rows[0], purchases: purchases.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/super-admin/login-as/:id  — Generate JWT to login as subscriber admin
+router.post('/login-as/:id', requireSuperAdmin, auditLog('impersonate', 'tenant'), async (req, res) => {
+  try {
+    const userResult = await query(
+      `SELECT id, username, email, full_name, role, tenant_id, tenant_owner_id, is_active FROM users WHERE id = $1 AND is_active = true`,
+      [req.params.id]
+    );
+    if (!userResult.rows.length) {
+      return res.status(404).json({ error: 'User not found or inactive' });
+    }
+    const targetUser = userResult.rows[0];
+    if (targetUser.role !== 'admin') {
+      return res.status(400).json({ error: 'Can only login as admin users' });
+    }
+    // Build token with impersonation marker
+    const tokenPayload = {
+      userId: targetUser.id,
+      role: targetUser.role,
+      tenantId: targetUser.tenant_id,
+      impersonated_by: req.user.id,
+    };
+    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '8h' });
+    res.json({ token, user: { id: targetUser.id, email: targetUser.email, name: targetUser.full_name, role: targetUser.role, impersonated_by: req.user.id } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -402,7 +530,7 @@ router.put('/settings', auditLog('update_platform_settings', 'settings'), async 
 // ═══════════════════════════════════════════════════════════════════════
 // Roles / Permission Template Management
 
-router.get('/settings/roles', async (req, res) => {
+router.get('/settings/roles', requireSuperAdminPermission('roles', 'view'), async (req, res) => {
   try {
     const roles = await getSuperAdminRoles();
     res.json(roles);
@@ -411,7 +539,7 @@ router.get('/settings/roles', async (req, res) => {
   }
 });
 
-router.post('/settings/roles', auditLog('create_role', 'settings'), async (req, res) => {
+router.post('/settings/roles', requireSuperAdminPermission('roles', 'create'), auditLog('create_role', 'settings'), async (req, res) => {
   try {
     const { name, key, description, color, permissions } = req.body;
     if (!name || !key) return res.status(422).json({ error: 'Role name and key are required' });
@@ -433,7 +561,7 @@ router.post('/settings/roles', auditLog('create_role', 'settings'), async (req, 
   }
 });
 
-router.patch('/settings/roles/:id', auditLog('update_role', 'settings'), async (req, res) => {
+router.patch('/settings/roles/:id', requireSuperAdminPermission('roles', 'edit'), auditLog('update_role', 'settings'), async (req, res) => {
   try {
     const { name, key, description, color, permissions } = req.body;
     const roles = await getSuperAdminRoles();
@@ -456,12 +584,79 @@ router.patch('/settings/roles/:id', auditLog('update_role', 'settings'), async (
   }
 });
 
-router.delete('/settings/roles/:id', auditLog('delete_role', 'settings'), async (req, res) => {
+router.delete('/settings/roles/:id', requireSuperAdminPermission('roles', 'delete'), auditLog('delete_role', 'settings'), async (req, res) => {
   try {
     const roles = await getSuperAdminRoles();
     const remaining = roles.filter(r => r.id !== req.params.id);
     if (remaining.length === roles.length) return res.status(404).json({ error: 'Role not found' });
     await saveSuperAdminRoles(remaining, req.user.id);
+    res.json({ message: 'Role deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Staff Roles Management
+router.get('/settings/staff-roles', requireSuperAdminPermission('roles', 'view'), async (req, res) => {
+  try {
+    const roles = await getStaffRoles();
+    res.json(roles);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/settings/staff-roles', requireSuperAdminPermission('roles', 'create'), auditLog('create_staff_role', 'settings'), async (req, res) => {
+  try {
+    const { name, key, description, color, permissions } = req.body;
+    if (!name || !key) return res.status(422).json({ error: 'Role name and key are required' });
+    const roles = await getStaffRoles();
+    if (roles.some(r => r.key === key)) return res.status(409).json({ error: 'Role key already exists' });
+    const role = {
+      id: crypto.randomUUID(),
+      name,
+      key,
+      description: description || '',
+      color: color || '#6366f1',
+      permissions: permissions || {},
+    };
+    roles.push(role);
+    await saveStaffRoles(roles, req.user.id);
+    res.status(201).json(role);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/settings/staff-roles/:id', requireSuperAdminPermission('roles', 'edit'), auditLog('update_staff_role', 'settings'), async (req, res) => {
+  try {
+    const { name, key, description, color, permissions } = req.body;
+    const roles = await getStaffRoles();
+    const idx = roles.findIndex(r => r.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Role not found' });
+    if (key && roles.some(r => r.key === key && r.id !== req.params.id)) return res.status(409).json({ error: 'Role key already exists' });
+    const existing = roles[idx];
+    roles[idx] = {
+      ...existing,
+      name: name ?? existing.name,
+      key: key ?? existing.key,
+      description: description ?? existing.description,
+      color: color ?? existing.color,
+      permissions: permissions ?? existing.permissions,
+    };
+    await saveStaffRoles(roles, req.user.id);
+    res.json(roles[idx]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/settings/staff-roles/:id', requireSuperAdminPermission('roles', 'delete'), auditLog('delete_staff_role', 'settings'), async (req, res) => {
+  try {
+    const roles = await getStaffRoles();
+    const remaining = roles.filter(r => r.id !== req.params.id);
+    if (remaining.length === roles.length) return res.status(404).json({ error: 'Role not found' });
+    await saveStaffRoles(remaining, req.user.id);
     res.json({ message: 'Role deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -577,8 +772,28 @@ router.patch('/plans/:id', auditLog('update_plan', 'plan'), async (req, res) => 
 // DELETE /api/super-admin/plans/:id
 router.delete('/plans/:id', auditLog('delete_plan', 'plan'), async (req, res) => {
   try {
+    const planResult = await query('SELECT key FROM subscription_plans WHERE id=$1', [req.params.id]);
+    if (!planResult.rows.length) return res.status(404).json({ error: 'Plan not found' });
+
+    const planKey = planResult.rows[0].key;
+    const subscriberCheck = await query(
+      `SELECT COUNT(*) AS cnt FROM users
+       WHERE subscription_plan = $1 AND subscription_status IN ('active','trial') AND is_active = true`,
+      [planKey]
+    );
+    const activeSubscribers = parseInt(subscriberCheck.rows[0].cnt) || 0;
+
     await query('UPDATE subscription_plans SET is_active=false WHERE id=$1', [req.params.id]);
-    res.json({ message: 'Plan deactivated' });
+
+    if (activeSubscribers > 0) {
+      return res.json({
+        message: 'Plan deactivated',
+        hasActiveSubscribers: true,
+        subscriberCount: activeSubscribers,
+        note: 'Existing subscribers retain their current plan',
+      });
+    }
+    res.json({ message: 'Plan deactivated', hasActiveSubscribers: false });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -650,6 +865,24 @@ router.post('/coupons',
   }
 );
 
+// GET /api/super-admin/coupons/:code/usage
+router.get('/coupons/:code/usage', auditLog('view_coupon_usage', 'coupon'), async (req, res) => {
+  try {
+    const { code } = req.params;
+    const result = await query(
+      `SELECT p.created_at, p.amount, p.discount_amount, u.full_name, u.email
+       FROM saas_purchases p
+       JOIN users u ON p.tenant_user_id = u.id
+       WHERE p.coupon_code = $1
+       ORDER BY p.created_at DESC`,
+      [code.toUpperCase()]
+    );
+    res.json({ usage: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /api/super-admin/coupons/:code/deactivate
 router.patch('/coupons/:code/deactivate', auditLog('deactivate_coupon', 'coupon'), async (req, res) => {
   try {
@@ -670,31 +903,6 @@ router.delete('/coupons/:code', auditLog('delete_coupon', 'coupon'), async (req,
   }
 });
 
-// POST /api/super-admin/coupons/validate  (used by checkout — no super_admin guard below)
-// We attach a separate public-facing route in index.js; here it's also accessible by SA
-router.post('/coupons/validate', async (req, res) => {
-  const { code, plan_key, email } = req.body;
-  if (!code) return res.status(400).json({ error: 'Coupon code required' });
-  try {
-    const result = await query(
-      `SELECT * FROM discount_coupons
-       WHERE code = $1 AND is_active = true
-         AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE)
-         AND (max_uses IS NULL OR used_count < max_uses)`,
-      [code.toUpperCase()]
-    );
-    if (!result.rows.length) return res.status(404).json({ valid: false, error: 'Invalid or expired coupon' });
-
-    const coupon = result.rows[0];
-    if (coupon.type === 'user_specific' && email && coupon.target_email !== email) {
-      return res.status(403).json({ valid: false, error: 'This coupon is not valid for your account' });
-    }
-
-    res.json({ valid: true, coupon });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ═══════════════════════════════════════════════════════════════
 // F. RAZORPAY INTEGRATION
@@ -1002,10 +1210,149 @@ router.get('/purchases', async (req, res) => {
   }
 });
 
-// GET /api/super-admin/purchases/:id/resend-invoice
+/**
+ * Fire-and-forget audit logging for routes that stream responses (PDF / ZIP)
+ * instead of calling res.json().
+ */
+function logAudit(action, resourceType, req, resourceId = null) {
+  if (!req.user) return;
+  const details = JSON.stringify({ method: req.method, path: req.path });
+  const ip = req.ip || req.connection?.remoteAddress || null;
+  const ua = req.headers['user-agent'] || null;
+  const uid = req.user.id;
+  const tid = req.user.tenant_id || null;
+  query(
+    `INSERT INTO audit_logs (tenant_id, user_id, action, resource_type, resource_id, details, ip_address, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::inet,$8)`,
+    [tid, uid, action, resourceType, resourceId, details, ip, ua]
+  ).catch(e => logger.error('Audit log error', { error: e.message }));
+  query(
+    `INSERT INTO activity_logs (tenant_id, user_id, action, module, resource_type, resource_id, title, description, metadata, ip_address, user_agent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::inet,$11)`,
+    [tid, uid, action, 'purchases', resourceType, resourceId, action.replace(/_/g,' '), action.replace(/_/g,' '), details, ip, ua]
+  ).catch(e => logger.error('Activity log error', { error: e.message }));
+}
+
+// GET /api/super-admin/purchases/:id/pdf  — Serve invoice PDF file
+router.get('/purchases/:id/pdf', async (req, res) => {
+  try {
+    const { pdfPath, purchase } = await invoiceService.ensurePdf(req.params.id);
+    logAudit('invoice_downloaded', 'purchase', req, req.params.id);
+    const fileName = `${purchase.invoice_number || 'invoice'}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    const stream = fs.createReadStream(pdfPath);
+    stream.pipe(res);
+    stream.on('error', () => res.status(500).json({ error: 'Failed to stream PDF' }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/super-admin/purchases/export-all  — ZIP of all invoice PDFs + CSV index
+router.post('/purchases/export-all', async (req, res) => {
+  try {
+    const filterStatus = req.body.status || 'success';
+    const result = await query(
+      `SELECT sp.*, u.full_name, u.email, u.username
+       FROM saas_purchases sp
+       JOIN users u ON sp.tenant_user_id = u.id
+       WHERE sp.status = $1
+       ORDER BY sp.created_at DESC`,
+      [filterStatus]
+    );
+    const purchases = result.rows;
+
+    // Ensure PDFs exist for all purchases — regenerate if missing, never skip silently
+    const errors = [];
+    const pdfEntries = [];
+    for (const p of purchases) {
+      let pdfPath, purchase;
+      if (p.invoice_pdf_path && fs.existsSync(p.invoice_pdf_path)) {
+        pdfPath = p.invoice_pdf_path;
+        purchase = p;
+      } else {
+        // Regenerate PDF
+        try {
+          const result = await invoiceService.ensurePdf(p.id);
+          pdfPath = result.pdfPath;
+          purchase = result.purchase;
+        } catch (e) {
+          errors.push({ id: p.id, error: e.message });
+          logger.error('Failed to generate PDF for export', { id: p.id, error: e.message });
+          continue;
+        }
+      }
+      if (!fs.existsSync(pdfPath)) {
+        errors.push({ id: p.id, error: 'PDF file not found after generation' });
+        continue;
+      }
+      pdfEntries.push({ purchase, pdfPath });
+    }
+
+    // Build CSV index
+    const csvRows = ['Invoice Number,Client Name,Client Email,Amount,Date,Status'];
+    for (const { purchase } of pdfEntries) {
+      const invNum = purchase.invoice_number || '';
+      const name   = (purchase.full_name || purchase.username || '').replace(/,/g, ' ');
+      const email  = (purchase.email || '').replace(/,/g, ' ');
+      const amt    = parseFloat(purchase.amount || 0).toFixed(2);
+      const date   = purchase.paid_at ? new Date(purchase.paid_at).toISOString().slice(0, 10) : '';
+      const st     = purchase.status || '';
+      csvRows.push(`"${invNum}","${name}","${email}",${amt},"${date}","${st}"`);
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const folderName = `Invoices_Export_${dateStr}`;
+
+    logAudit('export_all_invoices', 'purchase', req);
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`);
+
+    const archive = new ZipArchive({ zlib: { level: 6 } });
+    archive.pipe(res);
+    archive.on('error', (err) => { throw err; });
+
+    // Add CSV index
+    archive.append(csvRows.join('\n'), { name: `${folderName}/invoice_index.csv` });
+
+    // Add PDFs
+    for (const { purchase, pdfPath } of pdfEntries) {
+      const safeName = (purchase.full_name || purchase.username || 'Client').replace(/[^a-zA-Z0-9_\- ]/g, '');
+      const fileName = `${purchase.invoice_number || 'invoice'}_${safeName}.pdf`;
+      archive.file(pdfPath, { name: `${folderName}/${fileName}` });
+    }
+
+    // Add error report if any
+    if (errors.length) {
+      archive.append(JSON.stringify({ errors }, null, 2), { name: `${folderName}/errors.json` });
+    }
+
+    archive.finalize();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/super-admin/purchases/:id/resend-invoice
 router.post('/purchases/:id/resend-invoice', auditLog('resend_invoice', 'purchase'), async (req, res) => {
   try {
     await invoiceService.processInvoice(req.params.id);
+    try {
+      const purchase = await query(
+        'SELECT invoice_number, email, full_name FROM saas_purchases WHERE id = $1',
+        [req.params.id]
+      );
+      const row = purchase.rows[0] || {};
+      await automationService.handleEvent('INVOICE_SENT', {
+        invoice_number: row.invoice_number || '',
+        email: row.email || '',
+        name: row.full_name || ''
+      });
+    } catch (eventErr) {
+      console.warn('INVOICE_SENT event emission failed:', eventErr.message);
+    }
     res.json({ message: 'Invoice resent successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1087,6 +1434,12 @@ router.post('/accounts', auditLog('create_platform_account', 'user'), async (req
     );
     const acc = result.rows[0];
     acc.permissions = permissions;
+
+    // Send onboarding email (fire-and-forget)
+    invoiceService.sendOnboardingEmail({
+      email, name, password: password || 'ChangeMe@123', role,
+    }).catch(e => logger.error('Onboarding email failed', { error: e.message }));
+
     res.status(201).json(acc);
   } catch (err) {
     res.status(500).json({ error: err.message });

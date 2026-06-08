@@ -130,15 +130,19 @@ export default function ReportsPage() {
           return true;
         });
       } else if (activeReport === 'expenses') {
-        const r = await accountingApi.listExpenses({ search: filters.search });
+        const r = await accountingApi.listExpenses({ search: filters.search, limit: 1000 });
         result = (r.expenses || []).filter(e => {
           if (filters.from && new Date(e.date) < new Date(filters.from)) return false;
-          if (filters.to && new Date(e.date) > new Date(filters.to)) return false;
+          if (filters.to && new Date(e.date) > new Date(filters.to + 'T23:59:59')) return false;
           return true;
         });
       } else if (activeReport === 'clients') {
         const r = await clientsApi.list({ search: filters.search, limit: 1000 });
-        result = r.clients || [];
+        result = (r.clients || []).filter(c => {
+          if (filters.from && new Date(c.created_at) < new Date(filters.from)) return false;
+          if (filters.to && new Date(c.created_at) > new Date(filters.to + 'T23:59:59')) return false;
+          return true;
+        });
       } else if (activeReport === 'inventory') {
         const token = localStorage.getItem('accessToken');
         const r = await fetch(`/api/inventory?limit=1000`, { headers: { Authorization: `Bearer ${token}` } });
@@ -156,7 +160,7 @@ export default function ReportsPage() {
     switch (activeReport) {
       case 'cases': return {
         headers: ['Case #', 'Client', 'Device Brand', 'Device Model', 'Stage', 'Failure Type', 'Priority', 'Engineer', 'Quotation', 'Received', 'Pending', 'Created Date'],
-        row: c => [c.case_number, c.client_name || `${c.first_name||''} ${c.last_name||''}`.trim(), c.device_brand||c.brand||'—', c.device_model||c.model||'—', c.stage||c.status||'—', c.failure_type||'—', c.priority||'—', c.engineer_name||'—', fmt(c.quotation_amount||c.total_amount), fmt(c.received_amount||c.amount_paid), fmt(Math.max(0,(c.quotation_amount||0)-(c.received_amount||0))), fmtDate(c.created_at)],
+        row: c => [c.case_number, c.client_name || `${c.first_name||''} ${c.last_name||''}`.trim(), c.device_brand||c.brand||'—', c.device_model||c.model||'—', c.stage||c.status||'—', c.failure_type||'—', c.priority||'—', c.engineer_name||'—', fmt(c.quotation_amount), fmt(c.total_paid), fmt(Math.max(0,(c.quotation_amount||0)-(c.total_paid||0))), fmtDate(c.created_at)],
       };
       case 'revenue': return {
         headers: ['Invoice #', 'Client', 'Company', 'Case #', 'Subtotal', 'Tax', 'Discount', 'Total', 'Paid', 'Balance', 'Status', 'Due Date', 'Paid On'],
@@ -182,8 +186,8 @@ export default function ReportsPage() {
     if (!generated || !data.length) return null;
     if (activeReport === 'cases') {
       const completed = data.filter(c=>['completed','delivered'].includes(c.stage||c.status)).length;
-      const revenue = data.reduce((s,c)=>s+(c.received_amount||c.amount_paid||0),0);
-      const pending = data.reduce((s,c)=>s+Math.max(0,(c.quotation_amount||c.total_amount||0)-(c.received_amount||c.amount_paid||0)),0);
+      const revenue = data.reduce((s,c)=>s+(c.total_paid||0),0);
+      const pending = data.reduce((s,c)=>s+Math.max(0,(c.quotation_amount||0)-(c.total_paid||0)),0);
       return [['Total Cases', data.length], ['Completed', completed], ['Success Rate', `${data.length?Math.round(completed/data.length*100):0}%`], ['Collected', fmt(revenue)], ['Pending', fmt(pending)]];
     }
     if (activeReport === 'revenue') {
@@ -262,7 +266,7 @@ export default function ReportsPage() {
         </div>
 
         {/* Report area */}
-        <div>
+        <div style={{ minWidth: 0 }}>
           {/* Filters */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>

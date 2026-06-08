@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useAuth, PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions } from '../store/AuthContext';
+import { useAuth, PERMISSION_MODULES, STAFF_PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions } from '../store/AuthContext';
 
 const stripDecorativeIcon = (label = '') => String(label).replace(/^[\p{Extended_Pictographic}\uFE0F]+\s*/gu, '').trim();
 
@@ -19,12 +19,25 @@ const usersApi = {
   },
 };
 
+const superAdminApi = {
+  admins: {
+    list: () => fetch(`${BASE_URL}/super-admin/admins`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
+    create: (body) => fetch(`${BASE_URL}/super-admin/admins`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
+  },
+  roles: {
+    list: () => fetch(`${BASE_URL}/super-admin/settings/staff-roles`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
+    create: (body) => fetch(`${BASE_URL}/super-admin/settings/staff-roles`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
+    update: (id, body) => fetch(`${BASE_URL}/super-admin/settings/staff-roles/${id}`, { method: 'PATCH', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
+    delete: (id) => fetch(`${BASE_URL}/super-admin/settings/staff-roles/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
+  },
+};
+
 //  Permission Matrix Editor 
-function PermissionMatrix({ permissions, onChange, readonly = false }) {
+function PermissionMatrix({ permissions, onChange, readonly = false, modules = PERMISSION_MODULES }) {
   const toggleAll = (module, val) => {
     const updated = { ...permissions };
     if (!updated[module]) updated[module] = {};
-    PERMISSION_MODULES.find(m => m.key === module)?.actions.forEach(a => {
+    modules.find(m => m.key === module)?.actions.forEach(a => {
       updated[module][a] = val;
     });
     onChange(updated);
@@ -36,7 +49,7 @@ function PermissionMatrix({ permissions, onChange, readonly = false }) {
   };
 
   const isModuleAllOn = (module) => {
-    const mod = PERMISSION_MODULES.find(m => m.key === module);
+    const mod = modules.find(m => m.key === module);
     return mod?.actions.every(a => permissions[module]?.[a]);
   };
 
@@ -44,7 +57,7 @@ function PermissionMatrix({ permissions, onChange, readonly = false }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {PERMISSION_MODULES.map(mod => (
+      {modules.map(mod => (
         <div key={mod.key} style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -88,14 +101,15 @@ function PermissionMatrix({ permissions, onChange, readonly = false }) {
 }
 
 //  Role Modal 
-function RoleModal({ role, restrictedPerms, onClose, onDone }) {
+function RoleModal({ role, restrictedPerms, modules = PERMISSION_MODULES, roleApi = usersApi.roles, onClose, onDone }) {
   const isNew = !role?.id;
+  const roleModules = modules || PERMISSION_MODULES;
   const [form, setForm] = useState({
     name: role?.name || '',
     key: role?.key || '',
     description: role?.description || '',
     color: role?.color || '#6366f1',
-    permissions: role?.permissions || buildEmptyPermissions(),
+    permissions: role?.permissions || buildEmptyPermissions(roleModules),
   });
   const [loading, setLoading] = useState(false);
 
@@ -103,7 +117,7 @@ function RoleModal({ role, restrictedPerms, onClose, onDone }) {
   const applyRestrictions = (perms) => {
     if (!restrictedPerms) return perms;
     const restricted = { ...perms };
-    PERMISSION_MODULES.forEach(mod => {
+    modules.forEach(mod => {
       mod.actions.forEach(action => {
         if (!restrictedPerms[mod.key]?.[action]) {
           if (restricted[mod.key]) restricted[mod.key][action] = false;
@@ -123,8 +137,8 @@ function RoleModal({ role, restrictedPerms, onClose, onDone }) {
         permissions: applyRestrictions(form.permissions),
       };
       let res;
-      if (isNew) res = await usersApi.roles.create(payload);
-      else res = await usersApi.roles.update(role.id, payload);
+      if (isNew) res = await roleApi.create(payload);
+      else res = await roleApi.update(role.id, payload);
       if (res.error) throw new Error(res.error);
       onDone();
       onClose();
@@ -163,7 +177,7 @@ function RoleModal({ role, restrictedPerms, onClose, onDone }) {
                 ))}
               </div>
             </div>
-            {/* Quick presets */}
+            {roleModules === PERMISSION_MODULES && (
             <div className="form-group">
               <label className="form-label">Quick Preset</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -173,25 +187,26 @@ function RoleModal({ role, restrictedPerms, onClose, onDone }) {
                   { label: ' Receptionist', perms: { cases: { view: true, create: true, edit: true, delete: false }, clients: { view: true, create: true, edit: true, delete: false }, inventory: { view: false }, accounting: { view: false }, reports: { view: false } } },
                   { label: ' Accountant', perms: { cases: { view: true, create: false, edit: false, delete: false }, clients: { view: true }, accounting: { view: true, create_invoice: true, create_quote: true, record_payment: true, create_expense: true }, reports: { view: true, export: true } } },
                 ].map(preset => (
-                  <button key={preset.label} onClick={() => setForm(f => ({ ...f, permissions: { ...buildEmptyPermissions(), ...preset.perms } }))}
+                  <button key={preset.label} onClick={() => setForm(f => ({ ...f, permissions: { ...buildEmptyPermissions(roleModules), ...preset.perms } }))}
                     style={{ padding: '5px 8px', borderRadius: 6, background: 'var(--bg-elevated)', border: '1px solid var(--border-default)', cursor: 'pointer', fontSize: '0.72rem', color: 'var(--text-secondary)', textAlign: 'left' }}>
                     {preset.label}
                   </button>
                 ))}
               </div>
             </div>
+            )}
           </div>
           {/* Right — Permissions Matrix */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>Permission Matrix</div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setForm(f => ({ ...f, permissions: buildFullPermissions() }))} style={{ padding: '3px 10px', fontSize: '0.68rem', borderRadius: 4, background: 'rgba(16,185,129,0.12)', color: '#10b981', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Grant All</button>
-                <button onClick={() => setForm(f => ({ ...f, permissions: buildEmptyPermissions() }))} style={{ padding: '3px 10px', fontSize: '0.68rem', borderRadius: 4, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Revoke All</button>
+                <button onClick={() => setForm(f => ({ ...f, permissions: buildFullPermissions(roleModules) }))} style={{ padding: '3px 10px', fontSize: '0.68rem', borderRadius: 4, background: 'rgba(16,185,129,0.12)', color: '#10b981', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Grant All</button>
+                <button onClick={() => setForm(f => ({ ...f, permissions: buildEmptyPermissions(roleModules) }))} style={{ padding: '3px 10px', fontSize: '0.68rem', borderRadius: 4, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: 700 }}>Revoke All</button>
               </div>
             </div>
             <div style={{ maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
-              <PermissionMatrix permissions={form.permissions} onChange={perms => setForm(f => ({ ...f, permissions: perms }))} />
+              <PermissionMatrix permissions={form.permissions} onChange={perms => setForm(f => ({ ...f, permissions: perms }))} modules={roleModules} />
             </div>
           </div>
         </div>
@@ -207,15 +222,28 @@ function RoleModal({ role, restrictedPerms, onClose, onDone }) {
 }
 
 //  User Modal 
-function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClose, onDone }) {
+function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentCount, isOwner, isStaff = false, defaultAssignedAdminId = '', onClose, onDone }) {
   const isNew = !editUser?.id;
+  const platformRoles = [
+    { key: 'admin', name: 'Admin' },
+    { key: 'senior_engineer', name: 'Senior Engineer' },
+    { key: 'junior_engineer', name: 'Junior Engineer' },
+    { key: 'staff', name: 'Staff' },
+  ];
+  const availableRoles = isStaff
+    ? Array.from(new Map([...platformRoles, ...staffRoles].map(r => [r.key, r])).values())
+    : roles;
+
+  const permissionModules = isStaff ? STAFF_PERMISSION_MODULES : PERMISSION_MODULES;
+  const defaultPermissions = isStaff ? buildEmptyPermissions(STAFF_PERMISSION_MODULES) : buildEmptyPermissions();
+
   const [form, setForm] = useState({
     full_name: editUser?.full_name || '',
     username: editUser?.username || '',
     email: editUser?.email || '',
     password: '',
-    role_key: editUser?.role || roles[0]?.key || '',
-    assigned_admin_id: editUser?.assigned_admin_id || '',
+    role_key: editUser?.role || (isStaff ? 'staff' : availableRoles[0]?.key) || '',
+    assigned_admin_id: (editUser?.assigned_admin_id ?? defaultAssignedAdminId) || '',
     specializations: editUser?.specializations || [],
     phone: editUser?.phone || '',
     is_active: editUser?.is_active ?? true,
@@ -223,16 +251,17 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
     useCustomPerms: false,
   });
   const [loading, setLoading] = useState(false);
-  const selRole = roles.find(r => r.key === form.role_key);
+  const selRole = availableRoles.find(r => r.key === form.role_key);
+  const { isSuperAdmin } = useAuth();
 
-  const canCreateMore = !isNew || currentCount < maxUsers;
+  const canCreateMore = !isNew || isOwner || isStaff || currentCount < maxUsers;
 
   const handle = async () => {
     if (!form.full_name || !form.username || (!editUser && !form.password)) {
       alert('Full name, username and password are required'); return;
     }
     if (isNew && !canCreateMore) {
-      alert(` Team user limit reached (${maxUsers}). Contact support to upgrade your plan.`); return;
+      alert(`Team user limit reached (${maxUsers}). Contact support to upgrade your plan.`); return;
     }
     setLoading(true);
     try {
@@ -240,11 +269,16 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
         ...form,
         role: form.role_key,
         permissions: form.useCustomPerms ? form.permissions : null,
-        assigned_admin_id: form.assigned_admin_id || undefined,
+        assigned_admin_id: isStaff ? undefined : (form.assigned_admin_id || undefined),
       };
       let res;
-      if (isNew) res = await usersApi.create(payload);
-      else res = await usersApi.update(editUser.id, payload);
+      if (isNew) {
+        if (isStaff && isSuperAdmin) {
+          res = await superAdminApi.admins.create(payload);
+        } else {
+          res = await usersApi.create(payload);
+        }
+      } else res = await usersApi.update(editUser.id, payload);
       if (res.error) throw new Error(res.error);
       onDone();
       onClose();
@@ -255,7 +289,7 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
         <div className="modal-header">
-          <h3 className="modal-title">{isNew ? '+ Add Team Member' : ` Edit — ${editUser.full_name}`}</h3>
+          <h3 className="modal-title">{isNew ? (isStaff ? '+ Add Staff Member' : '+ Add Team Member') : ` Edit — ${editUser.full_name}`}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}></button>
         </div>
         <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 24 }}>
@@ -285,7 +319,7 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
               <label className="form-label required">Assign Role</label>
               <select className="form-select" value={form.role_key} onChange={e => setForm(f => ({ ...f, role_key: e.target.value, permissions: null, useCustomPerms: false }))}>
                 <option value="">— Select Role —</option>
-                {roles.map(r => (
+                {availableRoles.map(r => (
                   <option key={r.key} value={r.key}>{r.name}</option>
                 ))}
               </select>
@@ -293,7 +327,7 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>{selRole.description}</div>
               )}
             </div>
-            {adminUsers.length > 0 && (
+            {!isStaff && adminUsers.length > 0 && (
               <div className="form-group">
                 <label className="form-label">Assign Admin</label>
                 <select className="form-select" value={form.assigned_admin_id} onChange={e => setForm(f => ({ ...f, assigned_admin_id: e.target.value }))}>
@@ -309,7 +343,7 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
             )}
             <div className="form-group">
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.8rem' }}>
-                <input type="checkbox" checked={form.useCustomPerms} onChange={e => setForm(f => ({ ...f, useCustomPerms: e.target.checked, permissions: e.target.checked ? (selRole?.permissions || buildEmptyPermissions()) : null }))} />
+                <input type="checkbox" checked={form.useCustomPerms} onChange={e => setForm(f => ({ ...f, useCustomPerms: e.target.checked, permissions: e.target.checked ? (form.permissions || selRole?.permissions || buildEmptyPermissions(permissionModules)) : null }))} />
                 Override with custom permissions
               </label>
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>By default, user inherits their assigned role's permissions</div>
@@ -322,7 +356,7 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
                 </label>
               </div>
             )}
-            {isNew && (
+            {isNew && isOwner && (
               <div className="alert" style={{ fontSize: '0.72rem', padding: 10, background: currentCount >= maxUsers ? 'rgba(239,68,68,0.08)' : 'rgba(16,185,129,0.06)', border: '1px solid', borderColor: currentCount >= maxUsers ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)', borderRadius: 6 }}>
                 <span>{currentCount >= maxUsers ? ' User limit reached!' : ` ${currentCount}/${maxUsers} team users used`}</span>
               </div>
@@ -336,12 +370,13 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
             <div style={{ maxHeight: 460, overflowY: 'auto', paddingRight: 4 }}>
               {form.useCustomPerms ? (
                 <PermissionMatrix
-                  permissions={form.permissions || buildEmptyPermissions()}
+                  permissions={form.permissions || buildEmptyPermissions(permissionModules)}
                   onChange={perms => setForm(f => ({ ...f, permissions: perms }))}
+                  modules={permissionModules}
                 />
               ) : (
                 selRole?.permissions ? (
-                  <PermissionMatrix permissions={selRole.permissions} readonly />
+                  <PermissionMatrix permissions={selRole.permissions} readonly modules={permissionModules} />
                 ) : (
                   <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                     Select a role to preview permissions
@@ -354,7 +389,7 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={loading || (isNew && !canCreateMore)} onClick={handle}>
-            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : (isNew ? '+ Add User' : ' Save Changes')}
+            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : (isNew ? (isStaff ? '+ Add Staff Member' : '+ Add User') : ' Save Changes')}
           </button>
         </div>
       </div>
@@ -365,6 +400,9 @@ function UserModal({ editUser, roles, adminUsers, maxUsers, currentCount, onClos
 //  My Permissions Viewer 
 function MyPermissionsView({ user }) {
   const perms = user.permissions || null;
+  const isPlatformStaff = ['staff', 'senior_engineer', 'junior_engineer'].includes(user.role) && !user.tenantId;
+  const modules = isPlatformStaff ? STAFF_PERMISSION_MODULES : PERMISSION_MODULES;
+
   if (!perms) {
     return (
       <div className="card">
@@ -373,7 +411,7 @@ function MyPermissionsView({ user }) {
           Your permissions are inherited from your assigned role: <strong>{user.role?.replace(/_/g, ' ')}</strong>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10 }}>
-          {PERMISSION_MODULES.map(mod => (
+          {modules.map(mod => (
             <div key={mod.key} style={{ padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <span>{mod.icon}</span>
@@ -393,36 +431,64 @@ function MyPermissionsView({ user }) {
       <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(0,212,255,0.06)', borderRadius: 6, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
         Your account has custom permissions set by your administrator. Below is what you can access:
       </div>
-      <PermissionMatrix permissions={perms} readonly />
+      <PermissionMatrix permissions={perms} readonly modules={modules} />
     </div>
   );
 }
 
 //  Main Page 
 export default function UserManagementPage() {
-  const { user, isAdmin, hasPermission } = useAuth();
+  const { user, isAdmin, isSuperAdmin, isOwner, hasPermission } = useAuth();
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
+  const [staffRoles, setStaffRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('users');
   const [showUserModal, setShowUserModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
+  const [newUserAssignedAdminId, setNewUserAssignedAdminId] = useState('');
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [editRole, setEditRole] = useState(null);
+  const [roleModalModules, setRoleModalModules] = useState(PERMISSION_MODULES);
+  const [roleModalApi, setRoleModalApi] = useState(usersApi.roles);
   const [viewPermissions, setViewPermissions] = useState(null);
   const [assignedAdminFilter, setAssignedAdminFilter] = useState('');
 
   // Max users from company settings
   const maxUsers = (() => { try { return parseInt(JSON.parse(localStorage.getItem('crm_company') || '{}').max_team_users || 10); } catch { return 10; } })();
+  const showTeamStats = isOwner && activeTab === 'users';
+  const headerDescription = activeTab === 'staff'
+    ? 'Manage platform staff accounts for support and operations. Staff members are platform-scoped and are kept separate from tenant team users.'
+    : showTeamStats
+      ? 'Manage your team and user permissions for your tenant.'
+      : 'Review user accounts and permissions. Use the Super Admin console for platform-level staff management.';
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const [ud, rd] = await Promise.all([usersApi.list(), usersApi.roles.list()]);
-      setUsers(Array.isArray(ud) ? ud : (ud.users || []));
+      const [ud, rd, sd] = await Promise.all([
+        usersApi.list(),
+        usersApi.roles.list(),
+        isSuperAdmin ? superAdminApi.roles.list() : Promise.resolve([]),
+      ]);
+      let baseUsers = Array.isArray(ud) ? ud : (ud.users || []);
+      // If super admin, also fetch platform admin/staff list and merge so staff tab shows platform accounts
+      if (isSuperAdmin) {
+        try {
+          const sa = await superAdminApi.admins.list();
+          const admins = Array.isArray(sa) ? sa : (sa.admins || []);
+          const byId = new Map();
+          baseUsers.concat(admins).forEach(u => { if (u && u.id) byId.set(String(u.id), u); });
+          baseUsers = Array.from(byId.values());
+        } catch (e) {
+          // ignore — fall back to baseUsers
+        }
+      }
+      setUsers(baseUsers);
       setRoles(Array.isArray(rd) ? rd : []);
+      setStaffRoles(Array.isArray(sd) ? sd : []);
     } catch { } finally { setLoading(false); }
-  }, []);
+  }, [isSuperAdmin]);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
@@ -444,12 +510,32 @@ export default function UserManagementPage() {
     }
   };
 
-  const adminUsers = users.filter(u => u.role === 'admin');
-  const teamUsers = users.filter(u => u.role !== 'super_admin' && u.role !== 'admin');
-  const visibleUsers = teamUsers.filter(u => !assignedAdminFilter || u.assigned_admin_id === assignedAdminFilter);
+  const adminUsers = users.filter(u => u.role === 'admin' && !!(u.tenant_id || u.tenant_owner_id));
+  const teamUsers = users.filter(u => u.role !== 'super_admin' && (u.tenant_id || u.tenant_owner_id));
+  // Platform-scoped accounts (no tenant fields) — separate platform admins from platform staff
+  const platformAdmins = users.filter(u => u.role === 'admin' && !u.tenant_id && !u.tenant_owner_id);
+  const platformStaff = users.filter(u => ['staff', 'senior_engineer', 'junior_engineer'].includes(u.role) && !u.tenant_id && !u.tenant_owner_id);
+  const staffUsers = platformStaff;
+  const visibleUsers = activeTab === 'staff'
+    ? staffUsers
+    : teamUsers.filter(u => !assignedAdminFilter || u.assigned_admin_id === assignedAdminFilter);
+
+  const platformRoles = [
+    { key: 'admin', name: 'Admin', color: '#f59e0b' },
+    { key: 'senior_engineer', name: 'Senior Engineer', color: '#10b981' },
+    { key: 'junior_engineer', name: 'Junior Engineer', color: '#3b82f6' },
+    { key: 'staff', name: 'Staff', color: '#6366f1' },
+  ];
+
+  const getRoleMeta = (roleKey, isStaffUser = false) => {
+    if (isStaffUser) {
+      return staffRoles.find(r => r.key === roleKey) || roles.find(r => r.key === roleKey) || platformRoles.find(r => r.key === roleKey);
+    }
+    return roles.find(r => r.key === roleKey) || platformRoles.find(r => r.key === roleKey);
+  };
 
   const TABS = isAdmin
-    ? [{ key: 'users', label: ' Team Users' }, { key: 'roles', label: ' Roles & Permissions' }, { key: 'my_perms', label: ' My Permissions' }]
+    ? [{ key: 'users', label: ' Team Users' }, ...(isSuperAdmin ? [{ key: 'staff', label: ' Staff' }] : []), { key: 'roles', label: ' Roles & Permissions' }, { key: 'my_perms', label: ' My Permissions' }]
     : [{ key: 'my_perms', label: ' My Permissions' }];
 
   return (
@@ -458,14 +544,22 @@ export default function UserManagementPage() {
         <div>
           <h2 style={{ marginBottom: 4 }}> User Management</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-            {isAdmin ? `Manage your team (${teamUsers.length}/${maxUsers} users)` : 'View your account permissions and access level'}
+            {headerDescription}
           </p>
         </div>
-        {isAdmin && activeTab === 'users' && hasPermission('users', 'create') && (
-          <button className="btn btn-primary" onClick={() => { setEditUser(null); setShowUserModal(true); }}>+ Add Team Member</button>
+        {activeTab === 'users' && hasPermission('users', 'create') && (
+          <button className="btn btn-primary" onClick={() => { setEditUser(null); setNewUserAssignedAdminId(assignedAdminFilter); setShowUserModal(true); }}>+ Add Team Member</button>
+        )}
+        {activeTab === 'staff' && isSuperAdmin && (
+          <button className="btn btn-primary" onClick={() => { setEditUser(null); setNewUserAssignedAdminId(''); setShowUserModal(true); }}>+ Add Staff Member</button>
         )}
         {isAdmin && activeTab === 'roles' && (
-          <button className="btn btn-primary" onClick={() => { setEditRole(null); setShowRoleModal(true); }}>+ Create Role</button>
+          <button className="btn btn-primary" onClick={() => {
+            setEditRole(null);
+            setRoleModalModules(PERMISSION_MODULES);
+            setRoleModalApi(usersApi.roles);
+            setShowRoleModal(true);
+          }}>+ Create Role</button>
         )}
       </div>
 
@@ -481,36 +575,46 @@ export default function UserManagementPage() {
       {activeTab === 'users' && (
         <div>
           {/* Usage bar */}
-          <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Team Users</span>
-            <div style={{ flex: 1, height: 6, background: 'var(--bg-elevated)', borderRadius: 3 }}>
-              <div style={{ height: '100%', borderRadius: 3, background: teamUsers.length >= maxUsers ? 'var(--status-danger)' : 'var(--accent-primary)', width: `${Math.min(100, (teamUsers.length / maxUsers) * 100)}%`, transition: 'width 0.3s' }} />
+          {showTeamStats ? (
+            <div style={{ marginBottom: 16, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Team Users</span>
+              <div style={{ flex: 1, height: 6, background: 'var(--bg-elevated)', borderRadius: 3 }}>
+                <div style={{ height: '100%', borderRadius: 3, background: teamUsers.length >= maxUsers ? 'var(--status-danger)' : 'var(--accent-primary)', width: `${Math.min(100, (teamUsers.length / maxUsers) * 100)}%`, transition: 'width 0.3s' }} />
+              </div>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: teamUsers.length >= maxUsers ? 'var(--status-danger)' : 'var(--text-primary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                {teamUsers.length} / {maxUsers}
+              </span>
             </div>
-            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: teamUsers.length >= maxUsers ? 'var(--status-danger)' : 'var(--text-primary)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-              {teamUsers.length} / {maxUsers}
-            </span>
-          </div>
+          ) : (
+            <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)' }}>
+              Tenant team users are shown here. Super Admin staff uses the dedicated Staff tab.
+            </div>
+          )}
 
           {loading ? (
             <div style={{ textAlign: 'center', padding: 60 }}><div className="spinner" style={{ width: 32, height: 32, margin: '0 auto' }} /></div>
           ) : (
             <div style={{ display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ minWidth: 220 }}>
-                  <label className="form-label" style={{ marginBottom: 6 }}>Filter by Assigned Admin</label>
-                  <select className="form-select" value={assignedAdminFilter} onChange={e => setAssignedAdminFilter(e.target.value)}>
-                    <option value="">All Team Members</option>
-                    {adminUsers.map(admin => (
-                      <option key={admin.id} value={admin.id}>{admin.full_name || admin.username}</option>
-                    ))}
-                  </select>
-                </div>
-                {assignedAdminFilter && (
-                  <button className="btn btn-secondary btn-sm" style={{ height: 34, marginTop: 24 }} onClick={() => setAssignedAdminFilter('')}>Clear filter</button>
-                )}
-              </div>
+                {activeTab === 'users' && (
+                <>
+                  <div style={{ minWidth: 220 }}>
+                    <label className="form-label" style={{ marginBottom: 6 }}>Filter by Assigned Admin</label>
+                    <select className="form-select" value={assignedAdminFilter} onChange={e => setAssignedAdminFilter(e.target.value)}>
+                      <option value="">All Team Members</option>
+                      {adminUsers.map(admin => (
+                        <option key={admin.id} value={admin.id}>{admin.full_name || admin.username}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {assignedAdminFilter && (
+                    <button className="btn btn-secondary btn-sm" style={{ height: 34, marginTop: 24 }} onClick={() => setAssignedAdminFilter('')}>Clear filter</button>
+                  )}
+                </>
+              )}
+            </div>
               {visibleUsers.length ? visibleUsers.map(u => {
-                const role = roles.find(r => r.key === u.role);
+                const role = getRoleMeta(u.role, activeTab === 'staff');
                 return (
                   <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', opacity: u.is_active === false ? 0.5 : 1 }}>
                     <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${role?.color || '#6366f1'}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700, border: `2px solid ${role?.color || '#6366f1'}30`, color: role?.color || '#6366f1' }}>
@@ -531,7 +635,7 @@ export default function UserManagementPage() {
                         )}
                         {u.permissions && <span style={{ fontSize: '0.62rem', color: '#6366f1', fontWeight: 700 }}> Custom Perms</span>}
                         {u.email && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{u.email}</span>}
-                        {u.assigned_admin_id && (
+                        {activeTab === 'users' && u.assigned_admin_id && (
                           <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', padding: '3px 8px', borderRadius: 999 }}>
                             Assigned to {adminUsers.find(a => a.id === u.assigned_admin_id)?.full_name || 'Admin'}
                           </span>
@@ -555,9 +659,79 @@ export default function UserManagementPage() {
               {!visibleUsers.length && (
                 <div className="empty-state">
                   <div className="empty-icon"></div>
-                  <div className="empty-title">No matching team users</div>
-                  <div className="empty-desc">Try clearing the assigned admin filter or add a new team member.</div>
-                  <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Team Member</button>
+                  <div className="empty-title">No matching users</div>
+                  <div className="empty-desc">
+                    {activeTab === 'staff'
+                      ? 'Create platform staff members here.'
+                      : 'Try clearing the assigned admin filter.'}
+                  </div>
+                  {activeTab === 'users' && showTeamStats && hasPermission('users', 'create') && (
+                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Team Member</button>
+                  )}
+                  {activeTab === 'staff' && isSuperAdmin && (
+                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Staff Member</button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Staff Tab */}
+      {activeTab === 'staff' && (
+        <div>
+          <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)' }}>
+            Platform staff accounts are system-wide and are not counted against tenant subscription limits.
+          </div>
+
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 60 }}><div className="spinner" style={{ width: 32, height: 32, margin: '0 auto' }} /></div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {staffUsers.length ? staffUsers.map(u => {
+                const role = getRoleMeta(u.role, true);
+                return (
+                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', opacity: u.is_active === false ? 0.5 : 1 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${role?.color || '#6366f1'}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700, border: `2px solid ${role?.color || '#6366f1'}30`, color: role?.color || '#6366f1' }}>
+                      {u.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{u.full_name}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>@{u.username}</span>
+                        {u.is_active === false && <span style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: 999, background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>INACTIVE</span>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {role && (
+                          <span style={{ fontSize: '0.68rem', padding: '1px 8px', borderRadius: 999, background: `${role.color}18`, color: role.color, fontWeight: 700, border: `1px solid ${role.color}25` }}>
+                            {role.name}
+                          </span>
+                        )}
+                        {u.permissions && <span style={{ fontSize: '0.62rem', color: '#6366f1', fontWeight: 700 }}> Custom Perms</span>}
+                        {u.email && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{u.email}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-sm btn-secondary" onClick={() => setViewPermissions(u)} title="View permissions"> Permissions</button>
+                      {hasPermission('users', 'edit') && (
+                        <button className="btn btn-sm btn-secondary" onClick={() => { setEditUser(u); setShowUserModal(true); }}> Edit</button>
+                      )}
+                      {(hasPermission('users', 'deactivate') || isAdmin) && (
+                        <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }} onClick={() => handleToggleActive(u)}>
+                          {u.is_active === false ? ' Activate' : ' Deactivate'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }) : null}
+              {!staffUsers.length && (
+                <div className="empty-state">
+                  <div className="empty-icon"></div>
+                  <div className="empty-title">No platform staff accounts</div>
+                  <div className="empty-desc">Add staff members here to manage platform support, chat, and operations.</div>
+                  <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Staff Member</button>
                 </div>
               )}
             </div>
@@ -574,7 +748,7 @@ export default function UserManagementPage() {
             <div><strong>Admin</strong> and <strong>Super Admin</strong> are system roles with full access that cannot be edited. Create custom roles for your team members.</div>
           </div>
           {roles.map(role => (
-            <div key={role.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'var(--bg-card)', border: `1px solid ${role.color || 'var(--border-subtle)'}30`, borderLeft: `4px solid ${role.color || 'var(--accent-primary)'}`, borderRadius: 'var(--radius-md)' }}>
+            <div key={role.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <span style={{ fontWeight: 700, fontSize: '0.85rem', color: role.color || 'var(--text-primary)' }}>{role.name}</span>
@@ -586,7 +760,7 @@ export default function UserManagementPage() {
                 {role.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{role.description}</div>}
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-sm btn-secondary" onClick={() => { setEditRole(role); setShowRoleModal(true); }}> Edit</button>
+                <button className="btn btn-sm btn-secondary" onClick={() => { setEditRole(role); setRoleModalModules(PERMISSION_MODULES); setRoleModalApi(usersApi.roles); setShowRoleModal(true); }}> Edit</button>
                 <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }}
                   onClick={async () => { if (!confirm(`Delete role "${role.name}"?`)) return; await usersApi.roles.delete(role.id); loadUsers(); }}>
                    Delete
@@ -594,6 +768,47 @@ export default function UserManagementPage() {
               </div>
             </div>
           ))}
+          {isSuperAdmin && (
+            <>
+              <div className="alert alert-info" style={{ marginBottom: 4 }}>
+                <span className="alert-icon">ℹ</span>
+                <div>Platform staff roles are configured separately from tenant team roles. Use the section below to manage staff role definitions and their platform permission sets.</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Staff Roles</div>
+                <button className="btn btn-primary" onClick={() => { setEditRole(null); setRoleModalModules(STAFF_PERMISSION_MODULES); setRoleModalApi(superAdminApi.roles); setShowRoleModal(true); }}>+ Create Staff Role</button>
+              </div>
+              {staffRoles.map(role => (
+                <div key={role.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.85rem', color: role.color || 'var(--text-primary)' }}>{role.name}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-muted)' }}>{role.key}</span>
+                      <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: 999, background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}>
+                        {Object.values(role.permissions || {}).reduce((acc, m) => acc + Object.values(m).filter(Boolean).length, 0)} permissions
+                      </span>
+                    </div>
+                    {role.description && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{role.description}</div>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm btn-secondary" onClick={() => { setEditRole(role); setRoleModalModules(STAFF_PERMISSION_MODULES); setRoleModalApi(superAdminApi.roles); setShowRoleModal(true); }}> Edit</button>
+                    <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }}
+                      onClick={async () => { if (!confirm(`Delete staff role "${role.name}"?`)) return; await superAdminApi.roles.delete(role.id); loadUsers(); }}>
+                       Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {!staffRoles.length && !loading && (
+                <div className="empty-state">
+                  <div className="empty-icon"></div>
+                  <div className="empty-title">No staff roles defined</div>
+                  <div className="empty-desc">Create roles such as Senior Engineer, Support Staff, or Operations to assign to platform staff accounts.</div>
+                  <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => { setEditRole(null); setRoleModalModules(STAFF_PERMISSION_MODULES); setRoleModalApi(superAdminApi.roles); setShowRoleModal(true); }}>+ Create Staff Role</button>
+                </div>
+              )}
+            </>
+          )}
           {!roles.length && !loading && (
             <div className="empty-state">
               <div className="empty-icon"></div>
@@ -613,16 +828,22 @@ export default function UserManagementPage() {
         <UserModal
           editUser={editUser}
           roles={roles}
+          staffRoles={staffRoles}
           adminUsers={adminUsers}
           maxUsers={maxUsers}
           currentCount={teamUsers.length}
-          onClose={() => setShowUserModal(false)}
-          onDone={loadUsers}
+          isOwner={isOwner}
+          isStaff={activeTab === 'staff'}
+          defaultAssignedAdminId={activeTab === 'users' ? newUserAssignedAdminId : ''}
+          onClose={() => { setNewUserAssignedAdminId(''); setShowUserModal(false); }}
+          onDone={() => { setNewUserAssignedAdminId(''); loadUsers(); }}
         />
       )}
       {showRoleModal && (
         <RoleModal
           role={editRole}
+          modules={roleModalModules}
+          roleApi={roleModalApi}
           restrictedPerms={null}
           onClose={() => setShowRoleModal(false)}
           onDone={loadUsers}
@@ -636,7 +857,7 @@ export default function UserManagementPage() {
               <button className="btn btn-ghost btn-icon" onClick={() => setViewPermissions(null)}></button>
             </div>
             <div className="modal-body" style={{ maxHeight: 500, overflowY: 'auto' }}>
-              <PermissionMatrix permissions={viewPermissions.permissions || roles.find(r => r.key === viewPermissions.role)?.permissions || buildEmptyPermissions()} readonly />
+              <PermissionMatrix permissions={viewPermissions.permissions || getRoleMeta(viewPermissions.role, !viewPermissions.tenant_id && !viewPermissions.tenant_owner_id)?.permissions || buildEmptyPermissions()} readonly />
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewPermissions(null)}>Close</button>

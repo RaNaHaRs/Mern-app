@@ -15,7 +15,7 @@ const BADGE = (color) => ({
 
 function SectionCard({ icon, title, subtitle, children, accent }) {
   return (
-    <div className="card" style={{ marginBottom: 20, borderLeft: `3px solid ${accent || 'var(--accent-primary)'}` }}>
+    <div className="card" style={{ marginBottom: 20, border: '1px solid var(--border-subtle)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
         <span style={{ fontSize: '1.5rem' }}>{icon}</span>
         <div>
@@ -103,12 +103,19 @@ function TwoFactorPanel() {
         <div>
           <div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(0,212,255,0.06)', borderRadius: 8, border: '1px solid rgba(0,212,255,0.15)' }}>
             <div style={{ fontWeight: 700, marginBottom: 8, fontSize: '0.85rem' }}>Step 1: Scan this in your Authenticator App</div>
-            {/* QR code placeholder — in production render with qrcode.react */}
-            <div style={{ background: 'white', padding: 12, borderRadius: 8, display: 'inline-block', marginBottom: 10 }}>
-              <div style={{ width: 120, height: 120, background: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.6rem', textAlign: 'center', borderRadius: 4 }}>QR Code<br/>Use manual key below</div>
-            </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', wordBreak: 'break-all', background: 'var(--bg-elevated)', padding: '8px 12px', borderRadius: 6, marginBottom: 8 }}>
-               Manual Key: <strong>{setupData.secret}</strong>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+              {setupData.qr_url ? (
+                <img
+                  src={setupData.qr_url}
+                  alt="2FA QR code"
+                  style={{ width: 160, height: 160, borderRadius: 12, background: '#ffffff', border: '1px solid rgba(15,23,42,0.08)' }}
+                />
+              ) : (
+                <div style={{ width: 160, height: 160, background: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '0.85rem', textAlign: 'center', borderRadius: 12 }}>QR code not available</div>
+              )}
+              <div style={{ minWidth: 260, fontFamily: 'var(--font-mono)', fontSize: '0.78rem', wordBreak: 'break-all', background: 'var(--bg-elevated)', padding: '12px', borderRadius: 8, border: '1px solid rgba(148,163,184,0.3)' }}>
+                Manual Key: <strong>{setupData.secret}</strong>
+              </div>
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>App: Google Authenticator, Authy, Microsoft Authenticator</div>
           </div>
@@ -258,6 +265,7 @@ function BackupRestorePanel() {
   const [driveFiles, setDriveFiles] = useState([]);
   const [driveMsg, setDriveMsg] = useState('');
   const [driveAuth, setDriveAuth] = useState(null);
+  const [driveConfigured, setDriveConfigured] = useState(false);
   const [backupName, setBackupName] = useState('');
   const [includeImages, setIncludeImages] = useState(true);
   const [confirmPw, setConfirmPw] = useState('');
@@ -280,30 +288,56 @@ function BackupRestorePanel() {
   const loadDriveAuth = useCallback(async () => {
     const d = await get('/backup/google-drive/auth-url');
     setDriveAuth(d);
+    setDriveConfigured(d?.ok && !d?.setup_required);
   }, []);
 
   useEffect(() => { loadHistory(); loadDrive(); loadDriveAuth(); }, [loadHistory, loadDrive, loadDriveAuth]);
 
-  // Handle Google OAuth callback (frontend redirect contains ?code=...)
+  // Listen for postMessage from OAuth popup
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'google-drive-connected') {
+        setDriveMsg('Google Drive connected successfully');
+        setDriveConfigured(true);
+        loadDriveAuth(); loadDrive();
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [loadDriveAuth, loadDrive]);
+
+  // Handle Google OAuth callback (popup window contains ?code=...)
   useEffect(() => {
     (async () => {
       try {
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
         if (!code) return;
-        setDriveMsg('Completing Google Drive authorization...');
-        const redirect_uri = `${window.location.origin}/settings`;
+        const isPopup = !!window.opener;
+        if (isPopup) setDriveMsg('Completing Google Drive authorization...');
+        const redirect_uri = `${window.location.origin}/security`;
         const resp = await fetch(`${API}/backup/google-drive/exchange`, {
           method: 'POST', headers: headers(), body: JSON.stringify({ code, redirect_uri })
         });
         const d = await resp.json();
         if (!resp.ok) throw new Error(d.error || 'Authorization failed');
-        setDriveMsg('Google Drive connected successfully');
         // remove params from URL
         params.delete('code'); params.delete('scope'); params.delete('state');
         const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
         window.history.replaceState({}, document.title, newUrl);
-        loadDriveAuth(); loadDrive();
+
+        if (isPopup) {
+          // Notify main window - success
+          if (window.opener && !window.opener.closed) {
+            window.opener.postMessage({ type: 'google-drive-connected' }, window.location.origin);
+          }
+          // Show success message instead of closing - let user close manually
+          setDriveMsg('Google Drive connected successfully! You can close this window.');
+        } else {
+          setDriveMsg('Google Drive connected successfully');
+          loadDriveAuth(); loadDrive();
+        }
       } catch (e) {
         setDriveMsg('Google connect failed: ' + e.message);
       }
@@ -442,11 +476,11 @@ function BackupRestorePanel() {
               {driveAuth?.setup_required ? ' Requires GOOGLE_CLIENT_ID in backend .env' : 'Login with Google to enable auto-backup'}
             </div>
           </div>
-          <button className="btn btn-secondary" onClick={connectGoogleDrive} style={{ marginLeft: 'auto' }}>
-             Connect Google Drive
-          </button>
-           <button className="btn btn-primary" onClick={createDriveBackup} style={{ marginLeft: 8 }} disabled={loading}>
-             {loading ? 'Uploading...' : 'Create Backup to Drive'}
+           <button className="btn btn-secondary" onClick={connectGoogleDrive} style={{ marginLeft: 'auto' }}>
+              Connect Google Drive
+           </button>
+           <button className="btn btn-primary" onClick={createDriveBackup} disabled={loading || !driveConfigured} style={{ marginLeft: 8 }}>
+              {loading ? 'Uploading...' : 'Create Backup to Drive'}
            </button>
         </div>
 
@@ -537,8 +571,8 @@ function SecurityAuditPanel() {
                 {logs.map((l, i) => (
                   <tr key={i}>
                     <td><span style={{ ...BADGE(getEventColor(l.event)), fontFamily: 'var(--font-mono)' }}>{l.event}</span></td>
-                    <td className="font-mono text-muted">{l.username || l.ip || '-'}</td>
-                    <td className="text-muted">{new Date(l.at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                    <td className="font-mono text-muted">{l.username || l.user_name || l.ip || '-'}</td>
+                    <td className="text-muted">{new Date(l.at || l.created_at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}</td>
                   </tr>
                 ))}
               </tbody>

@@ -165,6 +165,86 @@ router.post('/smtp/test', authenticate, requireMinRole('admin'), auditLog('test_
   }
 });
 
+// ── Super Admin SMTP config (used for onboarding, platform notifications) ─
+
+/**
+ * Load Super Admin SMTP config from platform_settings.
+ */
+async function loadSuperAdminSmtp() {
+  const r = await query("SELECT value FROM platform_settings WHERE key = 'smtp_super_admin'");
+  return r.rows[0]?.value || {};
+}
+
+async function saveSuperAdminSmtp(cfg, userId) {
+  await query(
+    `INSERT INTO platform_settings (key, value, updated_by, updated_at)
+     VALUES ($1,$2,$3,NOW())
+     ON CONFLICT (key) DO UPDATE SET value=$2, updated_by=$3, updated_at=NOW()`,
+    ['smtp_super_admin', JSON.stringify(cfg), userId]
+  );
+}
+
+// GET /api/settings/smtp/super-admin  — Retrieve Super Admin SMTP config
+router.get('/smtp/super-admin', authenticate, requireMinRole('super_admin'), async (req, res) => {
+  try {
+    const cfg = await loadSuperAdminSmtp();
+    const safe = { ...cfg };
+    if (safe.password) safe.password = '••••••••••••••••';
+    res.json(safe);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/settings/smtp/super-admin  — Save Super Admin SMTP config
+router.put('/smtp/super-admin', authenticate, requireMinRole('super_admin'), auditLog('update_super_admin_smtp', 'settings'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const masked = /^[•*]{4,}$/;
+    const existing = await loadSuperAdminSmtp();
+    if (body.password && masked.test(body.password)) body.password = existing.password || '';
+    await saveSuperAdminSmtp(body, req.user.id);
+    const safe = { ...body };
+    if (safe.password) safe.password = '••••••••••••••••';
+    res.json({ ok: true, config: safe });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/settings/smtp/super-admin/test  — Test Super Admin SMTP config
+router.post('/smtp/super-admin/test', authenticate, requireMinRole('super_admin'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const saved = await loadSuperAdminSmtp();
+    const host = body.host || saved.host;
+    const port = body.port || saved.port || 587;
+    const user = body.user || saved.user;
+    const pass = body.password && !/^[•*]{4,}$/.test(body.password) ? body.password : saved.password;
+    const fromName = body.from_name || saved.from_name || 'RecoverLab';
+    const fromEmail = body.from_email || saved.from_email || user;
+    if (!host || !user || !pass || !fromEmail) {
+      return res.status(422).json({ error: 'Host, user, password and from_email are required' });
+    }
+    const portNum = parseInt(port, 10) || 587;
+    const transport = nodemailer.createTransport({
+      host, port: portNum, secure: portNum === 465,
+      auth: { user, pass }, tls: { rejectUnauthorized: false },
+    });
+    await transport.verify();
+    const testTo = body.test_to || fromEmail;
+    await transport.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: testTo,
+      subject: '✅ Super Admin SMTP Test',
+      html: `<div><h3>Super Admin SMTP is working ✅</h3><p>Config: ${host}:${portNum}</p></div>`,
+    });
+    res.json({ ok: true, message: `Test email sent to ${testTo}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Admin Role Management (Tenant-scoped) ──────────────────────────────────
 const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
 

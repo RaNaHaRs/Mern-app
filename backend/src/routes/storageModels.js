@@ -2,7 +2,7 @@ const express = require('express');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
-const { isSuperAdmin, tenantCaseCondition } = require('../utils/tenantAccess');
+const { isSuperAdmin, tenantAdminId, tenantCaseCondition } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
@@ -102,12 +102,18 @@ router.get('/:id', async (req, res) => {
     const failures = await query('SELECT * FROM failure_library WHERE model_id = $1 ORDER BY success_rate DESC', [req.params.id]);
 
     // Get donor matches
+    const tenantId = isSuperAdmin(req.user) ? null : tenantAdminId(req.user);
+    const tenantClause = tenantId
+      ? ` AND COALESCE(dm.tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = dm.created_by)) = $2
+          AND COALESCE(sm2.tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = sm2.created_by)) = $2`
+      : '';
     const donors = await query(
       `SELECT dm.*, sm2.model_number as donor_model, sb2.name as donor_brand
        FROM donor_matching dm
        JOIN storage_models sm2 ON dm.donor_model_id = sm2.id
        JOIN storage_brands sb2 ON sm2.brand_id = sb2.id
-       WHERE dm.model_id = $1 ORDER BY dm.compatibility_score DESC`, [req.params.id]
+       WHERE dm.model_id = $1${tenantClause} ORDER BY dm.compatibility_score DESC`,
+      tenantId ? [req.params.id, tenantId] : [req.params.id]
     );
 
     res.json({ ...result.rows[0], failureLibrary: failures.rows, donorMatches: donors.rows });

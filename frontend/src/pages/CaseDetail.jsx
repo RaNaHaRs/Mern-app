@@ -1411,6 +1411,16 @@ export default function CaseDetail() {
   const availableStages = Array.isArray(customStages) ? customStages : ALL_STAGES;
   const allowedNext = availableStages.filter(s => s !== caseData.stage);
   const isSolved = ['completed', 'delivered'].includes(caseData.stage);
+  const getStageProgress = (stage, stagesList) => {
+    if (!stage || !stagesList || !stagesList.length) return 0;
+    if (stage === 'failed') return 0;
+    if (stage === 'delivered') return 100;
+    const idx = stagesList.indexOf(stage);
+    if (idx === -1) return 0;
+    return Math.round((idx / (stagesList.length - 1)) * 100);
+  };
+  const stageProgress = getStageProgress(caseData.stage, availableStages);
+  const isFailed = caseData.stage === 'failed';
 
   const TABS = [
     { key: 'overview',     label: ' Overview' },
@@ -1544,11 +1554,21 @@ export default function CaseDetail() {
               <div className="card-title" style={{marginBottom:14}}> Recovery Progress</div>
               <div style={{marginBottom:8}}>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.78rem',marginBottom:6}}>
-                  <span className="text-muted">Overall Progress</span>
-                  <span className="font-mono" style={{color:'var(--accent-primary)'}}>{caseData.recovery_progress_pct||0}%</span>
+                  <span className="text-muted">Stage Progress</span>
+                  <span className="font-mono" style={{color: isFailed ? 'var(--danger)' : 'var(--accent-primary)'}}>{stageProgress}%</span>
                 </div>
-                <div className="progress-bar" style={{height:10}}>
-                  <div className="progress-fill" style={{width:`${caseData.recovery_progress_pct||0}%`}} />
+                {isFailed ? (
+                  <div className="progress-bar" style={{height:10, background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.3)'}}>
+                    <div className="progress-fill" style={{width:'100%', background:'var(--danger)', opacity:0.25}} />
+                  </div>
+                ) : (
+                  <div className="progress-bar" style={{height:10}}>
+                    <div className="progress-fill" style={{width:`${stageProgress}%`}} />
+                  </div>
+                )}
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.68rem',marginTop:4}}>
+                  <span style={{color: isFailed ? 'var(--danger)' : 'var(--text-muted)'}}>{availableStages[0]?.replace(/_/g,' ') || 'Start'}</span>
+                  <span style={{color: isFailed ? 'var(--danger)' : 'var(--text-muted)'}}>{isFailed ? 'Failed' : (availableStages[availableStages.length-1]?.replace(/_/g,' ') || 'Complete')}</span>
                 </div>
               </div>
             </div>

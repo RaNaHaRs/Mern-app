@@ -12,6 +12,8 @@ const mediaRecycle = require('../services/mediaRecycle');
 const { normalizeFailureType, isValidFailureType } = require('../utils/failureTypes');
 const { loadCompanySettings } = require('./settings');
 const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
+const automationService = require('../services/automationService');
+const casePdfService = require('../services/casePdfService');
 
 const router = express.Router();
 router.use(authenticate);
@@ -178,6 +180,8 @@ router.get('/', async (req, res) => {
               u.full_name as engineer_name, u.role as engineer_role,
               sm.model_number as storage_model_number,
                (SELECT amount FROM payments WHERE case_id = c.id ORDER BY created_at LIMIT 1) as first_payment,
+               (SELECT q2.total_amount FROM quotations q2 WHERE q2.case_id = c.id ORDER BY q2.created_at DESC LIMIT 1) as quotation_amount,
+               (SELECT COALESCE(SUM(p2.amount) FILTER (WHERE p2.status = 'paid'), 0) FROM payments p2 WHERE p2.case_id = c.id) as total_paid,
                GREATEST(
                  COALESCE((SELECT q2.total_amount FROM quotations q2 WHERE q2.case_id = c.id ORDER BY q2.created_at DESC LIMIT 1), 0) -
                  COALESCE((SELECT SUM(p2.amount) FILTER (WHERE p2.status = 'paid') FROM payments p2 WHERE p2.case_id = c.id), 0),
@@ -211,6 +215,7 @@ router.get('/', async (req, res) => {
 router.post('/',
   requireMinRole('staff'),
   normalizeCasePayloadMiddleware,
+  upload.single('inward_pdf'),
   [
     body('client_id').optional().isUUID(),
     body('device_brand').trim().notEmpty(),
@@ -240,13 +245,31 @@ router.post('/',
       const companySettings = await loadCompanySettings();
       const startValue = getCompanyNumberStart(companySettings, 'case_number_start');
       const formatString = getCompanyNumberFormat(companySettings, 'case_number_format', 'DR-{YYYY}-{NNNNN}');
-      const seqState = await query(`SELECT last_value FROM case_number_seq`);
-      const currentLast = seqState.rows.length ? parseInt(seqState.rows[0].last_value, 10) : 0;
-      if (currentLast < startValue - 1) {
-        await query(`SELECT setval('case_number_seq', $1, false)`, [startValue - 1]);
+
+      // Per-tenant case numbering
+      let sequence;
+      const tenantId = tenantAdminId(req.user);
+      if (tenantId) {
+        const seqRes = await query(
+          `INSERT INTO tenant_case_sequences (tenant_id, last_sequence)
+           VALUES ($1, $2)
+           ON CONFLICT (tenant_id)
+           DO UPDATE SET last_sequence = tenant_case_sequences.last_sequence + 1
+           RETURNING last_sequence`,
+          [tenantId, startValue]
+        );
+        sequence = parseInt(seqRes.rows[0].last_sequence, 10);
+      } else {
+        // Fallback to global sequence for super admin
+        const seqState = await query(`SELECT last_value FROM case_number_seq`);
+        const currentLast = seqState.rows.length ? parseInt(seqState.rows[0].last_value, 10) : 0;
+        if (currentLast < startValue - 1) {
+          await query(`SELECT setval('case_number_seq', $1, false)`, [startValue - 1]);
+        }
+        const seqRes = await query(`SELECT nextval('case_number_seq') AS seq`);
+        sequence = parseInt(seqRes.rows[0].seq, 10);
       }
-      const seqRes = await query(`SELECT nextval('case_number_seq') AS seq`);
-      const caseNumber = formatNumberSequence(formatString, parseInt(seqRes.rows[0].seq, 10));
+      const caseNumber = formatNumberSequence(formatString, sequence);
 
       // Run smart assist
       let aiData = {};
@@ -384,6 +407,44 @@ if (client_id) {
           advance_received: advanceValue
         };
       }
+
+      // Emit CASE_CREATED event for automation triggers, unless the client requested a delayed email
+      const skipCaseCreated = String(req.body.skip_case_created || '').toLowerCase() === 'true' || req.body.skip_case_created === true;
+      if (!skipCaseCreated) {
+        try {
+          const clientInfo = client_id ? await query('SELECT email, first_name FROM clients WHERE id = $1', [client_id]) : null;
+          const recipientEmail = clientInfo?.rows[0]?.email || req.body.email || req.body.client_email || '';
+          const recipientName = clientInfo?.rows[0]?.first_name || req.body.first_name || req.body.name || 'Client';
+          // Generate clean summary PDF for email attachment
+          const summaryPdf = await casePdfService.generateEmailSummaryPdf({
+            ...result.rows[0],
+            first_name: recipientName,
+            email: recipientEmail,
+            company_name: req.body.company || '',
+            quotation_amount: req.body.quotation_amount,
+            advance_amount: req.body.advance_amount,
+            problem_description: req.body.problem_description || req.body.symptom_notes || '',
+          });
+
+          const attachments = summaryPdf && summaryPdf.filePath && fs.existsSync(summaryPdf.filePath)
+            ? [{ filename: summaryPdf.fileName, path: summaryPdf.filePath, contentType: summaryPdf.mimeType }]
+            : [];
+
+          await automationService.handleEvent('CASE_CREATED', {
+            case_id: result.rows[0].id,
+            case_number: result.rows[0].case_number || '',
+            name: recipientName,
+            email: recipientEmail,
+            device_brand: device_brand,
+            device_model: device_model,
+            failure_type: failure_type,
+            attachments
+          });
+        } catch (eventErr) {
+          console.warn('CASE_CREATED event emission failed:', eventErr.message);
+        }
+      }
+
       res.status(201).json(responseData);
     } catch (err) {
       // Handle duplicate case_number unique constraint with a clear 409 response
@@ -394,6 +455,36 @@ if (client_id) {
     }
   }
 );
+
+// ─── GET /api/cases/next-number ───────────────────────────────────
+router.get('/next-number', async (req, res) => {
+  try {
+    const companySettings = await loadCompanySettings();
+    const startValue = getCompanyNumberStart(companySettings, 'case_number_start');
+    const formatString = getCompanyNumberFormat(companySettings, 'case_number_format', 'DR-{YYYY}-{NNNNN}');
+    const tenantId = tenantAdminId(req.user);
+    let nextSeq = startValue;
+
+    if (tenantId) {
+      const seqRes = await query(
+        `SELECT last_sequence FROM tenant_case_sequences WHERE tenant_id = $1`,
+        [tenantId]
+      );
+      if (seqRes.rows.length > 0) {
+        nextSeq = parseInt(seqRes.rows[0].last_sequence, 10) + 1;
+      }
+    } else {
+      const seqState = await query(`SELECT last_value FROM case_number_seq`);
+      const currentLast = seqState.rows.length ? parseInt(seqState.rows[0].last_value, 10) : 0;
+      nextSeq = Math.max(currentLast + 1, startValue);
+    }
+
+    const caseNumber = formatNumberSequence(formatString, nextSeq);
+    res.json({ case_number: caseNumber });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─── GET /api/cases/:id ───────────────────────────────────────────
 router.get('/:id', async (req, res) => {
@@ -628,6 +719,30 @@ router.patch('/:id/stage',
         req.params.id, stage, req.user.id, req.user.role,
         { notes, timeSpentMinutes, actionsPerformed, toolsUsed }
       );
+
+      try {
+        const caseInfo = await query(
+          `SELECT c.case_number, c.client_id, cl.first_name, cl.email
+           FROM cases c
+           LEFT JOIN clients cl ON c.client_id = cl.id
+           WHERE c.id = $1`,
+          [req.params.id]
+        );
+        const caseRow = caseInfo.rows[0] || {};
+        const eventType = stage === 'completed' ? 'CASE_COMPLETED'
+          : stage === 'delivered' ? 'CASE_DELIVERED'
+          : 'CASE_UPDATED';
+        await automationService.handleEvent(eventType, {
+          case_id: req.params.id,
+          case_number: caseRow.case_number || '',
+          name: caseRow.first_name || 'Client',
+          email: caseRow.email || '',
+          stage: stage
+        });
+      } catch (eventErr) {
+        console.warn('CASE stage event emission failed:', eventErr.message);
+      }
+
       res.json(result);
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
@@ -749,7 +864,8 @@ router.get('/:id/donors', async (req, res) => {
     }
 
     const { findDonors } = require('../services/donorEngine');
-    const result = await findDonors(caseResult.rows[0].storage_model_id);
+    const tenantId = isSuperAdmin(req.user) ? null : tenantAdminId(req.user);
+    const result = await findDonors(caseResult.rows[0].storage_model_id, {}, tenantId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1080,6 +1196,28 @@ router.post('/:id/payments', requireMinRole('junior_engineer'), auditLog('record
     const quotationTotal = latestQuotation ? parseFloat(latestQuotation.total_amount || 0) : 0;
     const totalPaid = payments.rows.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
     const balanceDue = Math.max(0, quotationTotal - totalPaid);
+
+    try {
+      const caseInfo = await query(
+        `SELECT c.case_number, cl.first_name, cl.email
+         FROM cases c
+         LEFT JOIN clients cl ON c.client_id = cl.id
+         WHERE c.id = $1`,
+        [req.params.id]
+      );
+      const caseRow = caseInfo.rows[0] || {};
+      await automationService.handleEvent('PAYMENT_RECEIVED', {
+        case_id: req.params.id,
+        case_number: caseRow.case_number || '',
+        name: caseRow.first_name || 'Client',
+        email: caseRow.email || '',
+        amount: paymentRes.amount,
+        payment_method: paymentRes.method || '',
+        reference_number: paymentRes.reference_number || ''
+      });
+    } catch (eventErr) {
+      console.warn('PAYMENT_RECEIVED event emission failed:', eventErr.message);
+    }
 
     res.status(201).json({ 
       payment: paymentRes,

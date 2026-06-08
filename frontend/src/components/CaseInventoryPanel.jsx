@@ -585,8 +585,8 @@ export default function CaseInventoryPanel({ caseId }) {
       {/* Profit Summary */}
       {profit && (
         <div className="card" style={{
-          background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(22, 163, 74, 0.1) 100%)',
-          border: '1px solid rgba(34, 197, 94, 0.3)'
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-default)'
         }}>
           <div className="card-title">Case Profitability</div>
 
@@ -598,9 +598,9 @@ export default function CaseInventoryPanel({ caseId }) {
           }}>
             <div style={{
               padding: 12,
-              background: 'rgba(34, 197, 94, 0.08)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
-              borderLeft: '3px solid #22c55e'
+              border: '1px solid var(--border-subtle)'
             }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
                 Revenue
@@ -612,9 +612,9 @@ export default function CaseInventoryPanel({ caseId }) {
 
             <div style={{
               padding: 12,
-              background: 'rgba(239, 68, 68, 0.08)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
-              borderLeft: '3px solid #ef4444'
+              border: '1px solid var(--border-subtle)'
             }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
                 Total Expenses
@@ -626,9 +626,9 @@ export default function CaseInventoryPanel({ caseId }) {
 
             <div style={{
               padding: 12,
-              background: 'rgba(59, 130, 246, 0.08)',
+              background: 'var(--bg-elevated)',
               borderRadius: 'var(--radius-sm)',
-              borderLeft: '3px solid #3b82f6'
+              border: '1px solid var(--border-subtle)'
             }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
                 Gross Profit

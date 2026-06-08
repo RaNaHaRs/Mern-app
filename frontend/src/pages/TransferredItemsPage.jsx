@@ -14,8 +14,8 @@ const INV_CAT_MAP = Object.fromEntries(
 );
 
 const TRANSFER_ROW_STYLE = {
-  background: 'rgba(245, 158, 11, 0.08)',
-  borderLeft: '3px solid rgba(245, 158, 11, 0.75)',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border-subtle)',
 };
 
 function parseJson(val) {
