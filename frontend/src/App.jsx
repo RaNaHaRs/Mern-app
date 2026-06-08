@@ -19,6 +19,7 @@ const InventoryDetail  = React.lazy(() => import('./pages/InventoryDetail'));
 const DonorsPage       = React.lazy(() => import('./pages/DonorsPage'));
 const TransferredItemsPage = React.lazy(() => import('./pages/TransferredItemsPage'));
 const AnalyticsPage    = React.lazy(() => import('./pages/AnalyticsPage'));
+const KanbanBoard     = React.lazy(() => import('./pages/KanbanBoard'));
 const SettingsPage     = React.lazy(() => import('./pages/SettingsPage'));
 const ResetPasswordPage = React.lazy(() => import('./pages/ResetPasswordPage'));
 const AccountingPage   = React.lazy(() => import('./pages/AccountingPage'));
@@ -84,6 +85,7 @@ function Sidebar({ open, onClose }) {
   const opsItems = hasSuperAdminAccess ? [] : [
     { icon: Icons.dashboard, label: 'Dashboard', to: '/' },
     ...(hasPermission('cases', 'view') || isAdmin ? [{ icon: Icons.cases, label: 'Cases', to: '/cases' }] : []),
+    ...(hasPermission('cases', 'view') || isAdmin ? [{ icon: Icons.cases, label: 'Cases Progress', to: '/kanban' }] : []),
     ...(hasPermission('clients', 'view') || isAdmin ? [{ icon: Icons.clients, label: 'Clients', to: '/clients' }] : []),
   ];
   const intelItems = hasSuperAdminAccess ? [] : [
@@ -105,7 +107,7 @@ function Sidebar({ open, onClose }) {
         ...(isAdmin ? [{ icon: Icons.team, label: 'Team', to: '/users' }] : []),
         ...(hasPermission('recycle_bin', 'view') || isAdmin ? [{ icon: Icons.recycle, label: 'Recycle Bin', to: '/recycle-bin' }] : []),
         ...(hasPermission('webhooks', 'view') || isAdmin ? [{ icon: Icons.webhooks, label: 'Webhooks', to: '/webhooks' }] : []),
-        ...(hasPermission('settings', 'view') || isAdmin ? [{ icon: Icons.settings, label: 'Settings', to: '/settings' }] : []),
+        { icon: Icons.settings, label: 'Settings', to: '/settings' },
         ...(isAdmin ? [{ icon: Icons.portal, label: 'Client Portal', to: '/client-portal' }] : []),
       ];
 
@@ -162,36 +164,75 @@ function Sidebar({ open, onClose }) {
             <div key={`${i}-${group.group}`} className="nav-section">
               <div className="nav-section-label">{group.group}</div>
               {group.items.map((item, j) => (
-                <NavLink
-                  key={`${item.to}-${j}`}
-                  to={item.to}
-                  end={item.to === '/' || !!item.end}
-                  className={({ isActive: navActive }) => {
-                    const active = item.to === '/super-admin' ? navActive && item.tab === (sessionStorage.getItem('sa_active_tab') || 'dashboard') : navActive;
-                    return `nav-item${active ? ' active' : ''}`;
-                  }}
-                  onClick={() => { if (item.tab) sessionStorage.setItem('sa_active_tab', item.tab); onClose(); }}
-                >
-                  <span className="nav-icon">{item.icon}</span>
-                  {item.label}
-                </NavLink>
+                <div key={`${item.to}-${j}`}>
+                  <NavLink
+                    to={item.to}
+                    end={item.to === '/' || !!item.end}
+                    className={({ isActive: navActive }) => {
+                      const active = item.to === '/super-admin' ? navActive && item.tab === (sessionStorage.getItem('sa_active_tab') || 'dashboard') : navActive;
+                      return `nav-item${active ? ' active' : ''}`;
+                    }}
+                    onClick={() => { if (item.tab) sessionStorage.setItem('sa_active_tab', item.tab); if(!item.subItems) onClose(); }}
+                  >
+                    <span className="nav-icon">{item.icon}</span>
+                    {item.label}
+                  </NavLink>
+                  {item.subItems && (
+                    <div className="nav-sub-items" style={{ paddingLeft: '24px' }}>
+                      {item.subItems.map((sub, k) => (
+                        <NavLink
+                          key={`${sub.to}-${k}`}
+                          to={sub.to}
+                          className="nav-item"
+                          onClick={onClose}
+                          style={{ fontSize: '0.75rem' }}
+                        >
+                          {sub.label}
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           ))}
         </div>
 
         <div className="sidebar-footer">
-          <div className="user-card" onClick={() => { navigate('/settings'); onClose(); }}>
-            <div className="user-avatar" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {user?.avatar
-                ? <img src={user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                : user?.fullName?.split(' ')?.map(n => n?.[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'U'}
+          {user && (
+            <div style={{
+              padding: '10px 12px',
+              marginBottom: 8,
+              background: 'rgba(255,255,255,0.04)',
+              borderRadius: 8,
+              border: '1px solid var(--border-subtle)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '0.72rem', fontWeight: 800, color: '#fff', overflow: 'hidden',
+                }}>
+                  {user.avatar
+                    ? <img src={user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : (user.fullName || user.username || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                  }
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.fullName || user.username}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user.email}
+                  </div>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--accent-primary)', fontWeight: 600, marginTop: 1, textTransform: 'capitalize' }}>
+                    {(user.role || '').replace(/_/g, ' ')}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="user-info">
-              <div className="user-name">{user?.fullName || 'User'}</div>
-              <div className="user-role">{user?.role?.replace(/_/g, ' ') || ''}</div>
-            </div>
-          </div>
+          )}
           <button onClick={handleLogout} title="Sign out">
             {Icons.logout} Logout
           </button>
@@ -320,6 +361,9 @@ function AppLayout() {
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/cases" element={<PermissionRoute module="cases"><CasesPage /></PermissionRoute>} />
+              <Route path="/kanban" element={<PermissionRoute module="cases"><KanbanBoard /></PermissionRoute>} />
+              <Route path="/profile" element={<Navigate to="/settings" replace />} />
+              <Route path="/about" element={<Navigate to="/settings" replace />} />
               <Route path="/cases/:id" element={<PermissionRoute module="cases"><CaseDetail /></PermissionRoute>} />
               <Route path="/clients" element={<PermissionRoute module="clients"><ClientsPage /></PermissionRoute>} />
               <Route path="/clients/:id" element={<PermissionRoute module="clients"><ClientDetail /></PermissionRoute>} />
@@ -353,6 +397,7 @@ function AppLayout() {
 
 // ── Root App ───────────────────────────────────────────────────
 export default function App() {
+  // TEMP 2
   return (
     <ThemeProvider>
       <FontSizeProvider>

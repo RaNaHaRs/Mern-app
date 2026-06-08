@@ -29,23 +29,26 @@ const STAGE_TRANSITIONS = {
 };
 
 // Roles required for each transition
+const ENGINEER_ROLES = ['admin', 'senior_engineer', 'junior_engineer', 'engineer'];
+const ALL_ROLES = [...ENGINEER_ROLES, 'staff'];
+
 const TRANSITION_PERMISSIONS = {
-  received: ['admin', 'senior_engineer', 'junior_engineer', 'staff'],
-  inspection: ['admin', 'senior_engineer', 'junior_engineer'],
-  diagnosis: ['admin', 'senior_engineer', 'junior_engineer'],
-  quotation: ['admin', 'senior_engineer', 'staff'],
-  approved: ['admin', 'senior_engineer', 'staff'],
-  rejected: ['admin', 'senior_engineer', 'staff'],
-  recovery_in_progress: ['admin', 'senior_engineer', 'junior_engineer'],
-  imaging: ['admin', 'senior_engineer', 'junior_engineer'],
-  data_extraction: ['admin', 'senior_engineer', 'junior_engineer'],
-  verification: ['admin', 'senior_engineer'],
-  completed: ['admin', 'senior_engineer'],
-  delivered: ['admin', 'senior_engineer', 'staff'],
-  failed: ['admin', 'senior_engineer'],
+  received:             ALL_ROLES,
+  inspection:           ENGINEER_ROLES,
+  diagnosis:            ENGINEER_ROLES,
+  quotation:            ALL_ROLES,
+  approved:             ALL_ROLES,
+  rejected:             ALL_ROLES,
+  recovery_in_progress: ENGINEER_ROLES,
+  imaging:              ENGINEER_ROLES,
+  data_extraction:      ENGINEER_ROLES,
+  verification:         ENGINEER_ROLES,
+  completed:            ENGINEER_ROLES,
+  delivered:            ALL_ROLES,
+  failed:               ENGINEER_ROLES,
 };
 
-const DEFAULT_TRANSITION_ROLES = ['admin', 'senior_engineer', 'junior_engineer', 'staff'];
+const DEFAULT_TRANSITION_ROLES = ALL_ROLES;
 
 async function transitionCase(caseId, toStage, engineerId, userRole, options = {}) {
   const { notes = '', timeSpentMinutes = 0, actionsPerformed = [], toolsUsed = [] } = options;

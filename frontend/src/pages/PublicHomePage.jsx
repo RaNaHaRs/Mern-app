@@ -140,6 +140,15 @@ export default function PublicHomePage() {
   };
 
   useEffect(() => {
+    // First, read from localStorage (most recent Super Admin save)
+    try {
+      const local = JSON.parse(localStorage.getItem('sa_homepage'));
+      if (local) {
+        if (local.logo_emoji) local.logo_emoji = decodeHtml(local.logo_emoji);
+        setCmsData(c => ({ ...c, ...local }));
+      }
+    } catch (e) {}
+    // Then fetch from backend as fallback / supplement
     fetch(`${API}/settings/homepage`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }
     }).then(r => r.ok ? r.json() : null)

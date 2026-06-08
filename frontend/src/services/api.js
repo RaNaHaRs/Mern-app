@@ -123,7 +123,8 @@ export const authApi = {
   login: (creds) => api.post('/auth/login', creds),
   logout: (refreshToken) => api.post('/auth/logout', { refreshToken }),
   me: () => api.get('/auth/me'),
-  changePassword: (data) => api.put('/auth/change-password', data),
+   changePassword: (data) => api.put('/auth/change-password', data),
+   updateProfile: (data) => api.put('/auth/profile', data),
 };
 
 export const chatApi = {

@@ -377,6 +377,38 @@ router.get('/me', authenticate, async (req, res) => {
   });
 });
 
+// ─── PUT /api/auth/profile ───────────────────────────────────────
+router.put('/profile',
+  authenticate,
+  auditLog('update_profile', 'user'),
+  async (req, res) => {
+    try {
+      const { full_name, phone, specializations, notes } = req.body;
+      const result = await query(
+        `UPDATE users SET
+          full_name = COALESCE($1, full_name),
+          phone = COALESCE($2, phone),
+          specializations = COALESCE($3, specializations),
+          notes = COALESCE($4, notes),
+          updated_at = NOW()
+         WHERE id = $5
+         RETURNING id, username, email, full_name, phone, specializations, notes, role, is_active, avatar_url, last_login, created_at`,
+        [full_name, phone, specializations ? JSON.stringify(specializations) : null, notes, req.user.id]
+      );
+      const u = result.rows[0];
+      res.json({
+        id: u.id, username: u.username, email: u.email, fullName: u.full_name,
+        phone: u.phone, specializations: u.specializations || [],
+        notes: u.notes, role: u.role, isActive: u.is_active,
+        avatar: u.avatar_url, avatarUrl: u.avatar_url,
+        lastLogin: u.last_login, createdAt: u.created_at,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 // ─── PUT /api/auth/change-password ───────────────────────────────
 router.put('/change-password',
   authenticate,

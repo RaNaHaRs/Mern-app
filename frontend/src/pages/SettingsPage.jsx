@@ -1249,7 +1249,7 @@ function PlanManagementPanel() {
 export default function SettingsPage() {
   const { user, canAccess, isSuperAdmin, isOwner } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
-  const [expandedGroups, setExpandedGroups] = useState(() => ({ 'profile_settings': true }));
+  const [expandedGroups, setExpandedGroups] = useState(() => ({ 'profile_group': true }));
   const [activeDropdown, setActiveDropdown] = useState(null);
 
   useEffect(() => {
@@ -1277,6 +1277,32 @@ export default function SettingsPage() {
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const [savingPw, setSavingPw] = useState(false);
+  // Profile form
+  const [profileForm, setProfileForm] = useState({ fullName: user?.fullName || '', phone: user?.phone || '', specializations: (user?.specializations || []).join(', '), notes: user?.notes || '' });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => {
+    setProfileForm({ fullName: user?.fullName || '', phone: user?.phone || '', specializations: (user?.specializations || []).join(', '), notes: user?.notes || '' });
+  }, [user]);
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true); setProfileError(''); setProfileSaved(false);
+    try {
+      const { authApi } = await import('../services/api');
+      await authApi.updateProfile({
+        full_name: profileForm.fullName,
+        phone: profileForm.phone,
+        specializations: profileForm.specializations.split(',').map(s => s.trim()).filter(Boolean),
+        notes: profileForm.notes,
+      });
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2000);
+    } catch (err) { setProfileError(err.message); }
+    finally { setProfileSaving(false); }
+  };
+
   // Company settings
   const [company, setCompany] = useState(null);
   const [savingCompany, setSavingCompany] = useState(false);
@@ -1501,25 +1527,30 @@ export default function SettingsPage() {
   };
 
   const settingsGroups = isSuperAdmin ? [
-    { id: 'profile_settings', label: ' My Profile Settings', icon: '',
-      children: [
-        { key: 'profile',  label: 'My Profile' },
-        { key: 'security', label: 'Security' },
-      ]
+    { id: 'profile_group', label: 'My Profile', icon: '', standalone: true,
+      children: [{ key: 'profile', label: 'My Profile' }]
+    },
+    { id: 'security_group', label: 'Security', icon: '', standalone: true,
+      children: [{ key: 'security', label: 'Security' }]
     },
     { id: 'about_group', label: 'About', icon: '', standalone: true,
       children: [{ key: 'about', label: 'About' }]
     },
   ] : [
-    { id: 'profile_settings', label: ' My Profile Settings', icon: '',
-      children: [
-        { key: 'profile',  label: 'My Profile' },
-        { key: 'security', label: 'Security' },
-        ...(canAccess('admin') ? [{ key: 'company', label: 'Company Profile' }] : []),
-        ...(canAccess('admin') ? [{ key: 'numbers', label: 'Number Setups' }] : []),
-        ...(canAccess('admin') ? [{ key: 'gst',     label: 'GST & Tax' }] : []),
-      ]
+    { id: 'profile_group', label: 'My Profile', icon: '', standalone: true,
+      children: [{ key: 'profile', label: 'My Profile' }]
     },
+    { id: 'security_group', label: 'Security', icon: '', standalone: true,
+      children: [{ key: 'security', label: 'Security' }]
+    },
+    ...(canAccess('admin') ? [{
+      id: 'profile_settings', label: 'Company', icon: '',
+      children: [
+        { key: 'company', label: 'Company Profile' },
+        { key: 'numbers', label: 'Number Setups' },
+        { key: 'gst',     label: 'GST & Tax' },
+      ]
+    }] : []),
     ...(canAccess('admin') ? [{
       id: 'case_settings', label: ' Case Settings', icon: '',
       children: [
@@ -1758,6 +1789,18 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label">Full Name</label><input className="form-input" value={profileForm.fullName} onChange={e => setProfileForm(f => ({ ...f, fullName: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Phone</label><input className="form-input" value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} /></div>
+              </div>
+              <div className="form-group"><label className="form-label">Specializations (comma-separated)</label><input className="form-input" value={profileForm.specializations} onChange={e => setProfileForm(f => ({ ...f, specializations: e.target.value }))} placeholder="e.g. HDD, SSD, RAID" /></div>
+              <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" style={{ minHeight: 60 }} value={profileForm.notes} onChange={e => setProfileForm(f => ({ ...f, notes: e.target.value }))} /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button className="btn btn-primary" onClick={handleSaveProfile} disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save Profile'}</button>
+                {profileSaved && <span style={{ fontSize: '0.82rem', color: 'var(--accent-success)' }}>Profile saved!</span>}
+                {profileError && <span style={{ fontSize: '0.82rem', color: '#ef4444' }}>{profileError}</span>}
+              </div>
+              <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid var(--border-subtle)' }} />
               <div className="tech-data-table">
                 {[
                   ['Email', user?.email],
@@ -1773,18 +1816,6 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
-              {user?.specializations?.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <div className="tech-data-label" style={{ marginBottom: 8 }}>Specializations</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {user.specializations.map(s => (
-                      <span key={s} style={{ padding: '4px 12px', background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.15)', borderRadius: 999, fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--accent-primary)' }}>
-                        {s.replace('_', ' ')}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 

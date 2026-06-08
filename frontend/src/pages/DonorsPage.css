@@ -202,9 +202,16 @@
   min-width: 180px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md, 8px);
-  background: var(--bg-default);
+  background-color: var(--bg-elevated);
   color: var(--text-primary);
   padding: 8px 10px;
+  cursor: pointer;
+}
+
+.donors-sort-select select option,
+.donors-sort-row select option {
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .donors-top-matches {

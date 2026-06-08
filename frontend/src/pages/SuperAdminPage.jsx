@@ -13,13 +13,47 @@ const fmtAmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN')}`;
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
 
-const checkRes = async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error || d.errors?.[0]?.msg || `HTTP ${r.status}`); return d; };
+const saFetch = async (url, options) => {
+  const token = getToken();
+  const headers = {
+    ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
+  };
+  let res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      const refreshRes = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        const accessToken = refreshData?.accessToken;
+        if (accessToken) {
+          localStorage.setItem('accessToken', accessToken);
+          headers.Authorization = `Bearer ${accessToken}`;
+          res = await fetch(url, { ...options, headers });
+        }
+      }
+    }
+    if (res.status === 401) {
+      localStorage.clear();
+      window.location.href = '/login';
+      throw new Error('Session expired');
+    }
+  }
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || d.errors?.[0]?.msg || `HTTP ${res.status}`);
+  return d;
+};
 const saApi = {
-  get: (path) => fetch(`${BASE_URL}/super-admin${path}`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(checkRes),
-  post: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(checkRes),
-  patch: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'PATCH', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(checkRes),
-  del: (path) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${getToken()}` } }).then(checkRes),
-  put: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'PUT', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(checkRes),
+  get: (path) => saFetch(`${BASE_URL}/super-admin${path}`, { method: 'GET' }),
+  post: (path, body) => saFetch(`${BASE_URL}/super-admin${path}`, { method: 'POST', body: JSON.stringify(body) }),
+  patch: (path, body) => saFetch(`${BASE_URL}/super-admin${path}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  del: (path) => saFetch(`${BASE_URL}/super-admin${path}`, { method: 'DELETE' }),
+  put: (path, body) => saFetch(`${BASE_URL}/super-admin${path}`, { method: 'PUT', body: JSON.stringify(body) }),
 };
 
 const DEFAULT_PLANS = [
@@ -53,7 +87,7 @@ function PlanBadge({ plan }) {
 
 // ── Add Tenant Modal ───────────────────────────────────────────────────────
 function AddTenantModal({ onClose, onDone }) {
-  const dynamicPlans = getPlans();
+  const dynamicPlans = getPlans().filter(p => p.is_active !== false);
   const [form, setForm] = useState({
     company_name: '', admin_name: '', admin_email: '', admin_password: '',
     plan: dynamicPlans[1]?.key || 'professional', max_team_users: dynamicPlans[1]?.maxUsers || 5, subscription_months: 12,
@@ -80,6 +114,10 @@ function AddTenantModal({ onClose, onDone }) {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.admin_email)) errs.admin_email = 'Invalid email format';
     if (!form.admin_password) errs.admin_password = 'Password is required';
     else if (form.admin_password.length < 8) errs.admin_password = 'Password must be at least 8 characters';
+    if (form.phone) {
+      const digits = form.phone.replace(/\D/g, '');
+      if (digits.length !== 10) errs.phone = 'Mobile number must be exactly 10 digits';
+    }
     if (Object.keys(errs).length) { setFieldErrors(errs); return; }
     setLoading(true);
     try {
@@ -223,15 +261,36 @@ function AddTenantModal({ onClose, onDone }) {
 
 // ── Edit Tenant Modal ──────────────────────────────────────────────────────
 function EditTenantModal({ tenant, onClose, onDone }) {
+  const formatDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    if (isNaN(dt.getTime())) return d;
+    return dt.toISOString().slice(0, 10);
+  };
   const [form, setForm] = useState({
     company_name: tenant.company_name || '',
     plan: tenant.plan || 'professional',
     max_team_users: tenant.max_team_users || 5,
     status: tenant.status || 'active',
-    expiry_date: tenant.expiry_date || '',
+    expiry_date: formatDate(tenant.expiry_date),
     notes: tenant.notes || '',
   });
   const [loading, setLoading] = useState(false);
+  const [tenantData, setTenantData] = useState(tenant);
+
+  useEffect(() => {
+    saApi.get(`/tenants`).then(data => {
+      const tenants = Array.isArray(data) ? data : (data?.tenants || []);
+      const found = tenants.find(t => t.id === tenant.id);
+      if (found) {
+        setTenantData(found);
+        setForm(f => ({
+          ...f,
+          expiry_date: formatDate(found.expiry_date),
+        }));
+      }
+    }).catch(() => {});
+  }, [tenant.id]);
 
   const handle = async () => {
     setLoading(true);
@@ -258,7 +317,7 @@ function EditTenantModal({ tenant, onClose, onDone }) {
             <div className="form-group">
               <label className="form-label">Plan</label>
               <select className="form-select" value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))}>
-                {getPlans().map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                {getPlans().filter(p => p.is_active !== false).map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
               </select>
             </div>
             <div className="form-group">
@@ -315,7 +374,7 @@ function TenantUsersModal({ tenant, onClose }) {
     if (!confirm(`${action} ${u.full_name || u.username}?`)) return;
     try {
       const res = await saApi.patch(`/tenants/${tenant.id}/users/${u.id}`, { is_active: !u.is_active });
-      if (res.id) {
+      if (res.ok || res.is_active !== undefined) {
         setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: res.is_active } : x));
       } else {
         throw new Error('Invalid response from server');
@@ -553,23 +612,12 @@ function PlansManager({ tenants }) {
       }).catch(() => {});
     }
   };
-  const removePlan = (key) => {
-    const plan = plans.find(p => p.key === key);
-    if (!plan) return;
-    const subscriberCount = tenants.filter(t => t.plan === plan.key).length;
-    setDeleteTarget({ key, label: plan.label, subscriberCount, mode: 'remove' });
-  };
-
-  const confirmDeletePlan = async () => {
-    if (!deleteTarget) return;
-    const { key } = deleteTarget;
-    const plan = plans.find(p => p.key === key);
-    if (plan && plan.id) {
-      const res = await saApi.del(`/plans/${plan.id}`).catch(() => {});
-    }
-    persist(plans.filter(p => p.key !== key));
-    loadDeletedPlans();
-    setDeleteTarget(null);
+  const removePlan = async (id) => {
+    if (!confirm('Permanently remove this plan?')) return;
+    try {
+      await saApi.del(`/plans/${id}`);
+      loadActivePlans();
+    } catch (e) { alert(e.message); }
   };
   const restorePlan = async (plan) => {
     if (plan && plan.id) {
@@ -716,7 +764,7 @@ function PlansManager({ tenants }) {
                         <button className="btn btn-sm btn-secondary" onClick={() => startEdit(plan)}>Edit</button>
                         <button className="btn btn-sm" style={{background:'rgba(16,185,129,0.1)',color:'#10b981',borderColor:'rgba(16,185,129,0.2)',fontSize:'0.72rem'}}
                           onClick={() => { setSelPermPlan(plan.key); setActiveView('permissions'); }}>Permissions</button>
-                        <button className="btn btn-sm" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',borderColor:'rgba(239,68,68,0.2)',fontSize:'0.72rem'}} onClick={() => removePlan(plan.key)}>Remove</button>
+                        <button className="btn btn-sm" style={{background:'rgba(239,68,68,0.1)',color:'#ef4444',borderColor:'rgba(239,68,68,0.2)',fontSize:'0.72rem'}} onClick={() => removePlan(plan.id)}>Remove</button>
                       </div>
                     </>
                   )}
@@ -753,12 +801,12 @@ function PlansManager({ tenants }) {
 
           {/* Permission Matrix */}
           {curPlan && (
-            <div className="sa-perm-matrix">
-              <div className="sa-perm-header">
-                <div className="sa-perm-module-col">Module</div>
-                {ALL_ACTIONS.map(a => <div key={a} className="sa-perm-action-col">{a.charAt(0).toUpperCase()+a.slice(1)}</div>)}
-                <div className="sa-perm-action-col">All</div>
-              </div>
+    <div className="sa-perm-matrix">
+      <div className="sa-perm-header">
+        <div className="sa-perm-module-col">Module</div>
+        {['view', 'create', 'edit', 'delete', 'export'].map(a => <div key={a} className="sa-perm-action-col">{a.charAt(0).toUpperCase()+a.slice(1)}</div>)}
+        <div className="sa-perm-action-col">All</div>
+      </div>
               {ALL_MODULES.map(mod => {
                 const modPerms = permissions[selPermPlan]?.[mod.key] || {};
                 const allOn = ALL_ACTIONS.every(a => modPerms[a]);
@@ -982,7 +1030,7 @@ function RazorpayTab({ tenants, simulateWebhook, filtered }) {
 // ── Coupon Manager ──────────────────────────────────────────────────────────
 function CouponManager() {
   const [coupons, setCoupons] = useState([]);
-  const [form, setForm] = useState({ code:'', type:'global', target_email:'', discount_type:'percent', discount_value:10, max_uses:'', expiry_date:'', description:'' });
+  const [form, setForm] = useState({ code:'', type:'global', target_email:'', discount_type:'percent', discount_value:'', max_uses:'', expiry_date:'', description:'' });
   const [showAdd, setShowAdd] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loadingCoupons, setLoadingCoupons] = useState(true);
@@ -993,6 +1041,11 @@ function CouponManager() {
   useEffect(() => { reload(); }, [reload]);
 
   const genCode = () => setForm(f => ({ ...f, code: Math.random().toString(36).substring(2,8).toUpperCase() }));
+  const editCoupon = (coupon) => {
+    setForm(coupon);
+    setShowAdd(true);
+  };
+  
   const addCoupon = async () => {
     if (!form.code || !form.discount_value) { alert('Code and discount value are required'); return; }
     try {
@@ -1099,6 +1152,7 @@ function CouponManager() {
                     <td>
                       <div style={{display:'flex',gap:4}}>
                         <span style={{fontSize:'0.68rem',padding:'2px 6px',borderRadius:4,background:expired||exhausted?'rgba(239,68,68,0.1)':'rgba(34,197,94,0.1)',color:expired||exhausted?'#ef4444':'#22c55e',fontWeight:700}}>{expired?'Expired':exhausted?'Exhausted':'Active'}</span>
+                        <button className="btn btn-sm btn-ghost" style={{color:'var(--accent-primary)',fontSize:'0.7rem'}} onClick={()=>editCoupon(c)}>Edit</button>
                         <button className="btn btn-sm btn-ghost" style={{color:'var(--danger)',fontSize:'0.7rem'}} onClick={()=>removeCoupon(c.code)}>Remove</button>
                       </div>
                     </td>
@@ -1116,8 +1170,9 @@ function CouponManager() {
 
 // ── Branding Tab ────────────────────────────────────────────────────────────
 function BrandingTab() {
+  const DEFAULT_BRANDING = { platform_name: 'RecoverLab', tagline: 'Professional Data Recovery CRM', support_email: 'support@recoverlab.in', support_phone: '', logo_url: '', favicon_url: '', primary_color: '#00d4ff', accent_color: '#8b5cf6', terms_url: '', privacy_url: '', twitter_url: '', linkedin_url: '' };
   const load = () => { try { return JSON.parse(localStorage.getItem('sa_branding') || 'null') || {}; } catch { return {}; } };
-  const [form, setForm] = useState(() => ({ platform_name: 'RecoverLab', tagline: 'Professional Data Recovery CRM', support_email: 'support@recoverlab.in', support_phone: '', logo_url: '', favicon_url: '', primary_color: '#00d4ff', accent_color: '#8b5cf6', terms_url: '', privacy_url: '', twitter_url: '', linkedin_url: '', ...load() }));
+  const [form, setForm] = useState(() => ({ ...DEFAULT_BRANDING, ...load() }));
   const [saved, setSaved] = useState(false);
 
   // Apply branding to the document: update title, favicon, sidebar text and CSS variables
@@ -1165,6 +1220,7 @@ function BrandingTab() {
   };
 
   const save = () => { localStorage.setItem('sa_branding', JSON.stringify(form)); applyBranding(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const reset = () => { localStorage.removeItem('sa_branding'); setForm({ ...DEFAULT_BRANDING }); applyBranding(DEFAULT_BRANDING); setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
   // Apply branding once on mount using stored values so page reflects saved branding immediately
   useEffect(() => { try { const stored = load(); if (stored) applyBranding(stored); } catch (e) {} }, []);
@@ -1204,7 +1260,10 @@ function BrandingTab() {
           <div className="form-group"><label className="form-label">LinkedIn</label><input className="form-input" value={form.linkedin_url} onChange={e => setForm(f => ({ ...f, linkedin_url: e.target.value }))} placeholder="https://linkedin.com/company/recoverlab" /></div>
         </div>
       </div>
-      <div><button className="btn btn-primary" onClick={save}>{saved ? 'Saved!' : 'Save Branding Settings'}</button></div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button className="btn btn-primary" onClick={save}>{saved ? 'Saved!' : 'Save Branding Settings'}</button>
+        <button className="btn btn-secondary" onClick={reset}>Reset to Default</button>
+      </div>
     </div>
   );
 }
@@ -1318,6 +1377,7 @@ function HomepageTab() {
   const [form, setForm] = useState(() => ({
     hero_title: 'The Complete CRM for Data Recovery Labs',
     hero_subtitle: 'Manage cases, clients, billing and team — all in one place.',
+    hero_badge: 'Enterprise Data Recovery CRM',
     hero_cta_text: 'Start Free Trial',
     hero_cta_url: '/signup',
     hero_secondary_cta: 'View Demo',
@@ -1328,10 +1388,34 @@ function HomepageTab() {
     show_features_section: true,
     show_testimonials: true,
     show_faq: true,
+    show_client_portal: true,
+    app_name: 'RecoverLab CRM',
+    app_tagline: 'Enterprise Data Recovery Platform',
+    logo_emoji: '\uD83D\uDCBE',
+    primary_color: '#00d4ff',
     features: [
-      { icon: '', title: 'Case Management', desc: 'Full lifecycle tracking from intake to delivery' },
-      { icon: '', title: 'Billing & Invoicing', desc: 'Auto-generate invoices, quotations and receipts' },
-      { icon: '', title: 'Inventory & Donors', desc: 'Smart matching of donor drives to active cases' },
+      { icon: '\uD83D\uDCC2', title: 'Case Management', desc: 'Full lifecycle tracking from intake to delivery' },
+      { icon: '\uD83D\uDCB3', title: 'Billing & Invoicing', desc: 'Auto-generate invoices, quotations and receipts' },
+      { icon: '\uD83D\uDEE0\uFE0F', title: 'Inventory & Donors', desc: 'Smart matching of donor drives to active cases' },
+    ],
+    how_it_works: [
+      { step: '01', icon: '\uD83D\uDCE5', title: 'Receive Device', desc: 'Log the faulty device into the CRM with client details.' },
+      { step: '02', icon: '\uD83D\uDD2C', title: 'Diagnose & Quote', desc: 'Engineers assess the damage and auto-send a quotation.' },
+      { step: '03', icon: '\uD83D\uDD27', title: 'Perform Recovery', desc: 'Track the recovery process stage by stage.' },
+      { step: '04', icon: '\uD83D\uDCE6', title: 'Deliver & Invoice', desc: 'Generate invoice, send payment link, mark delivered.' },
+    ],
+    why_us: [
+      { icon: '\uD83D\uDEE1\uFE0F', title: 'Enterprise Security', desc: 'Per-user AES-256 encryption, 2FA authentication.' },
+      { icon: '\u26A1', title: 'Real-time Everything', desc: 'Live case updates, team chat, webhook events.' },
+      { icon: '\uD83D\uDD17', title: 'Integrates Anywhere', desc: 'Connect to n8n, Zapier, Slack, or any HTTP endpoint.' },
+      { icon: '\uD83D\uDCF1', title: 'Mobile Responsive', desc: 'Full mobile support with adaptive layouts.' },
+      { icon: '\uD83D\uDCBE', title: 'Data Never Lost', desc: 'Automated backups including all images.' },
+      { icon: '\uD83C\uDFAF', title: 'Built for Recovery Labs', desc: 'HDD/SSD/RAID-specific workflows and analytics.' },
+    ],
+    testimonials: [
+      { name: 'Rohit Mehta', role: 'Owner, DataFix Solutions', text: 'We\'ve been able to scale our lab operations to 3x without hiring additional staff.' },
+      { name: 'Priya Sharma', role: 'Operations Head, Stellar Data', text: 'The case management and automated billing alone saved us 20 hours a week.' },
+      { name: 'Amit Patel', role: 'CTO, DiskDoctor Services', text: 'No more spreadsheets, no more missed follow-ups. It just works.' },
     ],
     footer_copyright: `© ${new Date().getFullYear()} RecoverLab. All rights reserved.`,
     ...load(),
@@ -1343,14 +1427,19 @@ function HomepageTab() {
     try { localStorage.setItem('sa_homepage', JSON.stringify(h)); } catch (e) {}
   };
 
-  const save = () => { applyHomepage(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const save = () => {
+    applyHomepage(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+    saApi.patch('/settings', { key: 'homepage', value: form }).catch(() => {});
+  };
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       {/* Announcement Banner */}
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div className="card-title" style={{ margin: 0 }}>📢 Announcement Banner</div>
+          <div className="card-title" style={{ margin: 0 }}>Announcement Banner</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.82rem' }}>
             <input type="checkbox" checked={form.announcement_enabled} onChange={e => setForm(f => ({ ...f, announcement_enabled: e.target.checked }))} style={{ accentColor: 'var(--accent-primary)' }} />
             Enable Banner
@@ -1367,9 +1456,23 @@ function HomepageTab() {
         </div>
       </div>
 
+      {/* App Identity */}
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 12 }}>App Identity</div>
+        <div className="form-row form-row-2">
+          <div className="form-group"><label className="form-label">App Name</label><input className="form-input" value={form.app_name} onChange={e => setForm(f => ({ ...f, app_name: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Tagline</label><input className="form-input" value={form.app_tagline} onChange={e => setForm(f => ({ ...f, app_tagline: e.target.value }))} /></div>
+        </div>
+        <div className="form-row form-row-2">
+          <div className="form-group"><label className="form-label">Logo Emoji</label><input className="form-input" value={form.logo_emoji} onChange={e => setForm(f => ({ ...f, logo_emoji: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Primary Color</label><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="color" value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} style={{ width: 44, height: 36, padding: 2, border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' }} /><span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{form.primary_color}</span></div></div>
+        </div>
+      </div>
+
       {/* Hero Section */}
       <div className="card">
         <div className="card-title" style={{ marginBottom: 12 }}>Hero Section</div>
+        <div className="form-group"><label className="form-label">Badge Text (optional)</label><input className="form-input" value={form.hero_badge} onChange={e => setForm(f => ({ ...f, hero_badge: e.target.value }))} /></div>
         <div className="form-group"><label className="form-label">Hero Title</label><input className="form-input" value={form.hero_title} onChange={e => setForm(f => ({ ...f, hero_title: e.target.value }))} /></div>
         <div className="form-group"><label className="form-label">Hero Subtitle</label><textarea className="form-textarea" style={{ minHeight: 60 }} value={form.hero_subtitle} onChange={e => setForm(f => ({ ...f, hero_subtitle: e.target.value }))} /></div>
         <div className="form-row form-row-2">
@@ -1382,7 +1485,7 @@ function HomepageTab() {
       {/* Section Visibility */}
       <div className="card">
         <div className="card-title" style={{ marginBottom: 12 }}>Section Visibility</div>
-        {[['show_pricing_section', 'Pricing / Plans Section'], ['show_features_section', 'Features Grid Section'], ['show_testimonials', 'Testimonials Section'], ['show_faq', 'FAQ Section']].map(([key, label]) => (
+        {[['show_pricing_section', 'Pricing / Plans Section'], ['show_features_section', 'Features Grid Section'], ['show_testimonials', 'Testimonials Section'], ['show_faq', 'FAQ Section'], ['show_client_portal', 'Client Portal Section']].map(([key, label]) => (
           <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '8px 12px', borderRadius: 'var(--radius-md)', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', marginBottom: 6 }}>
             <input type="checkbox" checked={!!form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} style={{ accentColor: 'var(--accent-primary)', width: 15, height: 15 }} />
             <span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{label}</span>
@@ -1401,7 +1504,50 @@ function HomepageTab() {
             <button onClick={() => setForm(f => ({ ...f, features: f.features.filter((_, i) => i !== idx) }))} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: 6, padding: '7px 10px', cursor: 'pointer', marginBottom: 0 }}>Remove</button>
           </div>
         ))}
-        <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, features: [...f.features, { icon: '⭐', title: 'New Feature', desc: 'Describe this feature' }] }))}>Add Feature Card</button>
+        <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, features: [...f.features, { icon: '\u2B50', title: 'New Feature', desc: 'Describe this feature' }] }))}>Add Feature Card</button>
+      </div>
+
+      {/* How It Works */}
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 12 }}>How It Works Steps</div>
+        {form.how_it_works.map((item, idx) => (
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '50px 50px 1fr 1fr auto', gap: 8, marginBottom: 10, alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Step</label><input className="form-input" value={item.step} onChange={e => { const arr = [...form.how_it_works]; arr[idx] = { ...arr[idx], step: e.target.value }; setForm(f => ({ ...f, how_it_works: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Icon</label><input className="form-input" value={item.icon} onChange={e => { const arr = [...form.how_it_works]; arr[idx] = { ...arr[idx], icon: e.target.value }; setForm(f => ({ ...f, how_it_works: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Title</label><input className="form-input" value={item.title} onChange={e => { const arr = [...form.how_it_works]; arr[idx] = { ...arr[idx], title: e.target.value }; setForm(f => ({ ...f, how_it_works: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Description</label><input className="form-input" value={item.desc} onChange={e => { const arr = [...form.how_it_works]; arr[idx] = { ...arr[idx], desc: e.target.value }; setForm(f => ({ ...f, how_it_works: arr })); }} /></div>
+            <button onClick={() => setForm(f => ({ ...f, how_it_works: f.how_it_works.filter((_, i) => i !== idx) }))} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: 6, padding: '7px 10px', cursor: 'pointer', marginBottom: 0 }}>Remove</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, how_it_works: [...f.how_it_works, { step: '0' + (f.how_it_works.length + 1), icon: '', title: '', desc: '' }] }))}>Add Step</button>
+      </div>
+
+      {/* Why Us */}
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 12 }}>Why Us Points</div>
+        {form.why_us.map((item, idx) => (
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr auto', gap: 8, marginBottom: 10, alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Icon</label><input className="form-input" value={item.icon} onChange={e => { const arr = [...form.why_us]; arr[idx] = { ...arr[idx], icon: e.target.value }; setForm(f => ({ ...f, why_us: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Title</label><input className="form-input" value={item.title} onChange={e => { const arr = [...form.why_us]; arr[idx] = { ...arr[idx], title: e.target.value }; setForm(f => ({ ...f, why_us: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Description</label><input className="form-input" value={item.desc} onChange={e => { const arr = [...form.why_us]; arr[idx] = { ...arr[idx], desc: e.target.value }; setForm(f => ({ ...f, why_us: arr })); }} /></div>
+            <button onClick={() => setForm(f => ({ ...f, why_us: f.why_us.filter((_, i) => i !== idx) }))} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: 6, padding: '7px 10px', cursor: 'pointer', marginBottom: 0 }}>Remove</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, why_us: [...f.why_us, { icon: '', title: '', desc: '' }] }))}>Add Why Us Point</button>
+      </div>
+
+      {/* Testimonials */}
+      <div className="card">
+        <div className="card-title" style={{ marginBottom: 12 }}>Testimonials</div>
+        {form.testimonials.map((item, idx) => (
+          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 10, alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Name</label><input className="form-input" value={item.name} onChange={e => { const arr = [...form.testimonials]; arr[idx] = { ...arr[idx], name: e.target.value }; setForm(f => ({ ...f, testimonials: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Role</label><input className="form-input" value={item.role} onChange={e => { const arr = [...form.testimonials]; arr[idx] = { ...arr[idx], role: e.target.value }; setForm(f => ({ ...f, testimonials: arr })); }} /></div>
+            <div className="form-group" style={{ margin: 0 }}><label className="form-label" style={{ fontSize: '0.68rem' }}>Text</label><input className="form-input" value={item.text} onChange={e => { const arr = [...form.testimonials]; arr[idx] = { ...arr[idx], text: e.target.value }; setForm(f => ({ ...f, testimonials: arr })); }} /></div>
+            <button onClick={() => setForm(f => ({ ...f, testimonials: f.testimonials.filter((_, i) => i !== idx) }))} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#ef4444', borderRadius: 6, padding: '7px 10px', cursor: 'pointer', marginBottom: 0 }}>Remove</button>
+          </div>
+        ))}
+        <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, testimonials: [...f.testimonials, { name: '', role: '', text: '' }] }))}>Add Testimonial</button>
       </div>
 
       <div className="form-group"><label className="form-label">Footer Copyright Text</label><input className="form-input" value={form.footer_copyright} onChange={e => setForm(f => ({ ...f, footer_copyright: e.target.value }))} /></div>
@@ -1478,12 +1624,15 @@ function InvoicesTab({ purchases, tenants }) {
     }
   };
 
+  const [invoicePage, setInvoicePage] = useState(1);
+  const PER_PAGE = 15;
   const invoices = purchases.filter(p => p.status === 'success').map((p, i) => ({
     ...p,
     invoice_number: `${settings.invoice_prefix}-${String(i + 1).padStart(4, '0')}`,
     gst_amount: Math.round((p.amount || 0) * (settings.gst_percent || 18) / 100),
     total_with_gst: Math.round((p.amount || 0) * (1 + (settings.gst_percent || 18) / 100)),
   }));
+  const paginatedInvoices = invoices.slice((invoicePage - 1) * PER_PAGE, invoicePage * PER_PAGE);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -1525,7 +1674,7 @@ function InvoicesTab({ purchases, tenants }) {
             <table>
               <thead><tr><th>Invoice #</th><th>Subscriber</th><th>Plan</th><th>Amount</th><th>GST ({settings.gst_percent}%)</th><th>Total</th><th>Date</th><th>Actions</th></tr></thead>
               <tbody>
-                {invoices.map(inv => (
+                {paginatedInvoices.map(inv => (
                   <tr key={inv.id}>
                     <td><span className="font-mono text-xs text-accent">{inv.invoice_number}</span></td>
                     <td><div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{inv.tenant_name}</div><div className="text-xs text-muted">{inv.tenant_email}</div></td>
@@ -1545,6 +1694,15 @@ function InvoicesTab({ purchases, tenants }) {
                 ))}
               </tbody>
             </table>
+            {invoices.length > PER_PAGE && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderTop: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Showing {Math.min((invoicePage - 1) * PER_PAGE + 1, invoices.length)}–{Math.min(invoicePage * PER_PAGE, invoices.length)} of {invoices.length}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-secondary btn-sm" disabled={invoicePage === 1} onClick={() => setInvoicePage(p => p - 1)}>Prev</button>
+                  <button className="btn btn-secondary btn-sm" disabled={invoicePage * PER_PAGE >= invoices.length} onClick={() => setInvoicePage(p => p + 1)}>Next</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2051,6 +2209,8 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
   const SEV_COLORS = { success:'#10b981', info:'var(--accent-primary)', warn:'#f59e0b', danger:'#ef4444' };
   const [recentActivity, setRecentActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
+  const [activityPage, setActivityPage] = useState(1);
+  const ACTIVITY_PER_PAGE = 3;
   useEffect(() => {
     let cancelled = false;
     setActivityLoading(true);
@@ -2085,7 +2245,7 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
   ];
   const backendMrr = parseFloat(dashboardStats?.revenue?.mrr) || 0;
   const backendTotalRevenue = parseFloat(dashboardStats?.revenue?.total_revenue) || 0;
-  const planRevenue = plans.map(p => ({ ...p, count: tenants.filter(t => t.plan === p.key && t.status === 'active').length }));
+  const planRevenue = plans.map(p => ({ ...p, count: tenants.filter(t => t.plan === p.key).length }));
   const maxRev = Math.max(...planRevenue.map(p => p.price * p.count), 1);
 
   const timeAgo = (iso) => {
@@ -2110,8 +2270,8 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
         <StatCard icon={statIcons.tenants}  label="Total Subscribers"   value={stats.total}  color="#00d4ff" />
         <StatCard icon={statIcons.active}   label="Active Subscribers"  value={stats.active} sub={`${stats.trial} on trial`} color="#10b981" />
         <StatCard icon={statIcons.expiring} label="Expiring Soon"   value={stats.expiringSoon} sub="Next 14 days" color="#f59e0b" />
-        <StatCard icon={statIcons.mrr}      label="Monthly Revenue" value={`₹${(backendMrr || stats.mrr).toLocaleString('en-IN')}`} sub={backendMrr ? 'From purchases' : 'Active MRR'} color="#8b5cf6" />
-        <StatCard icon={statIcons.plan}     label="Total Revenue"   value={`₹${backendTotalRevenue.toLocaleString('en-IN')}`} sub="All time" color="#f59e0b" />
+        <StatCard icon={statIcons.mrr}      label="Monthly Revenue" value={`₹${planRevenue.reduce((sum, p) => sum + p.price * p.count, 0).toLocaleString('en-IN')}`} sub="Active subscriptions" color="#8b5cf6" />
+        <StatCard icon={statIcons.plan}     label="Total Revenue"   value={`₹${backendTotalRevenue.toLocaleString('en-IN')}`} sub="All time (from purchases)" color="#f59e0b" />
       </div>
 
       <div className="sa-dash-grid">
@@ -2143,19 +2303,40 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
               Recent Activity
             </div>
             {activityLoading ? (
-              <div style={{ padding: '20px 0', textAlign: 'center' }}><div className="spinner" style={{ width: 20, height: 20, margin: '0 auto' }} /></div>
+              <div style={{ padding: '12px 0', textAlign: 'center' }}><div className="spinner" style={{ width: 18, height: 18, margin: '0 auto' }} /></div>
             ) : recentActivity.length === 0 ? (
-              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>No recent activity</div>
-            ) : recentActivity.map((log, i) => (
-              <div key={i} className="sa-activity-item">
-                <div className="sa-activity-dot" style={{ background: SEV_COLORS[log.severity] }} />
-                <div style={{ flex: 1 }}>
-                  <span className="sa-activity-action" style={{ background: `${SEV_COLORS[log.severity]}18`, color: SEV_COLORS[log.severity] }}>{log.action}</span>
-                  <div className="sa-activity-detail">{log.detail}</div>
-                  <div className="sa-activity-time">{log.user_name} · {timeAgo(log.at)}</div>
-                </div>
-              </div>
-            ))}
+              <div style={{ padding: '12px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>No recent activity</div>
+            ) : (
+              <>
+                {recentActivity.slice((activityPage - 1) * ACTIVITY_PER_PAGE, activityPage * ACTIVITY_PER_PAGE).map((log, i) => (
+                  <div key={i} className="sa-activity-item" style={{ padding: '8px 0' }}>
+                    <div className="sa-activity-dot" style={{ background: SEV_COLORS[log.severity] }} />
+                    <div style={{ flex: 1 }}>
+                      <span className="sa-activity-action" style={{ background: `${SEV_COLORS[log.severity]}18`, color: SEV_COLORS[log.severity] }}>{log.action}</span>
+                      <div className="sa-activity-detail">{log.detail}</div>
+                      <div className="sa-activity-time">{log.user_name} · {timeAgo(log.at)}</div>
+                    </div>
+                  </div>
+                ))}
+                {recentActivity.length > ACTIVITY_PER_PAGE && (
+                  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '10px 0 4px', borderTop: '1px solid var(--border-subtle)' }}>
+                    <button
+                      onClick={() => setActivityPage(p => Math.max(1, p - 1))}
+                      disabled={activityPage === 1}
+                      style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)', background: activityPage === 1 ? 'var(--bg-muted)' : 'var(--bg-elevated)', color: activityPage === 1 ? 'var(--text-muted)' : 'var(--text-primary)', cursor: activityPage === 1 ? 'default' : 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
+                    >← Prev</button>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      {activityPage} / {Math.ceil(recentActivity.length / ACTIVITY_PER_PAGE)}
+                    </span>
+                    <button
+                      onClick={() => setActivityPage(p => Math.min(Math.ceil(recentActivity.length / ACTIVITY_PER_PAGE), p + 1))}
+                      disabled={activityPage >= Math.ceil(recentActivity.length / ACTIVITY_PER_PAGE)}
+                      style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border-subtle)', background: activityPage >= Math.ceil(recentActivity.length / ACTIVITY_PER_PAGE) ? 'var(--bg-muted)' : 'var(--bg-elevated)', color: activityPage >= Math.ceil(recentActivity.length / ACTIVITY_PER_PAGE) ? 'var(--text-muted)' : 'var(--text-primary)', cursor: activityPage >= Math.ceil(recentActivity.length / ACTIVITY_PER_PAGE) ? 'default' : 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
+                    >Next →</button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
 
@@ -2492,6 +2673,9 @@ export default function SuperAdminPage() {
   const [editTenant, setEditTenant] = useState(null);
   const [viewUsersTenant, setViewUsersTenant] = useState(null);
   const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('sa_active_tab') || 'dashboard');
+  const [tenantPage, setTenantPage] = useState(1);
+  const [purchasePage, setPurchasePage] = useState(1);
+  const PER_PAGE = 15;
 
   // Sync with sessionStorage when sidebar sets the tab
   useEffect(() => {
@@ -2736,7 +2920,7 @@ export default function SuperAdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(t => (
+                  {filtered.slice((tenantPage - 1) * PER_PAGE, tenantPage * PER_PAGE).map(t => (
                     <TenantRow
                       key={t.id}
                       tenant={t}
@@ -2748,6 +2932,15 @@ export default function SuperAdminPage() {
                   ))}
                 </tbody>
               </table>
+              {filtered.length > PER_PAGE && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderTop: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Showing {Math.min((tenantPage - 1) * PER_PAGE + 1, filtered.length)}–{Math.min(tenantPage * PER_PAGE, filtered.length)} of {filtered.length}</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary btn-sm" disabled={tenantPage === 1} onClick={() => setTenantPage(p => p - 1)}>Prev</button>
+                    <button className="btn btn-secondary btn-sm" disabled={tenantPage * PER_PAGE >= filtered.length} onClick={() => setTenantPage(p => p + 1)}>Next</button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2846,7 +3039,7 @@ export default function SuperAdminPage() {
                       <div className="empty-desc">Run the seed script or configure Razorpay webhook to add purchases.</div>
                     </div>
                   </td></tr>
-                ) : allPurchases.map(p => (
+                ) : allPurchases.slice((purchasePage - 1) * PER_PAGE, purchasePage * PER_PAGE).map(p => (
                   <tr key={p.id}>
                     <td>
                       <div className="font-mono text-xs">{fmtDate(p.timestamp)}</div>
@@ -2871,33 +3064,25 @@ export default function SuperAdminPage() {
                     <td>
                       {p.razorpay_payment_id ? (
                         <span className="font-mono text-xs" style={{ color: 'var(--accent-primary)' }}>{p.razorpay_payment_id}</span>
-                      ) : <span className="text-xs text-muted">—</span>}
+                      ) : <span className="text-xs text-muted">N/A</span>}
                     </td>
                     <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {p.status === 'success' && (
-                          <button className="btn btn-sm btn-secondary" onClick={() => {
-                            const tenant = tenants.find(t => t.company_name === p.tenant_name);
-                            if (tenant) { setEditTenant(tenant); }
-                            else alert('Tenant not found — may need manual update');
-                          }}>Update Tenant</button>
-                        )}
-                        {p.status === 'failed' && (
-                          <button className="btn btn-sm" style={{ background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)', borderColor: 'rgba(0,212,255,0.3)', fontSize: '0.72rem' }}
-                            onClick={() => alert(`Retry contact: ${p.tenant_email}`)}>Retry</button>
-                        )}
-                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => openPdf(p.id)}>PDF</button>
                     </td>
-                    <td>
-                      <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: 4, fontWeight: 600,
-                        background: p.source === 'db' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)',
-                        color: p.source === 'db' ? '#3b82f6' : '#f59e0b',
-                      }}>{p.source === 'db' ? 'DB' : 'Local'}</span>
-                    </td>
+                    <td>{p.source === 'db' ? 'DB' : 'Local'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {allPurchases.length > PER_PAGE && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderTop: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Showing {Math.min((purchasePage - 1) * PER_PAGE + 1, allPurchases.length)}–{Math.min(purchasePage * PER_PAGE, allPurchases.length)} of {allPurchases.length}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="btn btn-secondary btn-sm" disabled={purchasePage === 1} onClick={() => setPurchasePage(p => p - 1)}>Prev</button>
+                  <button className="btn btn-secondary btn-sm" disabled={purchasePage * PER_PAGE >= allPurchases.length} onClick={() => setPurchasePage(p => p + 1)}>Next</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
