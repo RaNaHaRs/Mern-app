@@ -222,39 +222,36 @@ function RoleModal({ role, restrictedPerms, modules = PERMISSION_MODULES, roleAp
 }
 
 //  User Modal 
-function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentCount, isOwner, isStaff = false, defaultAssignedAdminId = '', onClose, onDone }) {
+function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentCount, isOwner, defaultAssignedAdminId = '', onClose, onDone }) {
   const isNew = !editUser?.id;
-  const platformRoles = [
-    { key: 'admin', name: 'Admin' },
-    { key: 'senior_engineer', name: 'Senior Engineer' },
-    { key: 'junior_engineer', name: 'Junior Engineer' },
-    { key: 'staff', name: 'Staff' },
-  ];
-  const availableRoles = isStaff
-    ? Array.from(new Map([...platformRoles, ...staffRoles].map(r => [r.key, r])).values())
-    : roles;
-
-  const permissionModules = isStaff ? STAFF_PERMISSION_MODULES : PERMISSION_MODULES;
-  const defaultPermissions = isStaff ? buildEmptyPermissions(STAFF_PERMISSION_MODULES) : buildEmptyPermissions();
+  const permissionModules = PERMISSION_MODULES;
 
   const [form, setForm] = useState({
     full_name: editUser?.full_name || '',
     username: editUser?.username || '',
     email: editUser?.email || '',
     password: '',
-    role_key: editUser?.role || (isStaff ? 'staff' : availableRoles[0]?.key) || '',
+    role_key: editUser?.role || roles[0]?.key || '',
     assigned_admin_id: (editUser?.assigned_admin_id ?? defaultAssignedAdminId) || '',
     specializations: editUser?.specializations || [],
     phone: editUser?.phone || '',
     is_active: editUser?.is_active ?? true,
-    permissions: editUser?.permissions || null, // null = use role defaults
+    permissions: editUser?.permissions || null,
     useCustomPerms: false,
   });
   const [loading, setLoading] = useState(false);
-  const selRole = availableRoles.find(r => r.key === form.role_key);
-  const { isSuperAdmin } = useAuth();
+  const [adminSearch, setAdminSearch] = useState('');
+  const [showAdminDropdown, setShowAdminDropdown] = useState(false);
+  const selRole = roles.find(r => r.key === form.role_key);
 
-  const canCreateMore = !isNew || isOwner || isStaff || currentCount < maxUsers;
+  const canCreateMore = !isNew || isOwner || currentCount < maxUsers;
+
+  const filteredAdmins = adminUsers.filter(admin => {
+    const q = adminSearch.toLowerCase();
+    return !q || (admin.full_name || '').toLowerCase().includes(q) || (admin.email || '').toLowerCase().includes(q) || (admin.company_name || '').toLowerCase().includes(q);
+  });
+
+  const selectedAdmin = adminUsers.find(a => a.id === form.assigned_admin_id);
 
   const handle = async () => {
     if (!form.full_name || !form.username || (!editUser && !form.password)) {
@@ -269,15 +266,11 @@ function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentC
         ...form,
         role: form.role_key,
         permissions: form.useCustomPerms ? form.permissions : null,
-        assigned_admin_id: isStaff ? undefined : (form.assigned_admin_id || undefined),
+        assigned_admin_id: form.assigned_admin_id || undefined,
       };
       let res;
       if (isNew) {
-        if (isStaff && isSuperAdmin) {
-          res = await superAdminApi.admins.create(payload);
-        } else {
-          res = await usersApi.create(payload);
-        }
+        res = await usersApi.create(payload);
       } else res = await usersApi.update(editUser.id, payload);
       if (res.error) throw new Error(res.error);
       onDone();
@@ -289,7 +282,7 @@ function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentC
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
         <div className="modal-header">
-          <h3 className="modal-title">{isNew ? (isStaff ? '+ Add Staff Member' : '+ Add Team Member') : ` Edit — ${editUser.full_name}`}</h3>
+          <h3 className="modal-title">{isNew ? '+ Add Team Member' : ` Edit — ${editUser.full_name}`}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}></button>
         </div>
         <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 24 }}>
@@ -319,7 +312,7 @@ function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentC
               <label className="form-label required">Assign Role</label>
               <select className="form-select" value={form.role_key} onChange={e => setForm(f => ({ ...f, role_key: e.target.value, permissions: null, useCustomPerms: false }))}>
                 <option value="">— Select Role —</option>
-                {availableRoles.map(r => (
+                {roles.map(r => (
                   <option key={r.key} value={r.key}>{r.name}</option>
                 ))}
               </select>
@@ -327,18 +320,43 @@ function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentC
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>{selRole.description}</div>
               )}
             </div>
-            {!isStaff && adminUsers.length > 0 && (
+            {adminUsers.length > 0 && (
               <div className="form-group">
-                <label className="form-label">Assign Admin</label>
-                <select className="form-select" value={form.assigned_admin_id} onChange={e => setForm(f => ({ ...f, assigned_admin_id: e.target.value }))}>
-                  <option value="">Automatic</option>
-                  {adminUsers.map(admin => (
-                    <option key={admin.id} value={admin.id}>{admin.full_name || admin.username}</option>
-                  ))}
-                </select>
-                <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Choose an admin who owns this team member. Defaults to your account when left blank.
+                <label className="form-label required">Assigned Admin</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="form-input"
+                    placeholder="Search by name, email, or company..."
+                    value={adminSearch || (selectedAdmin ? `${selectedAdmin.full_name} — ${selectedAdmin.company_name || ''}` : '')}
+                    onFocus={() => setShowAdminDropdown(true)}
+                    onChange={e => { setAdminSearch(e.target.value); setShowAdminDropdown(true); }}
+                    onBlur={() => setTimeout(() => setShowAdminDropdown(false), 200)}
+                  />
+                  {showAdminDropdown && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 220, overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
+                      {filteredAdmins.length === 0 ? (
+                        <div style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>No admins found</div>
+                      ) : filteredAdmins.map(admin => (
+                        <div
+                          key={admin.id}
+                          onMouseDown={() => { setForm(f => ({ ...f, assigned_admin_id: admin.id })); setAdminSearch(''); setShowAdminDropdown(false); }}
+                          style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border-subtle)', background: form.assigned_admin_id === admin.id ? 'rgba(0,212,255,0.06)' : 'transparent' }}
+                        >
+                          <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{admin.full_name}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {admin.company_name && <span>{admin.company_name} · </span>}
+                            <span>{admin.email}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                {selectedAdmin && (
+                  <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Team member will belong to <strong>{selectedAdmin.full_name}</strong>{selectedAdmin.company_name ? ` (${selectedAdmin.company_name})` : ''}
+                  </div>
+                )}
               </div>
             )}
             <div className="form-group">
@@ -389,7 +407,7 @@ function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentC
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={loading || (isNew && !canCreateMore)} onClick={handle}>
-            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : (isNew ? (isStaff ? '+ Add Staff Member' : '+ Add User') : ' Save Changes')}
+            {loading ? <><div className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : (isNew ? '+ Add User' : ' Save Changes')}
           </button>
         </div>
       </div>
@@ -457,11 +475,9 @@ export default function UserManagementPage() {
   // Max users from company settings
   const maxUsers = (() => { try { return parseInt(JSON.parse(localStorage.getItem('crm_company') || '{}').max_team_users || 10); } catch { return 10; } })();
   const showTeamStats = isOwner && activeTab === 'users';
-  const headerDescription = activeTab === 'staff'
-    ? 'Manage platform staff accounts for support and operations. Staff members are platform-scoped and are kept separate from tenant team users.'
-    : showTeamStats
-      ? 'Manage your team and user permissions for your tenant.'
-      : 'Review user accounts and permissions. Use the Super Admin console for platform-level staff management.';
+  const headerDescription = showTeamStats
+    ? 'Manage your team and user permissions for your tenant.'
+    : 'Review user accounts and permissions.';
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -472,7 +488,6 @@ export default function UserManagementPage() {
         isSuperAdmin ? superAdminApi.roles.list() : Promise.resolve([]),
       ]);
       let baseUsers = Array.isArray(ud) ? ud : (ud.users || []);
-      // If super admin, also fetch platform admin/staff list and merge so staff tab shows platform accounts
       if (isSuperAdmin) {
         try {
           const sa = await superAdminApi.admins.list();
@@ -512,13 +527,7 @@ export default function UserManagementPage() {
 
   const adminUsers = users.filter(u => u.role === 'admin' && !!(u.tenant_id || u.tenant_owner_id));
   const teamUsers = users.filter(u => u.role !== 'super_admin' && (u.tenant_id || u.tenant_owner_id));
-  // Platform-scoped accounts (no tenant fields) — separate platform admins from platform staff
-  const platformAdmins = users.filter(u => u.role === 'admin' && !u.tenant_id && !u.tenant_owner_id);
-  const platformStaff = users.filter(u => ['staff', 'senior_engineer', 'junior_engineer'].includes(u.role) && !u.tenant_id && !u.tenant_owner_id);
-  const staffUsers = platformStaff;
-  const visibleUsers = activeTab === 'staff'
-    ? staffUsers
-    : teamUsers.filter(u => !assignedAdminFilter || u.assigned_admin_id === assignedAdminFilter);
+  const visibleUsers = teamUsers.filter(u => !assignedAdminFilter || u.assigned_admin_id === assignedAdminFilter);
 
   const platformRoles = [
     { key: 'admin', name: 'Admin', color: '#f59e0b' },
@@ -527,15 +536,12 @@ export default function UserManagementPage() {
     { key: 'staff', name: 'Staff', color: '#6366f1' },
   ];
 
-  const getRoleMeta = (roleKey, isStaffUser = false) => {
-    if (isStaffUser) {
-      return staffRoles.find(r => r.key === roleKey) || roles.find(r => r.key === roleKey) || platformRoles.find(r => r.key === roleKey);
-    }
-    return roles.find(r => r.key === roleKey) || platformRoles.find(r => r.key === roleKey);
+  const getRoleMeta = (roleKey) => {
+    return roles.find(r => r.key === roleKey) || staffRoles.find(r => r.key === roleKey) || platformRoles.find(r => r.key === roleKey);
   };
 
   const TABS = isAdmin
-    ? [{ key: 'users', label: ' Team Users' }, ...(isSuperAdmin ? [{ key: 'staff', label: ' Staff' }] : []), { key: 'roles', label: ' Roles & Permissions' }, { key: 'my_perms', label: ' My Permissions' }]
+    ? [{ key: 'users', label: ' Team Users' }, { key: 'roles', label: ' Roles & Permissions' }, { key: 'my_perms', label: ' My Permissions' }]
     : [{ key: 'my_perms', label: ' My Permissions' }];
 
   return (
@@ -549,9 +555,6 @@ export default function UserManagementPage() {
         </div>
         {activeTab === 'users' && hasPermission('users', 'create') && (
           <button className="btn btn-primary" onClick={() => { setEditUser(null); setNewUserAssignedAdminId(assignedAdminFilter); setShowUserModal(true); }}>+ Add Team Member</button>
-        )}
-        {activeTab === 'staff' && isSuperAdmin && (
-          <button className="btn btn-primary" onClick={() => { setEditUser(null); setNewUserAssignedAdminId(''); setShowUserModal(true); }}>+ Add Staff Member</button>
         )}
         {isAdmin && activeTab === 'roles' && (
           <button className="btn btn-primary" onClick={() => {
@@ -587,7 +590,7 @@ export default function UserManagementPage() {
             </div>
           ) : (
             <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)' }}>
-              Tenant team users are shown here. Super Admin staff uses the dedicated Staff tab.
+              Team users are scoped to their tenant. Use the filter below to narrow by assigned admin.
             </div>
           )}
 
@@ -614,7 +617,7 @@ export default function UserManagementPage() {
               )}
             </div>
               {visibleUsers.length ? visibleUsers.map(u => {
-                const role = getRoleMeta(u.role, activeTab === 'staff');
+                const role = getRoleMeta(u.role);
                 return (
                   <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', opacity: u.is_active === false ? 0.5 : 1 }}>
                     <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${role?.color || '#6366f1'}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700, border: `2px solid ${role?.color || '#6366f1'}30`, color: role?.color || '#6366f1' }}>
@@ -660,78 +663,10 @@ export default function UserManagementPage() {
                 <div className="empty-state">
                   <div className="empty-icon"></div>
                   <div className="empty-title">No matching users</div>
-                  <div className="empty-desc">
-                    {activeTab === 'staff'
-                      ? 'Create platform staff members here.'
-                      : 'Try clearing the assigned admin filter.'}
-                  </div>
-                  {activeTab === 'users' && showTeamStats && hasPermission('users', 'create') && (
+                  <div className="empty-desc">Try clearing the assigned admin filter.</div>
+                  {showTeamStats && hasPermission('users', 'create') && (
                     <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Team Member</button>
                   )}
-                  {activeTab === 'staff' && isSuperAdmin && (
-                    <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Staff Member</button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Staff Tab */}
-      {activeTab === 'staff' && (
-        <div>
-          <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--text-muted)' }}>
-            Platform staff accounts are system-wide and are not counted against tenant subscription limits.
-          </div>
-
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: 60 }}><div className="spinner" style={{ width: 32, height: 32, margin: '0 auto' }} /></div>
-          ) : (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {staffUsers.length ? staffUsers.map(u => {
-                const role = getRoleMeta(u.role, true);
-                return (
-                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', opacity: u.is_active === false ? 0.5 : 1 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${role?.color || '#6366f1'}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700, border: `2px solid ${role?.color || '#6366f1'}30`, color: role?.color || '#6366f1' }}>
-                      {u.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                        <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{u.full_name}</span>
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--text-muted)' }}>@{u.username}</span>
-                        {u.is_active === false && <span style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: 999, background: 'rgba(239,68,68,0.1)', color: '#ef4444' }}>INACTIVE</span>}
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {role && (
-                          <span style={{ fontSize: '0.68rem', padding: '1px 8px', borderRadius: 999, background: `${role.color}18`, color: role.color, fontWeight: 700, border: `1px solid ${role.color}25` }}>
-                            {role.name}
-                          </span>
-                        )}
-                        {u.permissions && <span style={{ fontSize: '0.62rem', color: '#6366f1', fontWeight: 700 }}> Custom Perms</span>}
-                        {u.email && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{u.email}</span>}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button className="btn btn-sm btn-secondary" onClick={() => setViewPermissions(u)} title="View permissions"> Permissions</button>
-                      {hasPermission('users', 'edit') && (
-                        <button className="btn btn-sm btn-secondary" onClick={() => { setEditUser(u); setShowUserModal(true); }}> Edit</button>
-                      )}
-                      {(hasPermission('users', 'deactivate') || isAdmin) && (
-                        <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }} onClick={() => handleToggleActive(u)}>
-                          {u.is_active === false ? ' Activate' : ' Deactivate'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              }) : null}
-              {!staffUsers.length && (
-                <div className="empty-state">
-                  <div className="empty-icon"></div>
-                  <div className="empty-title">No platform staff accounts</div>
-                  <div className="empty-desc">Add staff members here to manage platform support, chat, and operations.</div>
-                  <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setShowUserModal(true)}>+ Add Staff Member</button>
                 </div>
               )}
             </div>
@@ -833,8 +768,7 @@ export default function UserManagementPage() {
           maxUsers={maxUsers}
           currentCount={teamUsers.length}
           isOwner={isOwner}
-          isStaff={activeTab === 'staff'}
-          defaultAssignedAdminId={activeTab === 'users' ? newUserAssignedAdminId : ''}
+          defaultAssignedAdminId={newUserAssignedAdminId}
           onClose={() => { setNewUserAssignedAdminId(''); setShowUserModal(false); }}
           onDone={() => { setNewUserAssignedAdminId(''); loadUsers(); }}
         />
@@ -857,7 +791,7 @@ export default function UserManagementPage() {
               <button className="btn btn-ghost btn-icon" onClick={() => setViewPermissions(null)}></button>
             </div>
             <div className="modal-body" style={{ maxHeight: 500, overflowY: 'auto' }}>
-              <PermissionMatrix permissions={viewPermissions.permissions || getRoleMeta(viewPermissions.role, !viewPermissions.tenant_id && !viewPermissions.tenant_owner_id)?.permissions || buildEmptyPermissions()} readonly />
+              <PermissionMatrix permissions={viewPermissions.permissions || getRoleMeta(viewPermissions.role)?.permissions || buildEmptyPermissions()} readonly />
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewPermissions(null)}>Close</button>

@@ -47,7 +47,7 @@ router.get('/', requireMinRole('senior_engineer'), async (req, res) => {
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-    const result = await query(`SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, assigned_admin_id, tenant_id, tenant_owner_id, last_login, created_at FROM users u ${where} ORDER BY role, full_name`, params);
+    const result = await query(`SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, assigned_admin_id, tenant_id, tenant_owner_id, company_name, last_login, created_at FROM users u ${where} ORDER BY role, full_name`, params);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -58,7 +58,7 @@ router.post('/', requireRole('admin', 'super_admin'), auditLog('create_user', 'u
     if (!password || password.length < 8) return res.status(422).json({ error: 'Password must be at least 8 characters' });
     const hash = await bcrypt.hash(password, 12);
 
-    const scopedTenantId = req.user.role === 'super_admin'
+    let scopedTenantId = req.user.role === 'super_admin'
       ? (tenant_id || null)
       : tenantAdminId(req.user);
 
@@ -80,16 +80,29 @@ router.post('/', requireRole('admin', 'super_admin'), auditLog('create_user', 'u
         }
       }
 
-      if (req.user.role === 'super_admin' && scopedTenantId) {
-        const tenantAdmin = await getTenantAdminForSuperAdmin(scopedTenantId, assigned_admin_id);
+      if (req.user.role === 'super_admin' && (scopedTenantId || assigned_admin_id)) {
+        let tenantAdmin;
+        if (scopedTenantId) {
+          tenantAdmin = await getTenantAdminForSuperAdmin(scopedTenantId, assigned_admin_id);
+        } else {
+          const adminResult = await query(
+            `SELECT id, max_team_users, COALESCE(tenant_id, tenant_owner_id, id) AS effective_tenant
+             FROM users WHERE id = $1 AND role = 'admin'`,
+            [assigned_admin_id]
+          );
+          tenantAdmin = adminResult.rows[0] || null;
+        }
         if (!tenantAdmin) {
           return res.status(400).json({ error: 'Selected tenant admin not found or invalid' });
+        }
+        if (!scopedTenantId) {
+          scopedTenantId = tenantAdmin.effective_tenant;
         }
         tenantOwnerId = tenantAdmin.id;
         const maxUsers = tenantAdmin.max_team_users || 0;
         const currentCount = await getTeamUserCountForTenant(tenantAdmin.id);
         if (currentCount >= maxUsers) {
-          return res.status(403).json({ error: `Team user limit reached (${maxUsers}). Upgrade plan to add more.` });
+          return res.status(403).json({ error: `This admin has reached the maximum team member limit (${maxUsers}). Upgrade plan or choose another admin.` });
         }
       }
     }

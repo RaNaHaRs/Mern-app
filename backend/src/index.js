@@ -173,65 +173,25 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ─── Auto-migration for new inventory columns ──────────────────────────────
-async function runInventoryMigration() {
-  const { query } = require('./config/database');
-  const migrations = [
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS stock_number VARCHAR(100)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS company VARCHAR(100)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS brand VARCHAR(100)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS model VARCHAR(200)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS firmware VARCHAR(100)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS site_code VARCHAR(100)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS date_code VARCHAR(50)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS head_map VARCHAR(200)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS family VARCHAR(100)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS capacity VARCHAR(50)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS interface VARCHAR(50)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS form_factor VARCHAR(50)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'available'",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS ui_category VARCHAR(50)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS dynamic_fields JSONB DEFAULT '{}'",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS source_case_id UUID",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS tenant_id UUID",
-    `UPDATE inventory_items ii
-       SET tenant_id = COALESCE(ii.tenant_id, u.tenant_id, u.tenant_owner_id, u.id)
-       FROM users u
-      WHERE ii.tenant_id IS NULL
-        AND ii.added_by = u.id`,
-    "UPDATE inventory_items SET status='available' WHERE status IS NULL",
-    "CREATE INDEX IF NOT EXISTS idx_inventory_tenant ON inventory_items(tenant_id)",
-    "CREATE INDEX IF NOT EXISTS idx_inventory_stock_number ON inventory_items(stock_number)",
-    "CREATE INDEX IF NOT EXISTS idx_inventory_pcb ON inventory_items(pcb_number)",
-    "CREATE INDEX IF NOT EXISTS idx_inventory_serial ON inventory_items(serial_number)",
-    "CREATE INDEX IF NOT EXISTS idx_inventory_model ON inventory_items(model)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL",
-    "CREATE INDEX IF NOT EXISTS idx_inventory_deleted_at ON inventory_items(deleted_at)",
-    "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS health VARCHAR(100)",
-    `CREATE TABLE IF NOT EXISTS inventory_item_notes (
-      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      inventory_item_id UUID NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
-      note_text TEXT NOT NULL,
-      created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )`,
-    "CREATE INDEX IF NOT EXISTS idx_inventory_item_notes_item ON inventory_item_notes(inventory_item_id)",
-  ];
-  for (const sql of migrations) {
-    try { await query(sql); } catch (e) { /* column may already exist */ }
-  }
-  logger.info('✅ Inventory schema migration complete');
-}
+// ─── Auto-migration for new inventory columns (MOVED TO MIGRATION FILE) ──────────────────────────────
+// This function was causing 5-10 minute startup delays by running on every server start.
+// It has been moved to the migration system and will only run once.
+// See: src/db/migrations/inventory_extended_schema.sql
 
 // ─── Boot ────────────────────────────────────────────────────────
 async function start() {
   try {
     await testConnection();
     logger.info('✅ Database connection established');
-    await migrate();
-    logger.info('✅ Database schema migration completed');
-    await runInventoryMigration();
+    
+    // Run migrations only if enabled (default: true)
+    const runMigrations = process.env.RUN_MIGRATIONS !== 'false';
+    if (runMigrations) {
+      await migrate();
+      logger.info('✅ Database schema migration completed');
+    } else {
+      logger.info('⏭️  Skipping migrations (RUN_MIGRATIONS=false)');
+    }
 
     const http = require('http');
     const server = http.createServer(app);

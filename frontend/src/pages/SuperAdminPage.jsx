@@ -2055,13 +2055,33 @@ function StatCard({ label, value, sub, color }) {
 function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
   const plans = getPlans();
   const SEV_COLORS = { success:'#10b981', info:'var(--accent-primary)', warn:'#f59e0b', danger:'#ef4444' };
-  const recentActivity = [
-    { action:'TENANT_CREATED', detail:'Created tenant "DataRescue Mumbai"',  severity:'info',    at: new Date(Date.now()-3600000).toISOString() },
-    { action:'PAYMENT_RECEIVED', detail:'Payment ₹2,499 received from "HardDrive Pros"', severity:'success', at: new Date(Date.now()-43200000).toISOString() },
-    { action:'PLAN_CHANGED', detail:'Changed plan for "TechLab Delhi" → Professional', severity:'warn', at: new Date(Date.now()-86400000).toISOString() },
-    { action:'TENANT_SUSPENDED', detail:'Suspended "OldLab Chennai" (non-payment)', severity:'danger', at: new Date(Date.now()-172800000).toISOString() },
-    { action:'BRANDING_UPDATED', detail:'Platform branding settings updated', severity:'info', at: new Date(Date.now()-259200000).toISOString() },
-  ];
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setActivityLoading(true);
+    saApi.get('/dashboard/recent-activity').then(data => {
+      if (cancelled) return;
+      const activities = (data.activities || []).map(a => {
+        const actionUpper = (a.action || '').toUpperCase();
+        let severity = 'info';
+        if (/create|add|new/i.test(actionUpper)) severity = 'success';
+        else if (/update|edit|change|modify/i.test(actionUpper)) severity = 'info';
+        else if (/delete|remove|suspend|cancel|expire/i.test(actionUpper)) severity = 'danger';
+        else if (/payment|paid|revenue|invoice/i.test(actionUpper)) severity = 'success';
+        return {
+          action: a.action,
+          detail: a.description || a.title,
+          user_name: a.user_name,
+          severity,
+          at: a.created_at,
+        };
+      });
+      setRecentActivity(activities);
+      setActivityLoading(false);
+    }).catch(() => { if (!cancelled) setActivityLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
   const health = [
     { label:'API Server',        status:'operational' },
     { label:'Database',          status:'operational' },
@@ -2128,13 +2148,17 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
               Recent Activity
             </div>
-            {recentActivity.map((log, i) => (
+            {activityLoading ? (
+              <div style={{ padding: '20px 0', textAlign: 'center' }}><div className="spinner" style={{ width: 20, height: 20, margin: '0 auto' }} /></div>
+            ) : recentActivity.length === 0 ? (
+              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>No recent activity</div>
+            ) : recentActivity.map((log, i) => (
               <div key={i} className="sa-activity-item">
                 <div className="sa-activity-dot" style={{ background: SEV_COLORS[log.severity] }} />
                 <div style={{ flex: 1 }}>
                   <span className="sa-activity-action" style={{ background: `${SEV_COLORS[log.severity]}18`, color: SEV_COLORS[log.severity] }}>{log.action}</span>
                   <div className="sa-activity-detail">{log.detail}</div>
-                  <div className="sa-activity-time">{timeAgo(log.at)}</div>
+                  <div className="sa-activity-time">{log.user_name} · {timeAgo(log.at)}</div>
                 </div>
               </div>
             ))}

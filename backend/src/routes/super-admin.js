@@ -110,6 +110,27 @@ async function loadSavedRazorpayCredentials() {
 // I. PLATFORM DASHBOARD STATS
 // ═══════════════════════════════════════════════════════════════
 
+// GET /api/super-admin/dashboard/recent-activity — Latest 5 activity logs for dashboard widget
+router.get('/dashboard/recent-activity', requireSuperAdminPermission('dashboard', 'view'), async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT a.id, a.action, a.module, a.resource_type, a.resource_id,
+              COALESCE(a.title, a.action) AS title,
+              COALESCE(a.description, a.action) AS description,
+              COALESCE(u.full_name, u.username, u.email, 'System') AS user_name,
+              u.email AS user_email, a.created_at
+       FROM activity_logs a
+       LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.created_at DESC
+       LIMIT 5`
+    );
+    res.json({ activities: result.rows });
+  } catch (err) {
+    logger.error('SA dashboard recent activity error', { error: err.message });
+    res.status(500).json({ error: 'Failed to load recent activity' });
+  }
+});
+
 // GET /api/super-admin/dashboard
 router.get('/dashboard', requireSuperAdminPermission('dashboard', 'view'), async (req, res) => {
   try {
@@ -157,8 +178,9 @@ router.get('/admins', requireSuperAdminPermission('staff', 'view'), async (req, 
   try {
     const result = await query(
       `SELECT u.id, u.username, u.email, u.full_name, u.role, u.is_active,
-              u.phone, u.last_login, u.created_at, u.two_fa_enabled,
-              json_agg(ap.*) FILTER (WHERE ap.id IS NOT NULL) AS permissions
+               u.phone, u.last_login, u.created_at, u.two_fa_enabled,
+               u.company_name, u.tenant_id, u.tenant_owner_id,
+               json_agg(ap.*) FILTER (WHERE ap.id IS NOT NULL) AS permissions
        FROM users u
        LEFT JOIN admin_permissions ap ON ap.user_id = u.id
        WHERE u.role IN ('admin', 'senior_engineer', 'junior_engineer', 'staff') OR u.role IN (SELECT jsonb_array_elements_text(value->'key') FROM platform_settings WHERE key = 'staff_roles')
