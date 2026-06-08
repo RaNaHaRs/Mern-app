@@ -8,6 +8,41 @@ const fmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN', { minimumFra
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
 // ── Professional SVG Icons ──────────────────────────────────────
+function IconTrendingUp() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" />
+    </svg>
+  );
+}
+function IconWallet() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-8" /><path d="M18 12a2 2 0 1 0 0 4 2 2 0 1 0 0-4z" />
+    </svg>
+  );
+}
+function IconClock() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
+}
+function IconAlert() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  );
+}
+function IconCreditCard() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  );
+}
 function IconTrash() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -346,7 +381,7 @@ export default function AccountingPage() {
     const map = Object.fromEntries(days.map(d => [d.date, d]));
     invoices.forEach(inv => {
       if (!inv || inv.status !== 'paid') return;
-      const paidDate = inv.paid_at;
+      const paidDate = inv.paid_at || inv.updated_at;
       const dayKey = paidDate ? paidDate.slice(0, 10) : null;
       if (!dayKey || !map[dayKey]) return;
       map[dayKey].amount += parseFloat(inv.amount_paid || inv.total || 0) || 0;
@@ -375,7 +410,7 @@ export default function AccountingPage() {
     'total_invoiced',
     'totalInvoiced'
   );
-  const totalExpensesValue = getSummaryNumber('total_expenses', 'totalExpenses', 'expenses', 'total_expenses');
+  const totalExpensesValue = getSummaryNumber('total_expenses', 'totalExpenses', 'expenses', 'total_expenses', 'case_total_expenses');
   const casePendingValue = getSummaryNumber('pendingRevenue', 'pending_revenue', 'case_total_pending', 'caseTotalPending');
   const overdueValue = getSummaryNumber('case_total_pending_overdue', 'overdueRevenue', 'overdue_revenue');
   const monthlyRevenueValue = getSummaryNumber('revenue_month', 'revenueMonth');
@@ -466,15 +501,15 @@ export default function AccountingPage() {
       {/*  OVERVIEW  */}
       {activeTab === 'overview' && summary && (
         <div>
-          {/* KPI Cards */}
-          <div className="stats-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(5, minmax(180px, 1fr))', overflowX: 'auto' }}>
-            {[
-              { icon: '', label: `${new Date().toLocaleString('en-US', { month: 'long' })} Revenue`, value: fmt(monthlyRevenueValue), color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
-              { icon: '', label: 'Total Revenue (Net)', value: `${fmt(netRevenueValue)} (${profitMarginPercent >= 0 ? '+' : ''}${profitMarginPercent.toFixed(1)}%)`, color: netRevenueValue >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: netRevenueValue >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
-              { icon: '', label: 'Pending Amount', value: fmt(casePendingValue), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
-              { icon: '', label: 'Overdue (30+ days)', value: fmt(overdueValue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
-              { icon: '', label: 'Total Expenses', value: fmt(totalExpensesValue), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
-            ].map(stat => (
+           {/* KPI Cards */}
+           <div className="stats-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(5, minmax(180px, 1fr))', overflowX: 'auto' }}>
+             {[
+               { icon: <IconTrendingUp />, label: `${new Date().toLocaleString('en-US', { month: 'long' })} Revenue`, value: fmt(monthlyRevenueValue), color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
+               { icon: <IconWallet />, label: 'Total Revenue (Net)', value: `${fmt(netRevenueValue)} (${profitMarginPercent >= 0 ? '+' : ''}${profitMarginPercent.toFixed(1)}%)`, color: netRevenueValue >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: netRevenueValue >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
+               { icon: <IconClock />, label: 'Pending Amount', value: fmt(casePendingValue), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
+               { icon: <IconAlert />, label: 'Overdue (30+ days)', value: fmt(overdueValue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
+               { icon: <IconCreditCard />, label: 'Total Expenses', value: fmt(totalExpensesValue), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
+             ].map(stat => (
               <div key={stat.label} className="stat-card" style={{ '--stat-color': stat.color, '--stat-bg': stat.bg }}>
                 <div className="stat-icon">{stat.icon}</div>
                 <div className="stat-value" style={{ fontSize: '1.4rem' }}>{stat.value}</div>
@@ -506,8 +541,8 @@ export default function AccountingPage() {
             <div className="card">
               <div className="card-title" style={{ marginBottom: 16 }}> Expense Breakdown</div>
               {Object.entries(summary.expenseByCategory || {}).map(([cat, amt]) => {
-                const totalExpensesValue = summary.total_expenses ?? summary.totalExpenses ?? 0;
-                const pct = totalExpensesValue ? Math.round((amt / totalExpensesValue) * 100) : 0;
+                const acctOnlyTotal = Object.values(summary.expenseByCategory || {}).reduce((s, v) => s + v, 0);
+                const pct = acctOnlyTotal ? Math.round((amt / acctOnlyTotal) * 100) : 0;
                 return (
                   <div key={cat} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: 4 }}>

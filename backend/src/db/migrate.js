@@ -84,7 +84,9 @@ async function migrate() {
       { name: '041_tenant_case_sequences', file: '041_tenant_case_sequences.sql' },
       { name: '042_add_reset_password_token_to_users', file: '042_add_reset_password_token_to_users.sql' },
       { name: '043_password_reset_rate_limit', file: '043_password_reset_rate_limit.sql' },
-      { name: '050_inventory_extended_schema', file: '050_inventory_extended_schema.sql' }
+      { name: '050_inventory_extended_schema', file: '050_inventory_extended_schema.sql' },
+      { name: '051_add_discount_to_case_inventory_items', file: '051_add_discount_to_case_inventory_items.sql' },
+      { name: '052_add_charge_to_client_inventory', file: '052_add_charge_to_client_inventory.sql' }
     ];
 
     // Execute all SQL file migrations

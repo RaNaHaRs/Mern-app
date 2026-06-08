@@ -116,6 +116,21 @@ export default function CollectPaymentModal({ isOpen, onClose, cases, clientId, 
   const formatCurrency = (val) =>
     `\u20B9${parseFloat(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
+  const formatStage = (stage) => {
+    if (!stage) return '';
+    return stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const stageColor = (stage) => {
+    if (!stage) return '#6b7280';
+    const s = stage.toLowerCase();
+    if (s.includes('complete') || s.includes('delivered')) return '#16a34a';
+    if (s.includes('progress') || s.includes('recovery')) return '#2563eb';
+    if (s.includes('waiting') || s.includes('pending') || s.includes('received')) return '#d97706';
+    if (s.includes('cancel') || s.includes('failed')) return '#dc2626';
+    return '#6b7280';
+  };
+
   return (
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -160,10 +175,22 @@ export default function CollectPaymentModal({ isOpen, onClose, cases, clientId, 
             <option value="">-- Select a case --</option>
             {validCases.map(c => (
               <option key={c.id} value={c.id}>
-                {c.case_number} — Pending: {formatCurrency(c.pending_amount)}{c.device_brand ? ` (${c.device_brand} ${c.device_model || ''})` : ''}
+                {c.case_number}{c.stage ? ` [${formatStage(c.stage)}]` : ''} — Pending: {formatCurrency(c.pending_amount)}{c.device_brand ? ` (${c.device_brand} ${c.device_model || ''})` : ''}
               </option>
             ))}
           </select>
+          {selectedCase && selectedCase.stage && (
+            <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: '0.72rem', color: '#888' }}>Status:</span>
+              <span style={{
+                fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px',
+                borderRadius: 12, background: stageColor(selectedCase.stage) + '20',
+                color: stageColor(selectedCase.stage), border: `1px solid ${stageColor(selectedCase.stage)}40`
+              }}>
+                {formatStage(selectedCase.stage)}
+              </span>
+            </div>
+          )}
           {validCases.length === 0 && (
             <div style={{ fontSize: '0.75rem', color: '#d97706', marginTop: 4 }}>
               No cases with pending amount for this client

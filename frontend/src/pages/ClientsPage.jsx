@@ -208,7 +208,7 @@ function CollectModal({ client, onClose, onCollected }) {
                   <option value="">— Choose a case —</option>
                   {pendingCases.map(c => (
                     <option key={c.id} value={c.id}>
-                      {c.case_number} — Pending ₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}
+                      {c.case_number}{c.stage ? ` [${c.stage.replace(/_/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase())}]` : ''} — Pending ₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}
                     </option>
                   ))}
                 </select>
@@ -223,7 +223,7 @@ function CollectModal({ client, onClose, onCollected }) {
                   border:'1px solid var(--border-subtle)',
                   marginBottom:14,
                   display:'grid',
-                  gridTemplateColumns:'1fr 1fr 1fr',
+                  gridTemplateColumns:'1fr 1fr 1fr 1fr',
                   gap:10
                 }}>
                   <div>
@@ -244,6 +244,23 @@ function CollectModal({ client, onClose, onCollected }) {
                       ₹{parseFloat(selectedCase.total_paid||0).toLocaleString('en-IN')}
                     </div>
                   </div>
+                  {selectedCase.stage && (
+                    <div>
+                      <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Status</div>
+                      <div style={{
+                        fontSize:'0.72rem',fontWeight:600,marginTop:2,padding:'2px 6px',
+                        borderRadius:10,display:'inline-block',
+                        background: selectedCase.stage.includes('complet') || selectedCase.stage.includes('deliver') ? 'rgba(22,163,74,0.15)' :
+                                    selectedCase.stage.includes('progress') || selectedCase.stage.includes('recovery') ? 'rgba(37,99,235,0.15)' :
+                                    selectedCase.stage.includes('cancel') || selectedCase.stage.includes('failed') ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)',
+                        color: selectedCase.stage.includes('complet') || selectedCase.stage.includes('deliver') ? 'var(--status-success)' :
+                               selectedCase.stage.includes('progress') || selectedCase.stage.includes('recovery') ? '#2563eb' :
+                               selectedCase.stage.includes('cancel') || selectedCase.stage.includes('failed') ? 'var(--status-error)' : 'var(--status-warning)'
+                      }}>
+                        {selectedCase.stage.replace(/_/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase())}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

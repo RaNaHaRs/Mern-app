@@ -112,9 +112,11 @@ function normalizeCasePayloadMiddleware(req, res, next) {
 async function ensureCaseAccessible(caseId, user) {
   if (isSuperAdmin(user)) return true;
   const deletedClause = (await casesDeletedAtColumnExists()) ? ' AND c.deleted_at IS NULL' : '';
+  // Allow access if the case belongs to the user's tenant OR the user is the assigned engineer
   const result = await query(
-    `SELECT c.id FROM cases c WHERE c.id = $1${deletedClause} AND ${caseTenantExpression('c')} = $2`,
-    [caseId, tenantAdminId(user)]
+    `SELECT c.id FROM cases c WHERE c.id = $1${deletedClause}
+     AND (${caseTenantExpression('c')} = $2 OR c.assigned_engineer = $3)`,
+    [caseId, tenantAdminId(user), user.id]
   );
   return result.rows.length > 0;
 }
@@ -150,8 +152,8 @@ router.get('/', async (req, res) => {
       pi += tenantCondition.params.length;
     }
 
-    // Engineers can only see their own cases (unless admin/senior)
-    if (req.user.role === 'junior_engineer') {
+    // Engineers/Staff can only see their own cases (unless admin)
+    if (!['super_admin', 'admin', 'billing_admin', 'content_admin'].includes(req.user.role)) {
       conditions.push(`c.assigned_engineer = $${pi++}`);
       params.push(req.user.id);
     }
@@ -1365,8 +1367,10 @@ router.post('/:caseId/inventory',
   [
     body('inventory_item_id').isUUID().withMessage('Invalid inventory item ID'),
     body('qty_allocated').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
-    body('usage_type').isIn(['CONSUMED', 'TEMPORARY_TOOL', 'CASE_PURCHASE']).withMessage('Invalid usage type'),
+    body('usage_type').isIn(['CONSUMED', 'TEMPORARY_TOOL']).withMessage('Invalid usage type'),
     body('unit_cost').optional({ nullable: true, checkFalsy: true }).isFloat({ min: 0 }).withMessage('Invalid unit cost'),
+    body('charge_to_client').optional().isBoolean(),
+    body('client_charge_amount').optional({ nullable: true }).isFloat({ min: 0 }),
   ],
   auditLog('add_case_inventory', 'case_inventory_item'),
   async (req, res) => {
@@ -1378,7 +1382,8 @@ router.post('/:caseId/inventory',
         return res.status(404).json({ error: 'Case not found' });
       }
 
-      const { inventory_item_id, qty_allocated, usage_type, unit_cost, notes } = req.body;
+      const { inventory_item_id, qty_allocated, usage_type, unit_cost, notes,
+              charge_to_client = false, client_charge_amount } = req.body;
 
       // Get inventory item
       const itemResult = await query(
@@ -1393,6 +1398,12 @@ router.post('/:caseId/inventory',
       const finalUnitCost = unit_cost || item.default_unit_cost || 0;
       const totalCost = qty_allocated * finalUnitCost;
 
+      // Resolve client charge: only applicable for CONSUMED items with a cost
+      const shouldChargeClient = charge_to_client && usage_type === 'CONSUMED' && totalCost > 0;
+      const finalClientCharge = shouldChargeClient
+        ? (client_charge_amount !== undefined ? parseFloat(client_charge_amount) : totalCost)
+        : 0;
+
       const result = await transaction(async client => {
         // For CONSUMED type, mark as consumed immediately on allocation
         const initialStatus = usage_type === 'CONSUMED' ? 'consumed' : 'allocated';
@@ -1402,11 +1413,12 @@ router.post('/:caseId/inventory',
         const ciiResult = await client.query(
           `INSERT INTO case_inventory_items (
             case_id, inventory_item_id, usage_type, qty_allocated, qty_used,
-            unit_cost, status, created_by, notes
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            unit_cost, status, created_by, notes, charge_to_client, client_charge_amount
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
           RETURNING *`,
           [req.params.caseId, inventory_item_id, usage_type, qty_allocated, initialQtyUsed,
-           finalUnitCost, initialStatus, req.user.id, notes]
+           finalUnitCost, initialStatus, req.user.id, notes,
+           shouldChargeClient, finalClientCharge]
         );
 
         // Create inventory usage log
@@ -1421,7 +1433,7 @@ router.post('/:caseId/inventory',
            qtyAfter, finalUnitCost, -totalCost, req.user.id, `Allocated to case: ${notes || ''}`]
         );
 
-        // Update inventory quantity if CONSUMED or CASE_PURCHASE
+        // Deduct from inventory stock only for CONSUMED items
         if (usage_type !== 'TEMPORARY_TOOL') {
           await client.query(
             'UPDATE inventory_items SET quantity = quantity - $1 WHERE id = $2',
@@ -1429,20 +1441,159 @@ router.post('/:caseId/inventory',
           );
         }
 
-        // Create case expense record
-        await client.query(
-          `INSERT INTO case_expenses (
-            case_id, expense_type, amount, description, reference_id, reference_type, recorded_by
-          ) VALUES ($1, 'inventory', $2, $3, $4, 'case_inventory_item', $5)`,
-          [req.params.caseId, totalCost, 
-           `${item.name} (${item.sku}) - ${qty_allocated} qty @ ${finalUnitCost}`,
-           ciiResult.rows[0].id, req.user.id]
-        );
+        // Record case expense ONLY for CONSUMED items (temp tools have no cost to case)
+        if (usage_type === 'CONSUMED') {
+          await client.query(
+            `INSERT INTO case_expenses (
+              case_id, expense_type, amount, description, reference_id, reference_type, recorded_by
+            ) VALUES ($1, 'inventory', $2, $3, $4, 'case_inventory_item', $5)`,
+            [req.params.caseId, totalCost,
+             `${item.name} (${item.sku}) - ${qty_allocated} qty @ ₹${finalUnitCost}`,
+             ciiResult.rows[0].id, req.user.id]
+          );
+        }
+
+        // If admin chose to charge inventory cost to client, add it to the quotation total
+        // so it flows through to pending_amount (= quotation_total - paid)
+        if (shouldChargeClient && finalClientCharge > 0) {
+          const quotResult = await client.query(
+            `SELECT id, total_amount FROM quotations WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
+            [req.params.caseId]
+          );
+          if (quotResult.rows.length) {
+            // Add to existing quotation total
+            await client.query(
+              `UPDATE quotations SET total_amount = total_amount + $1, updated_at = NOW() WHERE id = $2`,
+              [finalClientCharge, quotResult.rows[0].id]
+            );
+          } else {
+            // No quotation yet — create one with just the inventory charge
+            await client.query(
+              `INSERT INTO quotations (case_id, estimated_cost, total_amount, approved_by_client, created_by, notes)
+               VALUES ($1, $2, $2, true, $3, $4)`,
+              [req.params.caseId, finalClientCharge, req.user.id,
+               `Auto-created: inventory charge for ${item.name} (${item.sku})`]
+            );
+          }
+        }
 
         return ciiResult.rows[0];
       });
 
       res.status(201).json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// PATCH /api/cases/:caseId/inventory/:itemId/cost — Admin: edit unit cost / apply discount
+router.patch('/:caseId/inventory/:itemId/cost',
+  requireMinRole('staff'),
+  [
+    body('unit_cost').isFloat({ min: 0 }).withMessage('Unit cost must be a non-negative number'),
+    body('discount').optional({ nullable: true }).isFloat({ min: 0 }).withMessage('Discount must be non-negative'),
+    body('charge_to_client').optional().isBoolean(),
+    body('client_charge_amount').optional({ nullable: true }).isFloat({ min: 0 }),
+    body('notes').optional().isString(),
+  ],
+  auditLog('update_case_inventory_cost', 'case_inventory_item'),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+    try {
+      if (!await ensureCaseAccessible(req.params.caseId, req.user)) {
+        return res.status(404).json({ error: 'Case not found' });
+      }
+
+      const { unit_cost, discount = 0, notes, charge_to_client, client_charge_amount } = req.body;
+
+      const ciiResult = await query(
+        `SELECT * FROM case_inventory_items WHERE id = $1 AND case_id = $2`,
+        [req.params.itemId, req.params.caseId]
+      );
+      if (!ciiResult.rows.length) return res.status(404).json({ error: 'Item not found in case' });
+
+      const cii = ciiResult.rows[0];
+      const newUnitCost = parseFloat(unit_cost);
+      const discountAmt = parseFloat(discount || 0);
+      const newTotalCost = Math.max(0, (cii.qty_allocated * newUnitCost) - discountAmt);
+
+      // Resolve whether client charge is changing
+      const prevChargeToClient = cii.charge_to_client || false;
+      const prevClientCharge = parseFloat(cii.client_charge_amount || 0);
+      const newChargeToClient = charge_to_client !== undefined ? charge_to_client : prevChargeToClient;
+      const newClientCharge = newChargeToClient
+        ? (client_charge_amount !== undefined ? parseFloat(client_charge_amount) : newTotalCost)
+        : 0;
+      // Delta to apply to pending_amount (can be negative if charge is reduced/removed)
+      const pendingDelta = newClientCharge - (prevChargeToClient ? prevClientCharge : 0);
+
+      const result = await transaction(async client => {
+        // Update the inventory item record
+        // total_allocated_cost is a generated column (qty_allocated * unit_cost), do not set it directly
+        const updated = await client.query(
+          `UPDATE case_inventory_items
+           SET unit_cost = $1, discount_amount = $2,
+               charge_to_client = $3, client_charge_amount = $4,
+               notes = COALESCE($5, notes), updated_by = $6, updated_at = NOW()
+           WHERE id = $7 AND case_id = $8
+           RETURNING *`,
+          [newUnitCost, discountAmt, newChargeToClient, newClientCharge,
+           notes || null, req.user.id, req.params.itemId, req.params.caseId]
+        );
+
+        // Update the linked case_expense if this is a CONSUMED item
+        if (cii.usage_type === 'CONSUMED') {
+          const existingExp = await client.query(
+            `SELECT id FROM case_expenses WHERE case_id = $1 AND reference_id = $2 AND reference_type = 'case_inventory_item'`,
+            [req.params.caseId, req.params.itemId]
+          );
+          if (existingExp.rows.length) {
+            await client.query(
+              `UPDATE case_expenses SET amount = $1 WHERE id = $2`,
+              [newTotalCost, existingExp.rows[0].id]
+            );
+          } else {
+            const itemData = await client.query('SELECT name, sku FROM inventory_items WHERE id = $1', [cii.inventory_item_id]);
+            const item = itemData.rows[0] || {};
+            await client.query(
+              `INSERT INTO case_expenses (case_id, expense_type, amount, description, reference_id, reference_type, recorded_by)
+               VALUES ($1, 'inventory', $2, $3, $4, 'case_inventory_item', $5)`,
+              [req.params.caseId, newTotalCost,
+               `${item.name || 'Item'} (${item.sku || ''}) - ${cii.qty_allocated} qty @ ₹${newUnitCost}${discountAmt > 0 ? ` - ₹${discountAmt} discount` : ''}`,
+               req.params.itemId, req.user.id]
+            );
+          }
+        }
+
+        // Adjust the quotation total by the delta so pending_amount (quotation - paid) is correct
+        if (pendingDelta !== 0) {
+          const quotResult = await client.query(
+            `SELECT id, total_amount FROM quotations WHERE case_id = $1 ORDER BY created_at DESC LIMIT 1`,
+            [req.params.caseId]
+          );
+          if (quotResult.rows.length) {
+            const newTotal = Math.max(0, parseFloat(quotResult.rows[0].total_amount || 0) + pendingDelta);
+            await client.query(
+              `UPDATE quotations SET total_amount = $1, updated_at = NOW() WHERE id = $2`,
+              [newTotal, quotResult.rows[0].id]
+            );
+          } else if (pendingDelta > 0) {
+            // No quotation — create one for the charge amount
+            await client.query(
+              `INSERT INTO quotations (case_id, estimated_cost, total_amount, approved_by_client, created_by)
+               VALUES ($1, $2, $2, true, $3)`,
+              [req.params.caseId, pendingDelta, req.user.id]
+            );
+          }
+        }
+
+        return updated.rows[0];
+      });
+
+      res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
