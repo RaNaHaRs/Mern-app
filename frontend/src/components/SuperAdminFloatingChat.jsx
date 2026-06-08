@@ -67,35 +67,51 @@ export default function SuperAdminFloatingChat() {
     fetch('/api/chat/contacts', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((data) => {
-        if (data.users) setContacts(data.users || []);
+        if (data.users) {
+          setContacts((data.users || []).filter((u) => u.role === 'admin' || u.role === 'super_admin'));
+        }
         if (data.conversations) {
-          const loadedChats = (data.conversations || []).map((conv) => ({
-            id: `conv-${conv.participant.id}`,
-            participantId: conv.participant.id,
-            name: conv.participant.full_name || conv.participant.username,
-            role: conv.participant.role,
-            avatar: initials(conv.participant.full_name || conv.participant.username),
-            avatarBg: conv.participant.role === 'admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)',
-            lastMessage: conv.lastMessage ? (conv.lastMessage.text || (conv.lastMessage.filePath ? 'Attachment' : '')) : '',
-            time: conv.lastMessage && conv.lastMessage.created_at ? new Date(conv.lastMessage.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
-            unread: Number(conv.unread_count || 0),
-            tab: (conv.participant.role === 'admin' || conv.participant.role === 'super_admin') ? 'focused' : 'other',
-            room: conv.room,
-            messages: [],
-          }));
+          const loadedChats = (data.conversations || [])
+            .filter((conv) => conv.participant.role === 'admin' || conv.participant.role === 'super_admin')
+            .map((conv) => {
+              const role = conv.participant.role;
+              const avatarBg = role === 'super_admin'
+                ? 'linear-gradient(135deg, #d946ef, #8b5cf6)'
+                : 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
+              return {
+                id: `conv-${conv.participant.id}`,
+                participantId: conv.participant.id,
+                name: conv.participant.full_name || conv.participant.username,
+                role,
+                avatar: initials(conv.participant.full_name || conv.participant.username),
+                avatarBg,
+                lastMessage: conv.lastMessage ? (conv.lastMessage.text || (conv.lastMessage.filePath ? 'Attachment' : '')) : '',
+                time: conv.lastMessage && conv.lastMessage.created_at ? new Date(conv.lastMessage.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
+                unread: Number(conv.unread_count || 0),
+                tab: role === 'admin' ? 'focused' : 'super',
+                room: conv.room,
+                messages: [],
+              };
+            });
           setChats(loadedChats);
         }
       })
       .catch(() => {});
 
-    // Establish socket connection (uses Vite dev server proxy or direct url fallback)
-    const backendUrl = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:5001`;
-    const s = io(backendUrl, { auth: { token } });
+    // Establish socket connection using window.location.origin (goes through Vite proxy)
+    const backendUrl = window.location.origin;
+    const s = io(backendUrl, {
+      auth: { token },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
+      transports: ['websocket', 'polling'],
+    });
     setSocket(s);
 
     s.on('connect', () => {
       setConnected(true);
-      // Join active room if there is one already selected
       const activeChat = chatsRef.current.find((c) => c.id === selectedChatIdRef.current);
       if (activeChat?.room) s.emit('joinRoom', activeChat.room);
     });
@@ -104,15 +120,23 @@ export default function SuperAdminFloatingChat() {
       setConnected(false);
     });
 
+    s.on('connect_error', (err) => {
+      console.error('SA Socket connection error', err);
+    });
+
     s.on('onlineUsers', (users) => {
       setOnlineUsers(Array.isArray(users) ? users.map(String) : []);
     });
 
     s.on('newMessage', (msg) => {
+      if (!msg || !msg.room) return;
       const currentUserId = currentUserRef.current?.id;
+      if (!currentUserId) return;
       const recipientId = msg.recipient_id || msg.recipientId;
-      const otherId = String(msg.sender_id) === String(currentUserId) ? String(recipientId) : String(msg.sender_id);
-      if (!otherId || otherId === 'undefined') return;
+      const otherId = String(msg.sender_id) === String(currentUserId)
+        ? String(recipientId)
+        : String(msg.sender_id);
+      if (!otherId || otherId === 'undefined' || otherId === 'null') return;
 
       setChats((prev) => {
         const existing = prev.find((c) => c.room === msg.room);
@@ -120,10 +144,14 @@ export default function SuperAdminFloatingChat() {
         const formattedMsg = {
           id: msg.id,
           sender: isOwn ? 'me' : 'them',
+          sender_id: msg.sender_id,
           text: msg.text || '',
           time: new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
           filePath: msg.filePath,
+          fileName: msg.fileName,
           mimeType: msg.mimeType,
+          seen: !!msg.seen_at || !!msg.read_at,
+          created_at: msg.created_at,
         };
 
         if (existing) {
@@ -140,7 +168,6 @@ export default function SuperAdminFloatingChat() {
               : c
           );
         } else {
-          // If the conversation is brand new, resolve contact info from list
           const contact = contactsRef.current.find((u) => String(u.id) === String(otherId));
           if (!contact) return prev;
 
@@ -177,10 +204,10 @@ export default function SuperAdminFloatingChat() {
       );
     });
 
-    s.on('typing', (name) => {
+    s.on('typing', ({ userName }) => {
       const activeChat = chatsRef.current.find((c) => c.id === selectedChatIdRef.current);
       if (!activeChat) return;
-      setTypingUser(name);
+      setTypingUser(userName);
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       typingTimerRef.current = setTimeout(() => {
         setTypingUser(null);
@@ -191,6 +218,48 @@ export default function SuperAdminFloatingChat() {
       s.disconnect();
     };
   }, []);
+
+  // Auto-select most recent conversation once chats are loaded
+  useEffect(() => {
+    if (!selectedChatId && chats.length > 0 && currentUser && socket?.connected) {
+      const first = chats[0];
+      if (first && first.participantId && first.room) {
+        const id = first.id;
+        setSelectedChatId(id);
+        setChats(prev => prev.map(c => c.id === id ? { ...c, unread: 0 } : c));
+        socket.emit('joinRoom', first.room);
+        socket.emit('markSeen', { room: first.room });
+        const token = localStorage.getItem('accessToken');
+        setLoadingMessages(true);
+        fetch(`/api/chat/conversations/${first.participantId}/messages?limit=200`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (Array.isArray(data.messages)) {
+              setChats(prev => prev.map(pc =>
+                pc.id === id
+                  ? {
+                      ...pc,
+                      messages: data.messages.map(m => ({
+                        id: m.id,
+                        sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
+                        text: m.text || '',
+                        time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                        filePath: m.filePath,
+                        mimeType: m.mimeType,
+                        seen: !!m.seen_at,
+                      }))
+                    }
+                  : pc
+              ));
+            }
+          })
+          .catch(() => {})
+          .finally(() => setLoadingMessages(false));
+      }
+    }
+  }, [chats, currentUser, socket?.connected]);
 
   const attachmentUrl = (message) => {
     const token = localStorage.getItem('accessToken');
@@ -332,13 +401,13 @@ export default function SuperAdminFloatingChat() {
   const filteredContacts = useMemo(() => {
     return contacts.filter((c) => {
       if (currentUser && String(c.id) === String(currentUser.id)) return false;
-      if (c.role !== 'admin') return false; // STRICTLY ONLY Admins!
       const q = searchQuery.trim().toLowerCase();
-      const matchesSearch =
-        (c.full_name || c.username || '').toLowerCase().includes(q);
+      const matchesSearch = (c.full_name || c.username || '').toLowerCase().includes(q);
       
-      const matchesTab = activeTab === 'focused';
-      return matchesSearch && matchesTab;
+      if (activeTab === 'focused') {
+        return c.role === 'admin' && matchesSearch;
+      }
+      return c.role === 'super_admin' && matchesSearch;
     });
   }, [contacts, currentUser, searchQuery, activeTab]);
 
@@ -486,10 +555,10 @@ export default function SuperAdminFloatingChat() {
                 Admins
               </button>
               <button 
-                className={`chat-tab-btn ${activeTab === 'other' ? 'active' : ''}`}
-                onClick={() => setActiveTab('other')}
+                className={`chat-tab-btn ${activeTab === 'super' ? 'active' : ''}`}
+                onClick={() => setActiveTab('super')}
               >
-                Staff
+                Super Admins
               </button>
             </div>
 
@@ -521,6 +590,26 @@ export default function SuperAdminFloatingChat() {
                             display: 'inline-block'
                           }} />
                         )}
+                        {conversation?.unread > 0 && (
+                          <span style={{
+                            position: 'absolute', top: -4,
+                            right: -4,
+                            minWidth: 18,
+                            height: 18,
+                            borderRadius: 999,
+                            background: '#ef4444',
+                            color: '#ffffff',
+                            fontSize: 10,
+                            fontWeight: 700,
+                            lineHeight: '18px',
+                            textAlign: 'center',
+                            padding: '0 4px',
+                            border: '2px solid var(--bg-card)',
+                            boxSizing: 'border-box',
+                          }}>
+                            {conversation.unread > 9 ? '9+' : conversation.unread}
+                          </span>
+                        )}
                       </div>
                       <div className="chat-item-mid">
                         <div className="chat-item-row-top" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -530,13 +619,13 @@ export default function SuperAdminFloatingChat() {
                             fontWeight: '700',
                             padding: '1px 5px',
                             borderRadius: '3px',
-                            background: 'rgba(139, 92, 246, 0.25)',
-                            color: '#a78bfa',
-                            border: '1px solid rgba(139, 92, 246, 0.4)',
+                            background: user.role === 'super_admin' ? 'rgba(217, 70, 239, 0.18)' : user.role === 'admin' ? 'rgba(139, 92, 246, 0.25)' : 'rgba(14, 165, 233, 0.18)',
+                            color: user.role === 'super_admin' ? '#d946ef' : user.role === 'admin' ? '#a78bfa' : '#38bdf8',
+                            border: user.role === 'super_admin' ? '1px solid rgba(217, 70, 239, 0.35)' : user.role === 'admin' ? '1px solid rgba(139, 92, 246, 0.4)' : '1px solid rgba(14, 165, 233, 0.35)',
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px',
                             display: 'inline-block'
-                          }}>Admin</span>
+                          }}>{(user.role || '').replace(/_/g, ' ').toUpperCase()}</span>
                           <span className="chat-item-time" style={{ marginLeft: 'auto', flexShrink: 0 }}>{conversation?.time || (isOnline ? 'online' : '')}</span>
                         </div>
                         <div className="chat-item-row-bottom">

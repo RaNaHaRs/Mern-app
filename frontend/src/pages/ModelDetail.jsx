@@ -142,7 +142,7 @@ export default function ModelDetail() {
                 <div className="card-title" style={{ marginBottom: 12 }}>⚠️ Common Failures</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {model.common_failures.map((f, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'rgba(239,68,68,0.05)', borderRadius: 'var(--radius-sm)', borderLeft: '2px solid var(--status-danger)' }}>
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
                       <span style={{ color: 'var(--status-danger)', fontSize: 12 }}>▸</span>
                       <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{f}</span>
                     </div>
@@ -235,13 +235,13 @@ export default function ModelDetail() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {model.do_notes && (
-                    <div style={{ padding: '10px 12px', background: 'rgba(16,185,129,0.06)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--status-success)' }}>
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
                       <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--status-success)', marginBottom: 4, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>✓ DO</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{model.do_notes}</div>
                     </div>
                   )}
                   {model.dont_notes && (
-                    <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.06)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--status-danger)' }}>
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
                       <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--status-danger)', marginBottom: 4, fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>✗ DON'T</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{model.dont_notes}</div>
                     </div>

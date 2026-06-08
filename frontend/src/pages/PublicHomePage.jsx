@@ -157,6 +157,30 @@ export default function PublicHomePage() {
       .catch(() => {});
   }, []);
 
+  // Listen for live updates from Super Admin console (local edits)
+  useEffect(() => {
+    const onHomepage = (ev) => {
+      const h = ev.detail || {};
+      setCmsData(c => ({ ...c, ...h }));
+    };
+    const onSeo = (ev) => {
+      const s = ev.detail || {};
+      setCmsData(c => ({ ...c, seo: { ...c.seo, ...s } }));
+      try { if (s.site_title || s.meta_title) document.title = s.site_title || s.meta_title; } catch (e) {}
+      try {
+        if (s.meta_description) {
+          let el = document.querySelector("meta[name='description']"); if (!el) { el = document.createElement('meta'); el.name = 'description'; document.head.appendChild(el); } el.content = s.meta_description;
+        }
+        if (s.meta_keywords) {
+          let el = document.querySelector("meta[name='keywords']"); if (!el) { el = document.createElement('meta'); el.name = 'keywords'; document.head.appendChild(el); } el.content = s.meta_keywords;
+        }
+      } catch (e) {}
+    };
+    window.addEventListener('sa_homepage_update', onHomepage);
+    window.addEventListener('sa_seo_update', onSeo);
+    return () => { window.removeEventListener('sa_homepage_update', onHomepage); window.removeEventListener('sa_seo_update', onSeo); };
+  }, []);
+
   useEffect(() => {
     const h = () => setNavSolid(window.scrollY > 60);
     window.addEventListener('scroll', h, { passive: true });

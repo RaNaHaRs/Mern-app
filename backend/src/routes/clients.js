@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { query } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const automationService = require('../services/automationService');
 const { isSuperAdmin, tenantClientCondition, tenantAdminId, verifyClientAccess, syncInvoiceFromCasePayment } = require('../utils/tenantAccess');
 
 const router = express.Router();
@@ -130,6 +131,19 @@ router.post('/',
           is_corporate||false, is_vip||false, req.user.id
         ]
       );
+
+      // Emit CLIENT_CREATED event for automation triggers
+      try {
+        await automationService.handleEvent('CLIENT_CREATED', {
+          client_id: result.rows[0].id,
+          name: `${first_name} ${last_name}`,
+          email: email || '',
+          company: company || '',
+          phone: phone
+        });
+      } catch (eventErr) {
+        console.warn('CLIENT_CREATED event emission failed:', eventErr.message);
+      }
 
       res.status(201).json(result.rows[0]);
     } catch (err) {

@@ -839,20 +839,46 @@ router.get('/google-drive/auth-url', requireMinRole('admin'), async (req, res) =
     return res.json({ ok: false, setup_required: true, message: 'Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to backend .env to enable Google Drive backup.' });
   }
   const appUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5174';
-  const redirectUri = `${appUrl.replace(/\/+$/, '')}/settings`;
+  const redirectUri = `${appUrl.replace(/\/+$/, '')}/security`;
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&access_type=offline&prompt=consent`;
   res.json({ ok: true, auth_url: authUrl, redirect_uri: redirectUri });
 });
 
 router.get('/google-drive/list', requireMinRole('admin'), async (req, res) => {
-  res.json({ ok: true, files: [], demo: true, message: 'Configure Google OAuth credentials to enable Drive backup listing.' });
+  try {
+    const tokens = await loadPlatformSetting('google_oauth_tokens');
+    let files = [];
+
+    // List local backup files
+    try {
+      const localFiles = fs.readdirSync(BACKUP_DIR)
+        .filter(f => f.endsWith(BACKUP_EXTENSION))
+        .sort()
+        .reverse()
+        .slice(0, 50)
+        .map(f => {
+          const stat = fs.statSync(path.join(BACKUP_DIR, f));
+          return { id: `local_${f}`, name: f, size: `${(stat.size / 1024).toFixed(1)} KB`, modified: stat.mtime.toISOString(), source: 'local' };
+        });
+      files = localFiles;
+    } catch(e) {}
+
+    if (tokens) {
+      // Could also fetch from Google Drive API here if needed
+      res.json({ ok: true, files, configured: true, message: 'Google Drive configured. Showing local backups.' });
+    } else {
+      res.json({ ok: true, files, configured: false, message: 'Local backups available. Configure GOOGLE_CLIENT_ID in .env to enable real Drive sync.' });
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Exchange authorization code (from frontend) for tokens and store them
 router.post('/google-drive/exchange', requireMinRole('admin'), async (req, res) => {
   try {
     const code = req.body.code;
-    const redirectUri = req.body.redirect_uri || `${(process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5174').replace(/\/+$/, '')}/settings`;
+    const redirectUri = req.body.redirect_uri || `${(process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5174').replace(/\/+$/, '')}/security`;
     if (!code) return res.status(400).json({ error: 'Missing code' });
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -883,15 +909,18 @@ router.get('/google-drive/status', requireMinRole('admin'), async (req, res) => 
   }
 });
 
-// Create backup and upload to configured Google Drive (requires tokens)
+// Create backup and upload to Google Drive (requires tokens)
 router.post('/create-drive', requireMinRole('admin'), auditLog('create_drive_backup', 'backup'), async (req, res) => {
   try {
+    const tokens = await loadPlatformSetting('google_oauth_tokens');
+    if (!tokens) return res.status(400).json({ error: 'Google Drive not connected. Click "Connect Google Drive" first.' });
+
     const include_images = req.body.include_images !== false;
     const backupData = await buildBackupData(req, include_images, true);
     const fileName = getBackupFileName({ tenantId: backupData.tenant_id, createdBy: req.user.id, label: req.body.name || 'Drive_Backup' });
     const filePath = await storeBackupFile(fileName, backupData);
     const driveResp = await uploadFileToGoogleDrive(filePath, fileName);
-    res.json({ ok: true, message: 'Uploaded to Drive', driveFile: driveResp });
+    res.json({ ok: true, message: 'Uploaded to Google Drive', driveFile: driveResp, source: 'drive' });
   } catch (err) {
     console.error('Drive upload failed', err.message);
     res.status(500).json({ error: err.message });

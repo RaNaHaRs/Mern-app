@@ -2,6 +2,7 @@ const express = require('express');
 const { query, transaction } = require('../config/database');
 const { authenticate, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const automationService = require('../services/automationService');
 const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
 const { loadCompanySettings } = require('./settings');
 const { formatNumberSequence, getCompanyNumberFormat, getCompanyNumberStart } = require('../utils/numberFormatting');
@@ -106,7 +107,7 @@ router.get('/summary', async (req, res) => {
       query(`SELECT
         COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) AS total_paid,
         COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'pending'), 0) AS total_pending,
-        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid' AND p.paid_at >= NOW() - INTERVAL '30 days'), 0) AS revenue_month
+        COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid' AND p.paid_at >= DATE_TRUNC('month', NOW())), 0) AS revenue_month
         FROM payments p
         JOIN cases c ON p.case_id = c.id
         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}`,
@@ -466,6 +467,20 @@ router.post('/invoices', requireMinRole('staff'), auditLog('create_invoice', 'ac
       }
     }
 
+    try {
+      await automationService.handleEvent('INVOICE_CREATED', {
+        invoice_id: result.rows[0].id,
+        invoice_number: result.rows[0].invoice_number,
+        title: result.rows[0].title,
+        company: result.rows[0].company || '',
+        amount: result.rows[0].total,
+        case_number: result.rows[0].case_number || '',
+        client_name: result.rows[0].client_name || ''
+      });
+    } catch (eventErr) {
+      console.warn('INVOICE_CREATED event emission failed:', eventErr.message);
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -581,6 +596,20 @@ router.post('/invoices/:id/payments', requireMinRole('staff'), auditLog('record_
       return { newPaid, newStatus, newTotal };
     });
 
+    try {
+      const invoice = inv.rows[0];
+      await automationService.handleEvent('PAYMENT_RECEIVED', {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        case_id: invoice.case_id,
+        case_number: invoice.case_number || '',
+        amount: parseFloat(amount),
+        payment_method: method || 'Invoice Payment',
+        note: note || ''
+      });
+    } catch (eventErr) {
+      console.warn('PAYMENT_RECEIVED event emission failed:', eventErr.message);
+    }
     res.json({ message: 'Payment recorded', amount_paid: result.newPaid, status: result.newStatus });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

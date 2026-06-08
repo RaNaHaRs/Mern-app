@@ -90,10 +90,30 @@ export const PERMISSION_MODULES = [
   },
 ];
 
+export const STAFF_PERMISSION_MODULES = [
+  { key: 'dashboard', label: 'Dashboard', icon: '📊', actions: ['view'] },
+  { key: 'tenants', label: 'Subscribers', icon: '👥', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'purchases', label: 'Purchases', icon: '💳', actions: ['view', 'export'] },
+  { key: 'plans', label: 'Plans & Pricing', icon: '🧾', actions: ['view', 'edit'] },
+  { key: 'coupons', label: 'Coupons', icon: '🎟️', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'invoices', label: 'Invoices', icon: '🧾', actions: ['view', 'export'] },
+  { key: 'branding', label: 'Branding', icon: '🎨', actions: ['view', 'edit'] },
+  { key: 'seo', label: 'SEO Settings', icon: '🔎', actions: ['view', 'edit'] },
+  { key: 'homepage', label: 'Homepage', icon: '🏠', actions: ['view', 'edit'] },
+  { key: 'accounts', label: 'SA Accounts', icon: '👤', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'activity_logs', label: 'Activity Logs', icon: '📝', actions: ['view', 'export'] },
+  { key: 'platform', label: 'Platform', icon: '⚙️', actions: ['view', 'edit'] },
+  { key: 'email_delivery', label: 'Email Deliverability', icon: '✉️', actions: ['view', 'edit'] },
+  { key: 'staff', label: 'Staff', icon: '👥', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'roles', label: 'Roles', icon: '🔐', actions: ['view', 'create', 'edit', 'delete'] },
+  { key: 'security', label: 'Security & Backup', icon: '🛡️', actions: ['view', 'edit'] },
+  { key: 'settings', label: 'Settings', icon: '⚙️', actions: ['view', 'edit'] },
+];
+
 // Default full-access permissions (for admin role)
-export function buildFullPermissions() {
+export function buildFullPermissions(modules = PERMISSION_MODULES) {
   const perms = {};
-  PERMISSION_MODULES.forEach(m => {
+  modules.forEach(m => {
     perms[m.key] = {};
     m.actions.forEach(a => { perms[m.key][a] = true; });
   });
@@ -101,9 +121,9 @@ export function buildFullPermissions() {
 }
 
 // Build empty permissions object (all false)
-export function buildEmptyPermissions() {
+export function buildEmptyPermissions(modules = PERMISSION_MODULES) {
   const perms = {};
-  PERMISSION_MODULES.forEach(m => {
+  modules.forEach(m => {
     perms[m.key] = {};
     m.actions.forEach(a => { perms[m.key][a] = false; });
   });
@@ -113,21 +133,42 @@ export function buildEmptyPermissions() {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [sessionWarning, setSessionWarning] = useState(false); // 5-min warning
+  const [sessionWarning, setSessionWarning] = useState(false);
+  const [impersonating, setImpersonating] = useState(false);
   const lastActivityRef = useRef(Date.now());
   const intervalRef = useRef(null);
 
+  const checkImpersonation = useCallback(() => {
+    const overrideToken = sessionStorage.getItem('accessTokenOverride');
+    if (!overrideToken) {
+      setImpersonating(false);
+      return;
+    }
+    try {
+      const payload = JSON.parse(atob(overrideToken.split('.')[1]));
+      setImpersonating(!!payload.impersonated_by);
+    } catch {
+      setImpersonating(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    const token = sessionStorage.getItem('accessTokenOverride') || localStorage.getItem('accessToken');
     if (token) {
       authApi.me()
-        .then(u => setUser(u))
-        .catch(() => { localStorage.clear(); })
+        .then(u => {
+          setUser(u);
+          checkImpersonation();
+        })
+        .catch(() => {
+          localStorage.clear();
+          sessionStorage.removeItem('accessTokenOverride');
+        })
         .finally(() => setLoading(false));
     } else {
       setLoading(false);
     }
-  }, []);
+  }, [checkImpersonation]);
 
   const login = async (credentials) => {
     const data = await authApi.login(credentials);
@@ -146,9 +187,18 @@ export function AuthProvider({ children }) {
     const refreshToken = localStorage.getItem('refreshToken');
     try { await authApi.logout(refreshToken); } catch {}
     localStorage.clear();
+    sessionStorage.removeItem('accessTokenOverride');
     if (reason === 'inactivity') localStorage.setItem('logout_reason', 'inactivity');
     setUser(null);
     setSessionWarning(false);
+    setImpersonating(false);
+  }, []);
+
+  const exitImpersonation = useCallback(() => {
+    sessionStorage.removeItem('accessTokenOverride');
+    setUser(null);
+    setImpersonating(false);
+    window.location.href = '/';
   }, []);
 
   const resetActivity = useCallback(() => {
@@ -227,6 +277,8 @@ export function AuthProvider({ children }) {
   const isOwner = user?.role === 'admin';
   // isAdmin — isOwner OR isSuperAdmin (broad admin gate)
   const isAdmin = isOwner || isSuperAdmin;
+  // isPlatformStaff — staff accounts that are platform-scoped (no tenant)
+  const isPlatformStaff = user && ['staff','junior_engineer','senior_engineer'].includes(user.role) && !user.tenantId;
   const tenantId = user?.tenantId || user?.tenant_id || user?.id;
 
   return (
@@ -234,8 +286,10 @@ export function AuthProvider({ children }) {
       user, loading, login, logout, setLoggedIn,
       canAccess, hasPermission,
       isSuperAdmin, isOwner, isAdmin, tenantId,
+      isPlatformStaff,
       sessionWarning, resetActivity,
-      PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions,
+      impersonating, exitImpersonation,
+      PERMISSION_MODULES, STAFF_PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions,
     }}>
       {children}
     </AuthContext.Provider>

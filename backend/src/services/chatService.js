@@ -78,7 +78,8 @@ async function ensureChatTables() {
 ensureChatTables();
 
 function normalizeUserId(userId) {
-  return String(userId || '').trim();
+  if (userId === null || userId === undefined) return '';
+  return String(userId).trim();
 }
 
 function normalizeConversationName(userA, userB) {
@@ -88,7 +89,14 @@ function normalizeConversationName(userA, userB) {
 
 function effectiveTenantId(user) {
   if (!user || user.role === 'super_admin') return null;
+  if (['staff', 'junior_engineer', 'senior_engineer'].includes(user.role) && !user.tenant_id && !user.tenant_owner_id) {
+    return null;
+  }
   return user.tenant_id || user.tenant_owner_id || user.id || null;
+}
+
+function isPlatformStaff(user) {
+  return !!user && ['staff', 'junior_engineer', 'senior_engineer'].includes(user.role) && !user.tenant_id && !user.tenant_owner_id;
 }
 
 function participantIdsFromRoom(room) {
@@ -107,8 +115,8 @@ function mapMessageRow(row, viewerId = null) {
     recipient_id: row.recipient_id,
     sender_name: row.sender_name,
     sender_role: row.sender_role,
-    text: row.text || row.content,
-    type: row.type,
+    text: row.text || row.content || '',
+    type: row.type || 'text',
     filePath: row.attachment_path ? toAttachmentUrl(row.id) : null,
     fileName: row.attachment_path ? path.basename(row.attachment_path) : null,
     mimeType: row.mime_type || null,
@@ -143,6 +151,11 @@ async function canUsersChat(userAId, userBId) {
     return true;
   }
 
+  const aPlatformStaff = isPlatformStaff(userA);
+  const bPlatformStaff = isPlatformStaff(userB);
+  if (aPlatformStaff && bPlatformStaff) return true;
+  if (aPlatformStaff || bPlatformStaff) return false;
+
   return effectiveTenantId(userA) && effectiveTenantId(userA) === effectiveTenantId(userB);
 }
 
@@ -158,8 +171,29 @@ async function getAllowedChatUsers(userId) {
        FROM users
        WHERE is_active = true
          AND id::text <> $1
-         AND role = 'admin'
-       ORDER BY full_name ASC`,
+         AND (
+           role = 'super_admin'
+           OR role = 'admin'
+           OR (role IN ('staff', 'junior_engineer', 'senior_engineer') AND tenant_id IS NULL AND tenant_owner_id IS NULL)
+         )
+       ORDER BY role = 'super_admin' DESC, role = 'admin' DESC, full_name ASC`,
+      [meId]
+    );
+    return res.rows;
+  }
+
+  if (isPlatformStaff(me)) {
+    const res = await query(
+      `SELECT id::text AS id, full_name, username, role, tenant_id::text AS tenant_id,
+              tenant_owner_id::text AS tenant_owner_id
+       FROM users
+       WHERE is_active = true
+         AND id::text <> $1
+         AND (
+           role = 'super_admin'
+           OR (role IN ('staff', 'junior_engineer', 'senior_engineer') AND tenant_id IS NULL AND tenant_owner_id IS NULL)
+         )
+       ORDER BY role = 'super_admin' DESC, full_name ASC`,
       [meId]
     );
     return res.rows;
@@ -311,7 +345,10 @@ async function createMessage({ senderId, recipientId, room, text = null, type = 
     }
   } catch (_) {}
   row.room = resolvedRoom;
-  return mapMessageRow(row);
+  row.recipient_id = normalizeUserId(resolvedRecipientId);
+  const mapped = mapMessageRow(row);
+  mapped.room = resolvedRoom;
+  return mapped;
 }
 
 async function getMessages(room, viewerUserId, page = 1, limit = 50) {
@@ -351,16 +388,35 @@ async function getMessagesBetweenUsers(viewerUserId, otherUserId, page = 1, limi
 async function markMessagesSeen(room, viewerUserId) {
   const conversation = await assertConversationAccess(room, viewerUserId);
   if (!conversation) return 0;
-  const res = await query(
+  const viewer = normalizeUserId(viewerUserId);
+  const unreadRes = await query(
+    `SELECT id FROM chat_messages
+     WHERE conversation_id = $1
+       AND sender_id <> $2
+       AND seen_at IS NULL`,
+    [conversation.id, viewer]
+  );
+  if (unreadRes.rowCount === 0) return 0;
+  const { rows } = await query(
     `UPDATE chat_messages
      SET seen_at = NOW()
      WHERE conversation_id = $1
        AND sender_id <> $2
        AND seen_at IS NULL
      RETURNING id`,
-    [conversation.id, normalizeUserId(viewerUserId)]
+    [conversation.id, viewer]
   );
-  return res.rowCount;
+  for (const row of rows) {
+    try {
+      await query(
+        `INSERT INTO chat_message_reads (message_id, reader_id, read_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (message_id, reader_id) DO NOTHING`,
+        [row.id, viewer]
+      );
+    } catch (_) {}
+  }
+  return rows.length;
 }
 
 async function markMessagesDelivered(room, viewerUserId) {
@@ -401,7 +457,11 @@ async function getRecentConversationsForUser(userId) {
           WHERE cm2.conversation_id = cc.id
             AND cm2.recipient_id = $1
             AND cm2.sender_id <> $1
-            AND cm2.seen_at IS NULL),
+            AND cm2.seen_at IS NULL
+            AND cm2.id NOT IN (
+              SELECT cmr.message_id FROM chat_message_reads cmr
+              WHERE cmr.reader_id = $1
+            )),
          0
        ) AS unread_count
      FROM chat_conversations cc

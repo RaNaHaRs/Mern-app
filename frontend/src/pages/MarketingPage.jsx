@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../store/AuthContext';
+import { marketingApi, clientsApi } from '../services/api';
 
 //  Storage helpers 
 const ls = {
@@ -684,10 +685,30 @@ function CampaignWizard({ onClose, onDone }) {
     audience_ids: [], scheduled_at: '', status: 'draft',
     personalize: true,
   });
+  const [audience, setAudience] = useState([]);
+  const [loadingAudience, setLoadingAudience] = useState(true);
   const emailTemplates = ls.get('crm_email_templates', DEFAULT_EMAIL_TEMPLATES);
   const waTemplates    = ls.get('crm_wa_templates', DEFAULT_WA_TEMPLATES);
   const smsTemplates   = ls.get('crm_sms_templates', DEFAULT_SMS_TEMPLATES);
-  const audience       = getSampleAudience();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await clientsApi.list({ limit: 1000 });
+        setAudience((r.clients || []).map(c => ({
+          id: c.id,
+          name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.company || 'Client',
+          email: c.email || '',
+          phone: c.phone || '',
+          company: c.company || '',
+        })));
+      } catch (e) {
+        console.error('Failed to load clients for campaign:', e);
+      } finally {
+        setLoadingAudience(false);
+      }
+    })();
+  }, []);
 
   const templates = form.channel === 'email' ? emailTemplates : form.channel === 'whatsapp' ? waTemplates : smsTemplates;
   const selectedTpl = templates.find(t => t.id === form.template_id);
@@ -697,10 +718,21 @@ function CampaignWizard({ onClose, onDone }) {
     if (form.audience_filter === 'phone') return !!a.phone;
     return true;
   });
+  const selectedCount = form.audience_ids.length > 0
+    ? filteredAudience.filter(a => form.audience_ids.includes(a.id)).length
+    : filteredAudience.length;
 
   const CHANNEL_ICONS = { email: '', whatsapp: '', sms: '', multi: '' };
 
-  const handleLaunch = () => {
+  const toggleClient = (id) => {
+    setForm(f => ({
+      ...f,
+      audience_ids: f.audience_ids.includes(id)
+        ? f.audience_ids.filter(x => x !== id)
+        : [...f.audience_ids, id]
+    }));
+  };
+  const handleLaunch = async () => {
     if (!form.name.trim()) { alert('Campaign name is required.'); return; }
     if (!form.template_id) { alert('Please select a template.'); return; }
 
@@ -708,7 +740,7 @@ function CampaignWizard({ onClose, onDone }) {
     const campaign = {
       ...form,
       id: `camp_${Date.now()}`,
-      audience_count: filteredAudience.length,
+      audience_count: selectedCount,
       sent: 0,
       opened: 0,
       clicked: 0,
@@ -716,6 +748,7 @@ function CampaignWizard({ onClose, onDone }) {
       status: form.scheduled_at ? 'scheduled' : 'sent',
       createdAt: new Date().toISOString(),
       sentAt: form.scheduled_at || new Date().toISOString(),
+      audience_ids: form.audience_ids,
     };
     ls.set('crm_campaigns', [campaign, ...allCampaigns]);
 
@@ -724,6 +757,38 @@ function CampaignWizard({ onClose, onDone }) {
       const updated = emailTemplates.map(t => t.id === form.template_id ? { ...t, usageCount: (t.usageCount || 0) + 1 } : t);
       ls.set('crm_email_templates', updated);
     }
+
+    // Send email campaign via backend
+    if (form.channel === 'email' && selectedTpl) {
+      try {
+        // Create backend email template
+        const tplRes = await marketingApi.createEmailTemplate({
+          name: selectedTpl.name || form.name,
+          subject: selectedTpl.subject || form.name,
+          html_body: selectedTpl.html || selectedTpl.message_body || '',
+          category: selectedTpl.category || 'campaign',
+        });
+        // Create campaign with audience filter and selected IDs
+        const campRes = await marketingApi.createCampaign({
+          name: form.name,
+          type: 'email',
+          email_template_id: tplRes.id,
+          subject_line: selectedTpl.subject || form.name,
+          from_name: selectedTpl.from_name || 'RecoverLab CRM',
+          from_email: '',
+          audience_filter: JSON.stringify({ filter: form.audience_filter, client_ids: form.audience_ids }),
+        });
+        // Send
+        await marketingApi.sendCampaign(campRes.id);
+        campaign.status = 'sent';
+        ls.set('crm_campaigns', [campaign, ...ls.get('crm_campaigns', []).filter(c => c.id !== campaign.id)]);
+      } catch (e) {
+        console.error('Backend campaign send failed:', e);
+        campaign.status = 'failed';
+        ls.set('crm_campaigns', [campaign, ...ls.get('crm_campaigns', []).filter(c => c.id !== campaign.id)]);
+      }
+    }
+
     onDone();
     onClose();
   };
@@ -813,18 +878,20 @@ function CampaignWizard({ onClose, onDone }) {
           {/* Step 3: Audience */}
           {step === 3 && (
             <div>
-              <div style={{ display:'flex', gap:10, marginBottom:16 }}>
+              <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
                 {[['all', ' All Clients'], ['email', ' Has Email'], ['phone', ' Has Phone']].map(([val, lbl]) => (
-                  <button key={val} onClick={() => setForm(f => ({...f, audience_filter: val}))}
+                  <button key={val} onClick={() => { setForm(f => ({...f, audience_filter: val, audience_ids: []})); }}
                     style={{ padding:'8px 16px', borderRadius:8, border:`2px solid ${form.audience_filter === val ? 'var(--accent-primary)' : 'var(--border-subtle)'}`, background: form.audience_filter === val ? 'rgba(0,212,255,0.1)' : 'var(--bg-elevated)', color: form.audience_filter === val ? 'var(--accent-primary)' : 'var(--text-secondary)', cursor:'pointer', fontWeight: form.audience_filter === val ? 700 : 400, fontSize:'0.82rem' }}>
                     {lbl}
                   </button>
                 ))}
-                <div style={{ marginLeft:'auto', fontSize:'0.78rem', color:'var(--text-muted)', display:'flex', alignItems:'center' }}>
-                  <strong style={{ color:'var(--accent-primary)', marginRight:4 }}>{filteredAudience.length}</strong> recipients selected
+                <div style={{ marginLeft:'auto', fontSize:'0.78rem', color:'var(--text-muted)', display:'flex', alignItems:'center', gap:8 }}>
+                  <span>Selected: <strong style={{ color:'var(--accent-primary)' }}>{selectedCount}</strong> / {filteredAudience.length}</span>
                 </div>
               </div>
-              {filteredAudience.length === 0 ? (
+              {loadingAudience ? (
+                <div style={{ textAlign:'center', padding:40, color:'var(--text-muted)' }}>Loading clients...</div>
+              ) : filteredAudience.length === 0 ? (
                 <div style={{ textAlign:'center', padding:40, color:'var(--text-muted)', background:'var(--bg-elevated)', borderRadius:10 }}>
                   No clients found. Add clients first in the Clients section.
                 </div>
@@ -833,26 +900,35 @@ function CampaignWizard({ onClose, onDone }) {
                   <table style={{ width:'100%', borderCollapse:'collapse' }}>
                     <thead>
                       <tr style={{ background:'var(--bg-elevated)', position:'sticky', top:0 }}>
+                        <th style={{ width:40, padding:'8px 10px' }}>
+                          <input type="checkbox" checked={filteredAudience.every(a => form.audience_ids.includes(a.id))}
+                            onChange={() => {
+                              const allSelected = filteredAudience.every(a => form.audience_ids.includes(a.id));
+                              setForm(f => ({...f, audience_ids: allSelected ? [] : filteredAudience.map(a => a.id) }));
+                            }} />
+                        </th>
                         <th style={{ padding:'8px 14px', textAlign:'left', fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:700 }}>NAME</th>
                         <th style={{ padding:'8px 14px', textAlign:'left', fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:700 }}>EMAIL</th>
                         <th style={{ padding:'8px 14px', textAlign:'left', fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:700 }}>PHONE</th>
-                        <th style={{ padding:'8px 14px', textAlign:'left', fontSize:'0.72rem', color:'var(--text-muted)', fontWeight:700 }}>CASE</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredAudience.slice(0, 50).map((a, i) => (
-                        <tr key={a.id || i} style={{ borderTop:'1px solid var(--border-subtle)' }}>
+                      {filteredAudience.slice(0, 100).map((a, i) => (
+                        <tr key={a.id || i} style={{ borderTop:'1px solid var(--border-subtle)', cursor:'pointer' }}
+                          onClick={() => toggleClient(a.id)}>
+                          <td style={{ padding:'7px 10px', textAlign:'center' }}>
+                            <input type="checkbox" checked={form.audience_ids.includes(a.id)} readOnly />
+                          </td>
                           <td style={{ padding:'7px 14px', fontSize:'0.8rem', color:'var(--text-primary)', fontWeight:600 }}>{a.name}</td>
                           <td style={{ padding:'7px 14px', fontSize:'0.78rem', color:'var(--text-secondary)' }}>{a.email || '—'}</td>
                           <td style={{ padding:'7px 14px', fontSize:'0.78rem', color:'var(--text-secondary)' }}>{a.phone || '—'}</td>
-                          <td style={{ padding:'7px 14px', fontSize:'0.72rem', color:'var(--text-muted)', fontFamily:'monospace' }}>{a.case_id}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {filteredAudience.length > 50 && (
+                  {filteredAudience.length > 100 && (
                     <div style={{ padding:'8px 14px', textAlign:'center', fontSize:'0.72rem', color:'var(--text-muted)' }}>
-                      +{filteredAudience.length - 50} more recipients
+                      +{filteredAudience.length - 100} more
                     </div>
                   )}
                 </div>
@@ -868,7 +944,7 @@ function CampaignWizard({ onClose, onDone }) {
                   ['Campaign Name', form.name],
                   ['Channel', `${CHANNEL_ICONS[form.channel]} ${form.channel.charAt(0).toUpperCase() + form.channel.slice(1)}`],
                   ['Template', selectedTpl?.name || '—'],
-                  ['Recipients', filteredAudience.length],
+                  ['Recipients', selectedCount],
                   ['Schedule', form.scheduled_at ? new Date(form.scheduled_at).toLocaleString('en-IN') : 'Send Immediately'],
                   ['Personalization', form.personalize ? ' Enabled' : ' Disabled'],
                 ].map(([label, val]) => (
@@ -1098,9 +1174,7 @@ function StepNode({ step, index, emailTemplates, waTemplates, smsTemplates, onCh
       )}
 
       {/* Step card */}
-      <div style={{ background: 'var(--bg-elevated)', border: `2px solid ${stepType.color}40`, borderLeft: `4px solid ${stepType.color}`, borderRadius: 10, overflow: 'hidden', transition: 'all 0.15s' }}
-        onMouseEnter={e => e.currentTarget.style.borderColor = `${stepType.color}80`}
-        onMouseLeave={e => e.currentTarget.style.borderColor = `${stepType.color}40`}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 10, overflow: 'hidden', transition: 'all 0.15s' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }} onClick={() => setExpanded(e => !e)}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: `${stepType.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>{stepType.icon}</div>

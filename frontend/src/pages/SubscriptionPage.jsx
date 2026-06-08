@@ -5,32 +5,25 @@ import { useNavigate } from 'react-router-dom';
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
 
-// Load plans from SuperAdmin custom plans or use defaults
-const getPlans = () => {
-  try {
-    const custom = JSON.parse(localStorage.getItem('sa_custom_plans') || 'null');
-    if (custom && custom.length) return custom;
-  } catch {}
-  return [
-    { key: 'starter', label: 'Starter', price: 999, maxUsers: 2, color: '#64748b', features: ['1 Admin + 2 Staff', 'Up to 100 cases/month', 'Basic reports (CSV)', 'Knowledge Base', 'Email notifications', '5 GB storage'] },
-    { key: 'professional', label: 'Professional', price: 2499, maxUsers: 5, color: '#0284c7', badge: ' Popular', features: ['1 Admin + 5 Staff', 'Unlimited cases', 'Full reports (PDF)', 'Accounting module', 'WhatsApp integration', '50 GB storage', 'Priority support'] },
-    { key: 'business', label: 'Business', price: 4999, maxUsers: 15, color: '#8b5cf6', features: ['15 team members', 'Full analytics', '100 GB storage', 'API access', 'Dedicated support'] },
-    { key: 'enterprise', label: 'Enterprise', price: 9999, maxUsers: -1, color: '#f59e0b', badge: ' Best Value', features: ['Unlimited users', 'Everything in Business', 'White-label branding', 'Custom integrations', 'SLA guarantee'] },
-  ];
-};
+const PLAN_DEFAULTS = [
+  { key: 'starter', label: 'Starter', price: 999, maxUsers: 2, color: '#64748b', features: ['1 Admin + 2 Staff', 'Up to 100 cases/month', 'Basic reports (CSV)', 'Knowledge Base', 'Email notifications', '5 GB storage'] },
+  { key: 'professional', label: 'Professional', price: 2499, maxUsers: 5, color: '#0284c7', badge: ' Popular', features: ['1 Admin + 5 Staff', 'Unlimited cases', 'Full reports (PDF)', 'Accounting module', 'WhatsApp integration', '50 GB storage', 'Priority support'] },
+  { key: 'business', label: 'Business', price: 4999, maxUsers: 15, color: '#8b5cf6', features: ['15 team members', 'Full analytics', '100 GB storage', 'API access', 'Dedicated support'] },
+  { key: 'enterprise', label: 'Enterprise', price: 9999, maxUsers: -1, color: '#f59e0b', badge: ' Best Value', features: ['Unlimited users', 'Everything in Business', 'White-label branding', 'Custom integrations', 'SLA guarantee'] },
+];
 
 // Validate coupon from SuperAdmin coupon list
-const validateCoupon = (code, userEmail) => {
+const validateCoupon = async (code, userEmail) => {
   try {
-    const coupons = JSON.parse(localStorage.getItem('sa_coupons') || '[]');
-    const c = coupons.find(x => x.code === code.toUpperCase());
-    if (!c) return { valid: false, error: 'Coupon code not found' };
-    if (c.expiry_date && new Date(c.expiry_date) < new Date()) return { valid: false, error: 'This coupon has expired' };
-    if (c.max_uses && c.uses >= parseInt(c.max_uses)) return { valid: false, error: 'Coupon usage limit reached' };
-    if (c.type === 'user' && c.target_email && c.target_email.toLowerCase() !== (userEmail || '').toLowerCase())
-      return { valid: false, error: 'This coupon is not valid for your account' };
-    return { valid: true, coupon: c };
-  } catch {
+    const res = await fetch(`/api/super-admin/coupons/validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code.toUpperCase(), email: userEmail })
+    });
+    const data = await res.json();
+    if (!res.ok) return { valid: false, error: data.error || 'Invalid or expired coupon' };
+    return { valid: true, coupon: data.coupon };
+  } catch (err) {
     return { valid: false, error: 'Could not validate coupon' };
   }
 };
@@ -107,10 +100,10 @@ function PaymentModal({ plan, user, onClose, onSuccess }) {
   const couponDiscount = coupon ? Math.round(applyDiscount(afterDuration, coupon)) : 0;
   const finalAmount = afterDuration - couponDiscount;
 
-  const applyCoupon = () => {
+  const applyCoupon = async () => {
     setCouponError('');
     if (!couponCode.trim()) return;
-    const result = validateCoupon(couponCode, form.email);
+    const result = await validateCoupon(couponCode, form.email);
     if (!result.valid) { setCouponError(result.error); setCoupon(null); setCouponApplied(false); return; }
     setCoupon(result.coupon);
     setCouponApplied(true);
@@ -290,7 +283,16 @@ export default function SubscriptionPage() {
   const { user, isOwner, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const [upgradeTarget, setUpgradeTarget] = useState(null);
-  const PLANS = getPlans();
+  const [plans, setPlans] = useState(PLAN_DEFAULTS);
+  const [plansLoading, setPlansLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/auth/plans')
+      .then(r => r.json())
+      .then(d => { if (d.plans?.length) setPlans(d.plans); })
+      .catch(() => {})
+      .finally(() => setPlansLoading(false));
+  }, []);
 
   //  Owner-Only Guard 
   // Only the per-tenant admin (account owner) can manage subscription.
@@ -315,7 +317,7 @@ export default function SubscriptionPage() {
   // Load company data for current plan & expiry
   const company = (() => { try { return JSON.parse(localStorage.getItem('crm_company') || '{}'); } catch { return {}; } })();
   const currentPlanKey = company.subscription_plan || 'professional';
-  const currentPlan = PLANS.find(p => p.key === currentPlanKey) || PLANS[1];
+  const currentPlan = plans.find(p => p.key === currentPlanKey) || plans[1];
   const expiryDate = company.subscription_expiry;
   const daysLeft = expiryDate ? Math.ceil((new Date(expiryDate) - Date.now()) / 86400000) : null;
   const isExpired = daysLeft !== null && daysLeft < 0;
@@ -383,11 +385,15 @@ export default function SubscriptionPage() {
       )}
 
       {/* Plan Cards */}
+      {plansLoading ? (
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>Loading plans…</div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16, marginBottom: 32 }}>
-        {PLANS.map(plan => (
-          <PlanCard key={plan.key} plan={plan} current={currentPlanKey} daysLeft={daysLeft} onUpgrade={setUpgradeTarget} />
-        ))}
-      </div>
+        {plans.map(plan => (
+            <PlanCard key={plan.key} plan={plan} current={currentPlanKey} daysLeft={daysLeft} onUpgrade={setUpgradeTarget} />
+          ))}
+        </div>
+      )}
 
       {/* Payment History */}
       {purchases.length > 0 && (

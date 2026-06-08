@@ -79,9 +79,9 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
                     display: 'flex',
                     gap: 16,
                     padding: 12,
-                    background: 'var(--bg-secondary)',
+                    background: 'var(--bg-card)',
                     borderRadius: 'var(--radius-sm)',
-                    borderLeft: '3px solid var(--accent-primary)'
+                    border: '1px solid var(--border-subtle)'
                   }}
                 >
                   <div style={{ minWidth: 100 }}>
@@ -309,9 +309,9 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <div style={{
             padding: 16,
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             borderRadius: 'var(--radius-sm)',
-            borderLeft: '3px solid #3b82f6'
+            border: '1px solid var(--border-subtle)'
           }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
               Total Purchased
@@ -326,9 +326,9 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
 
           <div style={{
             padding: 16,
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             borderRadius: 'var(--radius-sm)',
-            borderLeft: '3px solid #ef4444'
+            border: '1px solid var(--border-subtle)'
           }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
               Total Consumed
@@ -343,9 +343,9 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
 
           <div style={{
             padding: 16,
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             borderRadius: 'var(--radius-sm)',
-            borderLeft: '3px solid #22c55e'
+            border: '1px solid var(--border-subtle)'
           }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
               Total Returned
@@ -357,9 +357,9 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
 
           <div style={{
             padding: 16,
-            background: 'var(--bg-secondary)',
+            background: 'var(--bg-card)',
             borderRadius: 'var(--radius-sm)',
-            borderLeft: '3px solid #06b6d4'
+            border: '1px solid var(--border-subtle)'
           }}>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
               Utilization Rate
@@ -374,9 +374,9 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
           {cases.length > 0 && (
             <div style={{
               padding: 16,
-              background: 'var(--bg-secondary)',
+              background: 'var(--bg-card)',
               borderRadius: 'var(--radius-sm)',
-              borderLeft: '3px solid #a855f7'
+              border: '1px solid var(--border-subtle)'
             }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
                 Cases Involved

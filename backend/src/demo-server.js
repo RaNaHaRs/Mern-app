@@ -5,8 +5,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const { ZipArchive } = require('archiver');
+const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
 const { mergeProblemSuggestions } = require('./utils/problemSuggestions');
+const automationService = require('./services/automationService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -539,7 +544,7 @@ app.post('/api/auth/signup', async (req, res) => {
     admin_name: admin_name || '',
     plan: plan || 'starter',
     status: 'trial',
-    max_team_users: 2,
+    max_team_users: (SA_PLANS.find(p => p.key === plan)?.maxUsers) || 2,
     city: city || '',
     phone: phone || '',
     team_user_count: 1,
@@ -559,7 +564,70 @@ app.post('/api/auth/signup', async (req, res) => {
     created_at: new Date().toISOString(),
   };
   DEMO_USERS.push(adminUser);
+
+  // Emit automation event for ADMIN_CREATED (signup)
+  automationService.handleEvent('ADMIN_CREATED', {
+    name: adminUser.full_name,
+    email: adminUser.email,
+    role: adminUser.role,
+    login_url: process.env.LOGIN_URL || 'https://app.recoverlab.in/login'
+  }).catch(e => console.error('Automation event ADMIN_CREATED failed:', e.message));
+
+  (async () => {
+    try {
+      const smtp = SUPER_ADMIN_SMTP;
+      const host = smtp.host || process.env.SMTP_HOST;
+      const user = smtp.user || process.env.SMTP_USER;
+      const pass = smtp.password || process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
+      if (!host || !user || !pass) {
+        console.log('[Demo] Super Admin SMTP not configured — skipping signup onboarding email');
+        return;
+      }
+
+      const transporter = nodemailer.createTransport({
+        host,
+        port: Number(smtp.port || process.env.SMTP_PORT || 587),
+        secure: Number(smtp.port || process.env.SMTP_PORT) === 465,
+        auth: { user, pass },
+        tls: { rejectUnauthorized: false },
+      });
+
+      const fromName = smtp.from_name || process.env.SMTP_FROM_NAME || 'RecoverLab';
+      const fromEmail = smtp.from_email || process.env.SMTP_FROM_EMAIL || user;
+      const loginUrl = process.env.LOGIN_URL || 'https://app.recoverlab.in/login';
+
+      await transporter.verify();
+      await transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: admin_email,
+        subject: 'Your CRM Account Has Been Created',
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:auto;padding:40px;background:#fff;border-radius:12px">
+          <h1 style="color:#1a1a2e">Welcome to RecoverLab CRM</h1>
+          <p>Hello <strong>${admin_name || 'there'}</strong>,</p>
+          <p>Your CRM account has been created. Below are your login credentials.</p>
+          <div style="background:#f0f4ff;border-radius:8px;padding:18px 22px;margin:24px 0">
+            <table style="width:100%;font-size:13px;color:#444">
+              <tr><td>Role</td><td style="text-align:right;font-weight:700;color:#1a1a2e">Admin</td></tr>
+              <tr><td>Login Email</td><td style="text-align:right;font-family:monospace">${admin_email}</td></tr>
+              <tr><td>Password</td><td style="text-align:right;font-family:monospace;font-weight:700">${admin_password}</td></tr>
+              <tr><td>Login URL</td><td style="text-align:right;font-family:monospace;font-size:12px"><a href="${loginUrl}" style="color:#3b82f6">${loginUrl}</a></td></tr>
+            </table>
+          </div>
+          <p style="color:#888;font-size:12px;text-align:center">Please change your password after first login.</p>
+        </div>`,
+      });
+      console.log(`[Demo] Signup onboarding email sent to ${admin_email} via Super Admin SMTP`);
+    } catch (e) {
+      console.error(`[Demo] Failed to send signup onboarding email to ${admin_email}:`, e.message);
+    }
+  })();
+
   res.status(201).json({ message: 'Account created! You can now log in.', email: admin_email, plan: tenant.plan, trial_days: 14 });
+});
+
+// GET /api/auth/plans — Public plans listing
+app.get('/api/auth/plans', (req, res) => {
+  res.json({ plans: SA_PLANS.map(p => ({ ...p })) });
 });
 
 app.get('/api/auth/me', authenticate, (req, res) => {
@@ -760,6 +828,56 @@ app.post('/api/super-admin/accounts', authenticate, requireSuperAdmin, (req, res
   if (SA_ACCOUNTS.find(a => a.email === email)) return res.status(409).json({ error: 'Account with this email already exists' });
   const acc = { id: `sa_${Date.now()}`, name, email, role: role || 'support_admin', permissions: permissions || 'view_only', is_active: true, created_at: new Date().toISOString(), last_login: null };
   SA_ACCOUNTS.push(acc);
+  // Emit automation event for ADMIN_CREATED (platform account)
+  try {
+    automationService.handleEvent('ADMIN_CREATED', {
+      name, email, role: acc.role, login_url: process.env.LOGIN_URL || 'https://app.recoverlab.in/login'
+    }).catch(e => console.error('Automation event ADMIN_CREATED failed:', e.message));
+  } catch (e) { console.error('Automation invocation failed:', e.message); }
+  // Send onboarding email using Super Admin SMTP config (env fallback)
+  (async () => {
+    try {
+      const smtp = SUPER_ADMIN_SMTP;
+      const host = smtp.host || process.env.SMTP_HOST;
+      const user = smtp.user || process.env.SMTP_USER;
+      const pass = smtp.password || process.env.SMTP_PASS;
+      if (!host || !user || !pass) {
+        console.log('[Demo] Super Admin SMTP not configured — skipping onboarding email');
+        return;
+      }
+      const transporter = nodemailer.createTransport({
+        host, port: Number(smtp.port || process.env.SMTP_PORT || 587),
+        secure: Number(smtp.port || process.env.SMTP_PORT) === 465,
+        auth: { user, pass }, tls: { rejectUnauthorized: false },
+      });
+      const fromName = smtp.from_name || process.env.SMTP_FROM_NAME || 'RecoverLab';
+      const fromEmail = smtp.from_email || process.env.SMTP_FROM_EMAIL || user;
+      const loginUrl = process.env.LOGIN_URL || 'https://app.recoverlab.in/login';
+      const pwd = req.body.password || 'ChangeMe@123';
+      await transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject: 'Your CRM Account Has Been Created',
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:auto;padding:40px;background:#fff;border-radius:12px">
+          <h1 style="color:#1a1a2e">Welcome to RecoverLab CRM</h1>
+          <p>Hello <strong>${name}</strong>,</p>
+          <p>Your CRM account has been created. Below are your login credentials.</p>
+          <div style="background:#f0f4ff;border-radius:8px;padding:18px 22px;margin:24px 0">
+            <table style="width:100%;font-size:13px;color:#444">
+              <tr><td>Role</td><td style="text-align:right;font-weight:700;color:#1a1a2e">${role || 'support_admin'}</td></tr>
+              <tr><td>Login Email</td><td style="text-align:right;font-family:monospace">${email}</td></tr>
+              <tr><td>Password</td><td style="text-align:right;font-family:monospace;font-weight:700">${pwd}</td></tr>
+              <tr><td>Login URL</td><td style="text-align:right;font-family:monospace;font-size:12px"><a href="${loginUrl}">${loginUrl}</a></td></tr>
+            </table>
+          </div>
+          <p style="color:#888;font-size:12px;text-align:center">Please change your password after first login.</p>
+        </div>`,
+      });
+      console.log(`[Demo] Onboarding email sent to ${email} via Super Admin SMTP`);
+    } catch (e) {
+      console.error(`[Demo] Failed to send onboarding email to ${email}:`, e.message);
+    }
+  })();
   auditLog('ACCOUNT_CREATED', `New SA account created for ${email} (${role || 'support_admin'})`, 'Platform Owner', 'info');
   res.status(201).json({ account: acc });
 });
@@ -784,8 +902,18 @@ app.delete('/api/super-admin/accounts/:id', authenticate, requireSuperAdmin, (re
 });
 
 // Plans CRUD
+let SA_PLAN_ID = 0;
+const planId = () => String(++SA_PLAN_ID);
+
+// Attach stable IDs to demo plans on first access
+if (!SA_PLANS.some(p => p.id)) {
+  SA_PLANS.forEach(p => { p.id = planId(); p.is_active = p.is_active !== false; });
+}
+
 app.get('/api/super-admin/plans', authenticate, requireSuperAdmin, (req, res) => {
-  res.json({ plans: SA_PLANS });
+  const includeInactive = req.query.include_inactive === 'true';
+  const filtered = includeInactive ? SA_PLANS : SA_PLANS.filter(p => p.is_active !== false);
+  res.json({ plans: filtered });
 });
 
 app.put('/api/super-admin/plans', authenticate, requireSuperAdmin, (req, res) => {
@@ -795,6 +923,51 @@ app.put('/api/super-admin/plans', authenticate, requireSuperAdmin, (req, res) =>
   plans.forEach(p => SA_PLANS.push(p));
   auditLog('PLANS_UPDATED', `Subscription plans updated (${plans.length} plans)`, 'Platform Owner', 'info');
   res.json({ plans: SA_PLANS });
+});
+
+app.post('/api/super-admin/plans', authenticate, requireSuperAdmin, (req, res) => {
+  const { key, label, price_monthly, price_yearly, max_users = 5, color = '#3b82f6', features = [], sort_order = 99 } = req.body;
+  if (!key || !label) return res.status(400).json({ error: 'key and label required' });
+  if (SA_PLANS.find(p => p.key === key)) return res.status(409).json({ error: 'Plan key already exists' });
+  const newPlan = { id: planId(), key, label, price: parseFloat(price_monthly) || 0, maxUsers: parseInt(max_users) || 5, color, features, is_active: true, ...(price_yearly ? { price_yearly } : {}) };
+  SA_PLANS.push(newPlan);
+  auditLog('PLAN_CREATED', `Created plan "${label}" (${key}, ₹${newPlan.price}/mo)`, 'Platform Owner', 'info');
+  res.status(201).json(newPlan);
+});
+
+const findPlanByIdOrKey = (param) => {
+  const byId = SA_PLANS.findIndex(p => p.id === param);
+  if (byId !== -1) return byId;
+  return SA_PLANS.findIndex(p => p.key === param);
+};
+
+app.patch('/api/super-admin/plans/:id', authenticate, requireSuperAdmin, (req, res) => {
+  const idx = findPlanByIdOrKey(req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Plan not found' });
+  const { label, price_monthly, max_users, color, features, is_active } = req.body;
+  if (label !== undefined) SA_PLANS[idx].label = label;
+  if (price_monthly !== undefined) SA_PLANS[idx].price = parseFloat(price_monthly);
+  if (max_users !== undefined) SA_PLANS[idx].maxUsers = parseInt(max_users);
+  if (color !== undefined) SA_PLANS[idx].color = color;
+  if (features !== undefined) SA_PLANS[idx].features = features;
+  if (is_active !== undefined) SA_PLANS[idx].is_active = is_active;
+  auditLog('PLAN_UPDATED', `Updated plan "${SA_PLANS[idx].label}"`, 'Platform Owner', 'info');
+  res.json(SA_PLANS[idx]);
+});
+
+app.delete('/api/super-admin/plans/:id', authenticate, requireSuperAdmin, (req, res) => {
+  const idx = findPlanByIdOrKey(req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Plan not found' });
+  const planKey = SA_PLANS[idx].key;
+  const activeSubscribers = TENANTS.filter(t => t.plan === planKey && (t.status === 'active' || t.status === 'trial')).length;
+  if (activeSubscribers > 0) {
+    SA_PLANS[idx].is_active = false;
+    auditLog('PLAN_DEACTIVATED', `Deactivated plan "${SA_PLANS[idx].label}" (${activeSubscribers} active subscribers preserved)`, 'Platform Owner', 'warn');
+    return res.json({ message: 'Plan deactivated', hasActiveSubscribers: true, subscriberCount: activeSubscribers, note: 'Existing subscribers retain their current plan' });
+  }
+  SA_PLANS.splice(idx, 1);
+  auditLog('PLAN_DELETED', `Deleted plan "${planKey}"`, 'Platform Owner', 'warn');
+  res.json({ message: 'Plan deleted', hasActiveSubscribers: false });
 });
 
 // Coupons CRUD
@@ -828,13 +1001,7 @@ const RAZORPAY_PURCHASE_LOG = []; // In-memory; in prod use DB
 // Create Order (called from frontend checkout before payment)
 app.post('/api/razorpay/create-order', authenticate, requireOwner, (req, res) => {
   const { plan_key, coupon_code } = req.body;
-  const plans = [
-    { key: 'starter', label: 'Starter', price: 999, maxUsers: 2 },
-    { key: 'professional', label: 'Professional', price: 2499, maxUsers: 5 },
-    { key: 'business', label: 'Business', price: 4999, maxUsers: 15 },
-    { key: 'enterprise', label: 'Enterprise', price: 9999, maxUsers: -1 },
-  ];
-  const plan = plans.find(p => p.key === plan_key);
+  const plan = SA_PLANS.find(p => p.key === plan_key);
   if (!plan) return res.status(400).json({ error: 'Invalid plan' });
 
   // Simulate order creation (real: Razorpay.orders.create)
@@ -917,7 +1084,180 @@ app.get('/api/razorpay/purchases', authenticate, requireSuperAdmin, (req, res) =
   res.json({ purchases: RAZORPAY_PURCHASE_LOG, total: RAZORPAY_PURCHASE_LOG.length });
 });
 
-// â”€â”€â”€ ANALYTICS (Dashboard) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Super Admin purchases endpoint (returns array, matches production shape)
+app.get('/api/super-admin/purchases', authenticate, requireSuperAdmin, (req, res) => {
+  res.json([...RAZORPAY_PURCHASE_LOG, ...PURCHASE_LOG]);
+});
+
+// Generate a simple invoice PDF for a purchase entry
+function generateDemoInvoicePdf(purchase) {
+  return new Promise((resolve, reject) => {
+    const invoiceDir = path.join(__dirname, '..', 'uploads', 'invoices');
+    if (!fs.existsSync(invoiceDir)) fs.mkdirSync(invoiceDir, { recursive: true });
+
+    const invNum = purchase.invoice_number || `DEMO-INV-${purchase.id.slice(-8).toUpperCase()}`;
+    const filePath = path.join(invoiceDir, `${invNum}.pdf`);
+    if (fs.existsSync(filePath)) return resolve(filePath);
+
+    const doc = new PDFDocument({ margin: 50 });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
+
+    doc.fontSize(20).font('Helvetica-Bold').text('INVOICE', { align: 'right' });
+    doc.fontSize(10).font('Helvetica').text(`#${invNum}`, { align: 'right' });
+    doc.moveDown(1.5);
+
+    doc.fontSize(12).font('Helvetica-Bold').text('RecoverLab CRM');
+    doc.fontSize(9).font('Helvetica').text('123 Business Park, Mumbai, India');
+    doc.text('GSTIN: 27AABCT1332L1ZT');
+    doc.moveDown(1);
+
+    const dateStr = purchase.paid_at || purchase.timestamp || new Date().toISOString();
+    doc.text(`Date: ${new Date(dateStr).toLocaleDateString('en-IN')}`);
+    doc.text(`Client: ${purchase.tenant_name || purchase.full_name || purchase.email || 'N/A'}`);
+    doc.text(`Email: ${purchase.tenant_email || purchase.email || 'N/A'}`);
+    doc.moveDown(1.5);
+
+    const gstPct = 18;
+    const amt = purchase.amount || 0;
+    const gstAmt = Math.round(amt * gstPct / 100);
+    const total = Math.round(amt * (1 + gstPct / 100));
+
+    doc.fontSize(10).font('Helvetica-Bold');
+    const tableTop = doc.y;
+    const col1 = 50, col2 = 300, col3 = 420;
+    doc.text('Description', col1, tableTop);
+    doc.text('Amount', col3, tableTop, { width: 100, align: 'right' });
+    doc.moveDown(0.5);
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(0.5);
+
+    doc.font('Helvetica').fontSize(9);
+    doc.text(`${purchase.plan_label || purchase.plan || 'Subscription'} Plan`, col1, doc.y);
+    doc.text(`\u20B9${amt.toLocaleString('en-IN')}`, col3, doc.y - doc.currentLineHeight(), { width: 100, align: 'right' });
+    doc.moveDown(1.5);
+
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(0.5);
+    doc.fontSize(9);
+    doc.text(`Subtotal`, col1, doc.y);
+    doc.text(`\u20B9${amt.toLocaleString('en-IN')}`, col3, doc.y - doc.currentLineHeight(), { width: 100, align: 'right' });
+    doc.moveDown(0.5);
+    doc.text(`GST (${gstPct}%)`, col1, doc.y);
+    doc.text(`\u20B9${gstAmt.toLocaleString('en-IN')}`, col3, doc.y - doc.currentLineHeight(), { width: 100, align: 'right' });
+    doc.moveDown(0.5);
+    doc.font('Helvetica-Bold').fontSize(11);
+    doc.text(`Total`, col1, doc.y);
+    doc.text(`\u20B9${total.toLocaleString('en-IN')}`, col3, doc.y - doc.currentLineHeight(), { width: 100, align: 'right' });
+
+    doc.moveDown(2);
+    doc.font('Helvetica').fontSize(8).fillColor('#888');
+    doc.text('Thank you for your business! This is a computer-generated invoice.');
+
+    doc.end();
+    stream.on('finish', () => resolve(filePath));
+    stream.on('error', reject);
+  });
+}
+
+// GET /api/super-admin/purchases/:id/pdf
+app.get('/api/super-admin/purchases/:id/pdf', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    const all = [...RAZORPAY_PURCHASE_LOG, ...PURCHASE_LOG];
+    const purchase = all.find(p => p.id === req.params.id);
+    if (!purchase) return res.status(404).json({ error: 'Purchase not found' });
+
+    if (!purchase.invoice_number) {
+      purchase.invoice_number = `DEMO-INV-${purchase.id.slice(-8).toUpperCase()}`;
+    }
+
+    const pdfPath = await generateDemoInvoicePdf(purchase);
+    const fileName = `${purchase.invoice_number}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    const stream = fs.createReadStream(pdfPath);
+    stream.pipe(res);
+    stream.on('error', () => res.status(500).json({ error: 'Failed to stream PDF' }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/super-admin/purchases/:id/resend-invoice
+app.post('/api/super-admin/purchases/:id/resend-invoice', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    const all = [...RAZORPAY_PURCHASE_LOG, ...PURCHASE_LOG];
+    const purchase = all.find(p => p.id === req.params.id);
+    if (!purchase) return res.status(404).json({ error: 'Purchase not found' });
+    res.json({ message: 'Invoice resent successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/super-admin/purchases/export-all
+app.post('/api/super-admin/purchases/export-all', authenticate, requireSuperAdmin, async (req, res) => {
+  try {
+    const all = [...RAZORPAY_PURCHASE_LOG, ...PURCHASE_LOG];
+    const filterStatus = req.body.status || 'success';
+    const filtered = all.filter(p => p.status === filterStatus);
+
+    const errors = [];
+    const pdfEntries = [];
+    for (const p of filtered) {
+      let pdfPath;
+      if (!p.invoice_number) p.invoice_number = `DEMO-INV-${p.id.slice(-8).toUpperCase()}`;
+      try {
+        pdfPath = await generateDemoInvoicePdf(p);
+      } catch (e) {
+        errors.push({ id: p.id, error: e.message });
+        continue;
+      }
+      if (!fs.existsSync(pdfPath)) {
+        errors.push({ id: p.id, error: 'PDF not found after generation' });
+        continue;
+      }
+      pdfEntries.push({ purchase: p, pdfPath });
+    }
+
+    const csvRows = ['Invoice Number,Client Name,Client Email,Amount,Date,Status'];
+    for (const { purchase } of pdfEntries) {
+      const name = (purchase.tenant_name || purchase.full_name || '').replace(/,/g, ' ');
+      const email = (purchase.tenant_email || purchase.email || '').replace(/,/g, ' ');
+      const amt = parseFloat(purchase.amount || 0).toFixed(2);
+      const date = purchase.timestamp ? new Date(purchase.timestamp).toISOString().slice(0, 10) : '';
+      csvRows.push(`"${purchase.invoice_number}","${name}","${email}",${amt},"${date}","${purchase.status}"`);
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const folderName = `Invoices_Export_${dateStr}`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`);
+
+    const archive = new ZipArchive({ zlib: { level: 6 } });
+    archive.pipe(res);
+    archive.on('error', (err) => { throw err; });
+
+    archive.append(csvRows.join('\n'), { name: `${folderName}/invoice_index.csv` });
+
+    for (const { purchase, pdfPath } of pdfEntries) {
+      const safeName = (purchase.tenant_name || purchase.full_name || 'Client').replace(/[^a-zA-Z0-9_\- ]/g, '');
+      const fileName = `${purchase.invoice_number}_${safeName}.pdf`;
+      archive.file(pdfPath, { name: `${folderName}/${fileName}` });
+    }
+
+    if (errors.length) {
+      archive.append(JSON.stringify({ errors }, null, 2), { name: `${folderName}/errors.json` });
+    }
+
+    archive.finalize();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── ANALYTICS (Dashboard) ───────────────────────────────────────────────────
 app.get('/api/analytics/dashboard', authenticate, (req, res) => {
   res.json({
     cases: { active: 4, critical: 2, completed: 12, failed: 1, this_month: 5, total: 17 },
@@ -1945,6 +2285,61 @@ app.post('/api/settings/smtp/test', authenticate, async (req, res) => {
     res.json({ ok: true, message: `SMTP connected successfully${toEmail ? ` — test email sent to ${toEmail}` : ''}.` });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── Super Admin SMTP config (demo) ──────────────────────────────────────────
+
+let SUPER_ADMIN_SMTP = {};
+
+// GET /api/settings/smtp/super-admin
+app.get('/api/settings/smtp/super-admin', authenticate, requireSuperAdmin, (req, res) => {
+  const safe = { ...SUPER_ADMIN_SMTP };
+  if (safe.password) safe.password = '••••••••••••••••';
+  res.json(safe);
+});
+
+// PUT /api/settings/smtp/super-admin
+app.put('/api/settings/smtp/super-admin', authenticate, requireSuperAdmin, (req, res) => {
+  const masked = /^[•*]{4,}$/;
+  const body = { ...req.body };
+  if (body.password && masked.test(body.password)) body.password = SUPER_ADMIN_SMTP.password || '';
+  SUPER_ADMIN_SMTP = body;
+  console.log('[Demo] Super Admin SMTP config saved');
+  const safe = { ...body };
+  if (safe.password) safe.password = '••••••••••••••••';
+  res.json({ ok: true, config: safe });
+});
+
+// POST /api/settings/smtp/super-admin/test
+app.post('/api/settings/smtp/super-admin/test', authenticate, requireSuperAdmin, async (req, res) => {
+  const body = req.body || {};
+  const host = body.host || SUPER_ADMIN_SMTP.host;
+  const port = body.port || SUPER_ADMIN_SMTP.port || 587;
+  const user = body.user || SUPER_ADMIN_SMTP.user;
+  const pass = body.password && !/^[•*]{4,}$/.test(body.password) ? body.password : SUPER_ADMIN_SMTP.password;
+  const fromName = body.from_name || SUPER_ADMIN_SMTP.from_name || 'RecoverLab';
+  const fromEmail = body.from_email || SUPER_ADMIN_SMTP.from_email || user;
+  if (!host || !user || !pass || !fromEmail) {
+    return res.status(422).json({ error: 'Host, user, password and from_email are required' });
+  }
+  try {
+    const portNum = parseInt(port, 10) || 587;
+    const transport = nodemailer.createTransport({
+      host, port: portNum, secure: portNum === 465,
+      auth: { user, pass }, tls: { rejectUnauthorized: false },
+    });
+    await transport.verify();
+    const testTo = body.test_to || fromEmail;
+    await transport.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: testTo,
+      subject: '✅ Super Admin SMTP Test (Demo)',
+      html: `<div><h3>Super Admin SMTP is working ✅</h3><p>${host}:${portNum}</p></div>`,
+    });
+    res.json({ ok: true, message: `Test email sent to ${testTo}` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -3370,9 +3765,6 @@ app.delete('/api/recycle-bin/:id/permanent-delete', authenticate, requireSuperAd
   res.json({ ok: true, message: `${gone.case_number} permanently deleted. Cannot be recovered.` });
 });
 
-const fs = require('fs');
-const path = require('path');
-
 // --- LOCAL BACKUP SERVICE ---
 const BACKUP_DIR = 'C:\\crm_backup';
 function runLocalBackup() {
@@ -3488,17 +3880,14 @@ app.post('/api/backup/restore', authenticate, requireAdmin, upload.single('backu
 app.get('/api/backup/google-drive/auth-url', authenticate, requireAdmin, (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return res.json({ ok: false, setup_required: true, message: 'Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env to enable Google Drive backup.' });
-  const redirect = `${process.env.APP_URL || 'http://localhost:5174'}/settings`;
+  const redirect = `${process.env.APP_URL || 'http://localhost:5174'}/security`;
   const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&access_type=offline&prompt=consent`;
   res.json({ ok: true, auth_url: url });
 });
 
 app.get('/api/backup/google-drive/list', authenticate, requireAdmin, (req, res) => {
   res.json({ ok: true, files: [], demo: true, message: 'Configure Google OAuth credentials to see Drive backups.' });
-});
-
-
-// === TEAM CHAT ================================================================
+});// === TEAM CHAT ================================================================
 const CHAT_MESSAGES = {};
 const CHAT_ONLINE = new Map();
 ['general','engineers','billing','cases'].forEach(function(r) {

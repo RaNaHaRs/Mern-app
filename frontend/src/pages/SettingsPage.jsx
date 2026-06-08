@@ -244,11 +244,15 @@ function InvCategorySettings({ deviceFamily }) {
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
+const impersonateHeader = () => {
+  const id = sessionStorage.getItem('impersonating_tenant_id');
+  return id ? { 'X-Impersonate-Tenant-Id': id } : {};
+};
 const companyApi = {
-  get: () => fetch(`${BASE_URL}/settings/company`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
-  save: (data) => fetch(`${BASE_URL}/settings/company`, { method: 'PUT', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
-  uploadLogo: (file) => { const fd = new FormData(); fd.append('logo', file); return fetch(`${BASE_URL}/settings/company/logo`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: fd }).then(r => r.json()); },
-  testSmtp: (cfg) => fetch(`${BASE_URL}/settings/smtp/test`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) }).then(r => r.json()),
+  get: () => fetch(`${BASE_URL}/settings/company`, { headers: { Authorization: `Bearer ${getToken()}`, ...impersonateHeader() } }).then(r => r.json()),
+  save: (data) => fetch(`${BASE_URL}/settings/company`, { method: 'PUT', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json', ...impersonateHeader() }, body: JSON.stringify(data) }).then(r => r.json()),
+  uploadLogo: (file) => { const fd = new FormData(); fd.append('logo', file); return fetch(`${BASE_URL}/settings/company/logo`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, ...impersonateHeader() }, body: fd }).then(r => r.json()); },
+  testSmtp: (cfg) => fetch(`${BASE_URL}/settings/smtp/test`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json', ...impersonateHeader() }, body: JSON.stringify(cfg) }).then(r => r.json()),
 };
 
 function CreateUserModal({ onClose, onCreated }) {
@@ -1175,13 +1179,30 @@ const DEFAULT_PLANS = [
 ];
 
 function PlanManagementPanel() {
-  const [plans, setPlans] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('sa_custom_plans') || 'null') || DEFAULT_PLANS; } catch { return DEFAULT_PLANS; }
-  });
-  const save = (p) => { setPlans(p); localStorage.setItem('sa_custom_plans', JSON.stringify(p)); };
-  const update = (id,field,val) => save(plans.map(p=>p.id===id?{...p,[field]:val}:p));
-  const remove = (id) => { if(confirm('Remove this plan?')) save(plans.filter(p=>p.id!==id)); };
-  const addPlan = () => save([...plans, { id:`plan_${Date.now()}`, name:'New Plan', price:2999, period:'month', seats:3, features:['Basic features'] }]);
+  const [plans, setPlans] = useState(DEFAULT_PLANS);
+  const [saved, setSaved] = useState(false);
+  const getToken = () => localStorage.getItem('accessToken');
+  useEffect(() => {
+    fetch('/api/super-admin/plans', { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(r => r.json())
+      .then(d => { if (d.plans?.length) setPlans(d.plans); })
+      .catch(() => {});
+  }, []);
+  const save = (p) => {
+    setPlans(p); setSaved(true); setTimeout(() => setSaved(false), 2500);
+    fetch('/api/super-admin/plans', { method: 'PUT', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ plans: p }) }).catch(() => {});
+  };
+  const update = (key, field, val) => save(plans.map(p => (p.key === key || p.id === key) ? { ...p, [field]: val } : p));
+  const remove = (key) => {
+    if (!confirm('Remove this plan? Existing subscribers keep their access.')) return;
+    const plan = plans.find(p => p.key === key || p.id === key);
+    if (plan && plan.id) fetch(`/api/super-admin/plans/${plan.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${getToken()}` } }).catch(() => {});
+    save(plans.filter(p => p.key !== key && p.id !== key));
+  };
+  const addPlan = () => {
+    const key = `plan_${Date.now()}`;
+    save([...plans, { key, id: key, label: 'New Plan', price: 2999, maxUsers: 3, color: '#3b82f6', features: ['Basic features'] }]);
+  };
   return (
     <div>
       <div style={{ marginBottom:16, padding:'10px 16px', background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.25)', borderRadius:'var(--radius-md)', display:'flex', alignItems:'center', gap:10 }}>
@@ -1196,40 +1217,31 @@ function PlanManagementPanel() {
       </div>
       <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16 }}>
         {plans.map(plan => (
-          <div key={plan.id} style={{ background:'var(--bg-elevated)',borderRadius:'var(--radius-lg)',padding:20,border:'1px solid var(--border-default)' }}>
+          <div key={plan.key || plan.id} style={{ background:'var(--bg-elevated)',borderRadius:'var(--radius-lg)',padding:20,border:'1px solid var(--border-default)' }}>
             <div style={{ display:'flex',justifyContent:'space-between',marginBottom:12 }}>
-              <input className="form-input" style={{ fontWeight:700,fontSize:'1rem',flex:1,marginRight:8 }} value={plan.name} onChange={e=>update(plan.id,'name',e.target.value)} />
-              <button className="btn btn-danger btn-sm" onClick={()=>remove(plan.id)}>✕</button>
+              <input className="form-input" style={{ fontWeight:700,fontSize:'1rem',flex:1,marginRight:8 }} value={plan.label || plan.name} onChange={e=>update(plan.key || plan.id, 'label', e.target.value)} />
+              <button className="btn btn-danger btn-sm" onClick={()=>remove(plan.key || plan.id)}>✕</button>
             </div>
             <div style={{ display:'flex',gap:10,marginBottom:12 }}>
               <div className="form-group" style={{ flex:1,marginBottom:0 }}>
                 <label className="form-label">Price (₹)</label>
-                <input type="number" className="form-input" value={plan.price} onChange={e=>update(plan.id,'price',parseInt(e.target.value))} />
+                <input type="number" className="form-input" value={plan.price} onChange={e=>update(plan.key || plan.id, 'price', parseInt(e.target.value))} />
               </div>
               <div className="form-group" style={{ flex:1,marginBottom:0 }}>
-                <label className="form-label">Period</label>
-                <select className="form-select" value={plan.period} onChange={e=>update(plan.id,'period',e.target.value)}>
-                  <option value="month">Monthly</option>
-                  <option value="year">Yearly</option>
-                </select>
+                <label className="form-label">Max Users</label>
+                <input type="number" className="form-input" value={plan.maxUsers || plan.seats || 5} onChange={e=>update(plan.key || plan.id, 'maxUsers', parseInt(e.target.value))} />
               </div>
-            </div>
-            <div className="form-group" style={{ marginBottom:12 }}>
-              <label className="form-label">Team Seats</label>
-              <input type="number" className="form-input" value={plan.seats} onChange={e=>update(plan.id,'seats',parseInt(e.target.value))} />
             </div>
             <div className="form-group">
               <label className="form-label">Features (one per line)</label>
               <textarea className="form-textarea" style={{ minHeight:80 }}
                 value={(plan.features||[]).join('\n')}
-                onChange={e=>update(plan.id,'features',e.target.value.split('\n').filter(Boolean))} />
+                onChange={e=>update(plan.key || plan.id, 'features', e.target.value.split('\n').filter(Boolean))} />
             </div>
           </div>
         ))}
       </div>
-      <div style={{ marginTop:16,textAlign:'right' }}>
-        <button className="btn btn-primary" onClick={()=>alert(' Plans saved!')}> Save Plans</button>
-      </div>
+      {saved && <div style={{position:'fixed',bottom:24,right:24,background:'linear-gradient(135deg,#7c3aed,#10b981)',color:'#fff',padding:'10px 18px',borderRadius:10,fontWeight:700,fontSize:'0.85rem',zIndex:9999}}>Plans saved</div>}
     </div>
   );
 }
@@ -1374,7 +1386,7 @@ export default function SettingsPage() {
     if (actAction) params.set('action', actAction);
     if (actStart) params.set('start', actStart);
     if (actEnd) params.set('end', actEnd);
-    fetch(`${BASE_URL}/activity-logs?${params}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    fetch(`${BASE_URL}/activity-logs?${params}`, { headers: { Authorization: `Bearer ${getToken()}`, ...(sessionStorage.getItem('impersonating_tenant_id') ? { 'X-Impersonate-Tenant-Id': sessionStorage.getItem('impersonating_tenant_id') } : {}) } })
       .then(r => r.json()).then(d => {
         setAuditLogs(d.logs || []);
         setActTotal(d.total || 0);
@@ -2298,7 +2310,7 @@ export default function SettingsPage() {
                       if (actStart) params.set('start', actStart);
                       if (actEnd) params.set('end', actEnd);
                       const r = await fetch(`${BASE_URL}/activity-logs/export?${params}`, {
-                        headers: { Authorization: `Bearer ${getToken()}` }
+                        headers: { Authorization: `Bearer ${getToken()}`, ...(sessionStorage.getItem('impersonating_tenant_id') ? { 'X-Impersonate-Tenant-Id': sessionStorage.getItem('impersonating_tenant_id') } : {}) }
                       });
                       const d = await r.json();
                       const rows = (d.logs || []).map(l => ({
@@ -2377,7 +2389,7 @@ export default function SettingsPage() {
               </div>
 
               {/* Pagination */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 16, gap: 8 }}>
                 <span className="text-xs text-muted">
                   Showing {auditLogs.length} of {actTotal} entries
                 </span>
@@ -2709,12 +2721,12 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))', gap:16, marginBottom:20 }}>
-                  <div className="card" style={{ borderLeft:'3px solid var(--accent-primary)' }}>
+                  <div className="card" style={{ border: '1px solid var(--border-subtle)' }}>
                     <div style={{ fontSize:'0.7rem', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Current Plan</div>
                     <div style={{ fontSize:'1.4rem', fontWeight:900, color: currentPlan?.color || 'var(--accent-primary)' }}>{currentPlan?.label || company?.plan || 'Free'}</div>
                     {currentPlan && <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:4 }}>₹{currentPlan.price?.toLocaleString('en-IN')}/mo · {currentPlan.maxUsers === -1 ? 'Unlimited' : currentPlan.maxUsers} users</div>}
                   </div>
-                  <div className="card" style={{ borderLeft:`3px solid ${isExpired ? '#ef4444' : expiringSoon ? '#f59e0b' : '#10b981'}` }}>
+                  <div className="card" style={{ border: '1px solid var(--border-subtle)' }}>
                     <div style={{ fontSize:'0.7rem', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Subscription Status</div>
                     {expiry ? (
                       <>

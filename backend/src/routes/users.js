@@ -3,10 +3,36 @@ const bcrypt = require('bcryptjs');
 const { query } = require('../config/database');
 const { authenticate, requireRole, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
+const automationService = require('../services/automationService');
 const { isSuperAdmin, tenantUserCondition, tenantAdminId, tenantUserExpression } = require('../utils/tenantAccess');
 
 const router = express.Router();
 router.use(authenticate);
+
+const TEAM_USER_COUNT_CONDITION = `role NOT IN ('admin','super_admin')`;
+
+async function getTeamUserCountForTenant(ownerId) {
+  const result = await query(
+    `SELECT COUNT(*)::int AS count FROM users WHERE ${TEAM_USER_COUNT_CONDITION} AND COALESCE(tenant_id, tenant_owner_id) = $1`,
+    [ownerId]
+  );
+  return result.rows[0]?.count || 0;
+}
+
+async function getTenantAdminForSuperAdmin(tenantId, assignedAdminId) {
+  if (!tenantId) return null;
+  const lookupId = assignedAdminId || tenantId;
+  const result = await query(
+    `SELECT id, max_team_users, COALESCE(tenant_id, tenant_owner_id, id) AS effective_tenant
+     FROM users
+     WHERE id = $1 AND role = 'admin'`,
+    [lookupId]
+  );
+  if (!result.rows.length) return null;
+  const admin = result.rows[0];
+  if (tenantId && String(admin.effective_tenant) !== String(tenantId)) return null;
+  return admin;
+}
 
 router.get('/', requireMinRole('senior_engineer'), async (req, res) => {
   try {
@@ -21,7 +47,7 @@ router.get('/', requireMinRole('senior_engineer'), async (req, res) => {
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-    const result = await query(`SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, assigned_admin_id, last_login, created_at FROM users u ${where} ORDER BY role, full_name`, params);
+    const result = await query(`SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, assigned_admin_id, tenant_id, tenant_owner_id, company_name, last_login, created_at FROM users u ${where} ORDER BY role, full_name`, params);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -31,12 +57,56 @@ router.post('/', requireRole('admin', 'super_admin'), auditLog('create_user', 'u
     const { username, email, password, full_name, role, phone, specializations, notes, permissions, tenant_id, assigned_admin_id } = req.body;
     if (!password || password.length < 8) return res.status(422).json({ error: 'Password must be at least 8 characters' });
     const hash = await bcrypt.hash(password, 12);
-    const scopedTenantId = req.user.role === 'super_admin'
+
+    let scopedTenantId = req.user.role === 'super_admin'
       ? (tenant_id || null)
       : tenantAdminId(req.user);
-    const tenantOwnerId = req.user.role === 'admin'
+
+    let tenantOwnerId = req.user.role === 'admin'
       ? req.user.id
       : (req.user.role === 'super_admin' ? (scopedTenantId || null) : null);
+
+    const effectiveAssignedAdminId = req.user.role === 'admin'
+      ? req.user.id
+      : (assigned_admin_id || null);
+
+    if (role && role !== 'admin' && role !== 'super_admin') {
+      if (req.user.role === 'admin') {
+        const adminResult = await query('SELECT max_team_users FROM users WHERE id = $1', [req.user.id]);
+        const maxUsers = adminResult.rows[0]?.max_team_users || 0;
+        const currentCount = await getTeamUserCountForTenant(req.user.id);
+        if (currentCount >= maxUsers) {
+          return res.status(403).json({ error: `Team user limit reached (${maxUsers}). Upgrade plan to add more.` });
+        }
+      }
+
+      if (req.user.role === 'super_admin' && (scopedTenantId || assigned_admin_id)) {
+        let tenantAdmin;
+        if (scopedTenantId) {
+          tenantAdmin = await getTenantAdminForSuperAdmin(scopedTenantId, assigned_admin_id);
+        } else {
+          const adminResult = await query(
+            `SELECT id, max_team_users, COALESCE(tenant_id, tenant_owner_id, id) AS effective_tenant
+             FROM users WHERE id = $1 AND role = 'admin'`,
+            [assigned_admin_id]
+          );
+          tenantAdmin = adminResult.rows[0] || null;
+        }
+        if (!tenantAdmin) {
+          return res.status(400).json({ error: 'Selected tenant admin not found or invalid' });
+        }
+        if (!scopedTenantId) {
+          scopedTenantId = tenantAdmin.effective_tenant;
+        }
+        tenantOwnerId = tenantAdmin.id;
+        const maxUsers = tenantAdmin.max_team_users || 0;
+        const currentCount = await getTeamUserCountForTenant(tenantAdmin.id);
+        if (currentCount >= maxUsers) {
+          return res.status(403).json({ error: `This admin has reached the maximum team member limit (${maxUsers}). Upgrade plan or choose another admin.` });
+        }
+      }
+    }
+
     const result = await query(
       `INSERT INTO users (username, email, password_hash, full_name, role, phone, specializations, notes, permissions, assigned_admin_id, tenant_owner_id, tenant_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id, username, email, full_name, role, is_active, created_at`,
@@ -45,16 +115,38 @@ router.post('/', requireRole('admin', 'super_admin'), auditLog('create_user', 'u
         email.toLowerCase(),
         hash,
         full_name,
-        role||'junior_engineer',
-        phone||null,
-        specializations||[],
-        notes||null,
+        role || 'junior_engineer',
+        phone || null,
+        specializations || [],
+        notes || null,
         permissions ? JSON.stringify(permissions) : null,
-        assigned_admin_id || (req.user.role === 'admin' ? req.user.id : null),
+        effectiveAssignedAdminId,
         tenantOwnerId,
         scopedTenantId,
       ]
     );
+
+    // Emit TEAM_MEMBER_CREATED or ADMIN_CREATED event based on role
+    try {
+      if (role && !role.includes('admin') && !role.includes('super_admin')) {
+        await automationService.handleEvent('TEAM_MEMBER_CREATED', {
+          user_id: result.rows[0].id,
+          name: result.rows[0].full_name || result.rows[0].username,
+          email: result.rows[0].email || '',
+          role: result.rows[0].role
+        });
+      } else if (role && role.includes('admin')) {
+        await automationService.handleEvent('ADMIN_CREATED', {
+          user_id: result.rows[0].id,
+          name: result.rows[0].full_name || result.rows[0].username,
+          email: result.rows[0].email || '',
+          role: result.rows[0].role
+        });
+      }
+    } catch (eventErr) {
+      console.warn('User creation event emission failed:', eventErr.message);
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.constraint?.includes('unique')) return res.status(409).json({ error: 'Username or email already exists' });

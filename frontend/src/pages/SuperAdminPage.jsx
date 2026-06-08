@@ -3,6 +3,7 @@ import { useAuth } from '../store/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useTheme, useFontSize } from '../store/ThemeContext';
 import './SuperAdminPage.css';
+const SuperAdminAutomation = React.lazy(() => import('./SuperAdminAutomation'));
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -435,6 +436,44 @@ function TenantRow({ tenant, onEdit, onImpersonate, onToggle, onViewUsers }) {
   );
 }
 
+// ── Confirm Delete Modal ────────────────────────────────────────────────
+function ConfirmDeleteModal({ target, onConfirm, onCancel }) {
+  if (!target) return null;
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">{target.mode === 'forever' ? 'Permanently Delete Plan' : 'Remove Plan'}</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{ fontSize: '0.9rem', marginBottom: 16 }}>
+            {target.mode === 'forever'
+              ? `Permanently delete "${target.label}"? This cannot be undone.`
+              : `Remove "${target.label}" subscription plan?`}
+          </div>
+          {target.subscriberCount > 0 && (
+            <div style={{ padding: 12, background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
+              <strong>{target.subscriberCount} active subscriber{target.subscriberCount > 1 ? 's' : ''}</strong> on this plan will retain their current subscription but cannot change to or select this plan.
+            </div>
+          )}
+          {target.subscriberCount === 0 && (
+            <div style={{ padding: 12, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
+              No active subscribers on this plan. It will be removed from the listing.
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className="btn" style={{ background: '#ef4444', color: '#fff', border: 'none' }} onClick={onConfirm}>
+            {target.mode === 'forever' ? 'Delete Forever' : `Remove ${target.label}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Plans Manager (with Permissions) ─────────────────────────────────────
 const ALL_MODULES = [
   { key: 'cases',         label: 'Cases',          icon: '' },
@@ -468,6 +507,7 @@ function PlansManager({ tenants }) {
   const [activeView, setActiveView] = useState('plans'); // 'plans' | 'permissions' | 'recycle'
   const [permissions, setPermissions] = useState(getPermissions);
   const [selPermPlan, setSelPermPlan] = useState(plans[0]?.key || 'starter');
+  const [deleteTarget, setDeleteTarget] = useState(null); // { key, label, subscriberCount, mode }
 
   const loadActivePlans = () => {
     saApi.get('/plans').then(d => {
@@ -513,14 +553,23 @@ function PlansManager({ tenants }) {
       }).catch(() => {});
     }
   };
-  const removePlan = async (key) => {
-    if (!window.confirm('Remove plan? Existing subscribers keep their access.')) return;
+  const removePlan = (key) => {
+    const plan = plans.find(p => p.key === key);
+    if (!plan) return;
+    const subscriberCount = tenants.filter(t => t.plan === plan.key).length;
+    setDeleteTarget({ key, label: plan.label, subscriberCount, mode: 'remove' });
+  };
+
+  const confirmDeletePlan = async () => {
+    if (!deleteTarget) return;
+    const { key } = deleteTarget;
     const plan = plans.find(p => p.key === key);
     if (plan && plan.id) {
-      await saApi.del(`/plans/${plan.id}`).catch(() => {});
+      const res = await saApi.del(`/plans/${plan.id}`).catch(() => {});
     }
     persist(plans.filter(p => p.key !== key));
     loadDeletedPlans();
+    setDeleteTarget(null);
   };
   const restorePlan = async (plan) => {
     if (plan && plan.id) {
@@ -778,11 +827,7 @@ function PlansManager({ tenants }) {
                     <button className="btn btn-sm" style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', borderColor: 'rgba(16,185,129,0.2)', fontSize: '0.72rem' }}
                       onClick={() => restorePlan(plan)}>Restore</button>
                     <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }}
-                      onClick={async () => {
-                        if (!window.confirm(`Permanently delete "${plan.label}"? This cannot be undone.`)) return;
-                        if (plan.id) await saApi.del(`/plans/${plan.id}`).catch(() => {});
-                        loadDeletedPlans();
-                      }}>Delete Forever</button>
+                      onClick={() => setDeleteTarget({ key: plan.key, label: plan.label, subscriberCount: 0, mode: 'forever' })}>Delete Forever</button>
                   </div>
                 </div>
               ))}
@@ -791,6 +836,7 @@ function PlansManager({ tenants }) {
         </div>
       )}
 
+      {deleteTarget && <ConfirmDeleteModal target={deleteTarget} onConfirm={confirmDeletePlan} onCancel={() => setDeleteTarget(null)} />}
       {saved && <div style={{position:'fixed',bottom:24,right:24,background:'linear-gradient(135deg,#7c3aed,#10b981)',color:'#fff',padding:'10px 18px',borderRadius:10,fontWeight:700,fontSize:'0.85rem',zIndex:9999,boxShadow:'0 4px 18px rgba(0,0,0,0.3)'}}>Saved successfully</div>}
     </div>
   );
@@ -1074,7 +1120,54 @@ function BrandingTab() {
   const [form, setForm] = useState(() => ({ platform_name: 'RecoverLab', tagline: 'Professional Data Recovery CRM', support_email: 'support@recoverlab.in', support_phone: '', logo_url: '', favicon_url: '', primary_color: '#00d4ff', accent_color: '#8b5cf6', terms_url: '', privacy_url: '', twitter_url: '', linkedin_url: '', ...load() }));
   const [saved, setSaved] = useState(false);
 
-  const save = () => { localStorage.setItem('sa_branding', JSON.stringify(form)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  // Apply branding to the document: update title, favicon, sidebar text and CSS variables
+  const hexToRgba = (hex, a = 1) => {
+    try {
+      const h = hex.replace('#', '');
+      const bigint = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+      return `rgba(${r}, ${g}, ${b}, ${a})`;
+    } catch (e) { return hex; }
+  };
+
+  const applyBranding = (b) => {
+    if (!b) return;
+    // document title
+    try { document.title = b.platform_name || document.title; } catch (e) {}
+    // favicon
+    try {
+      if (b.favicon_url) {
+        let link = document.querySelector("link[rel~='icon']");
+        if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.getElementsByTagName('head')[0].appendChild(link); }
+        link.href = b.favicon_url;
+      }
+    } catch (e) {}
+    // sidebar logo text if present
+    try {
+      const t = document.querySelector('.sidebar .logo-title'); if (t && b.platform_name) t.textContent = b.platform_name;
+      const s = document.querySelector('.sidebar .logo-subtitle'); if (s && b.tagline) s.textContent = b.tagline;
+    } catch (e) {}
+    // CSS vars: accent colors
+    try {
+      const root = document.documentElement;
+      if (b.accent_color) {
+        root.style.setProperty('--accent-primary', b.accent_color);
+        root.style.setProperty('--accent-glow', hexToRgba(b.accent_color, 0.14));
+        root.style.setProperty('--accent-glow-strong', hexToRgba(b.accent_color, 0.28));
+      }
+      if (b.primary_color) {
+        root.style.setProperty('--status-info', b.primary_color);
+        root.style.setProperty('--status-info-bg', hexToRgba(b.primary_color, 0.12));
+      }
+    } catch (e) {}
+  };
+
+  const save = () => { localStorage.setItem('sa_branding', JSON.stringify(form)); applyBranding(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+
+  // Apply branding once on mount using stored values so page reflects saved branding immediately
+  useEffect(() => { try { const stored = load(); if (stored) applyBranding(stored); } catch (e) {} }, []);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -1121,7 +1214,51 @@ function SeoTab() {
   const load = () => { try { return JSON.parse(localStorage.getItem('sa_seo') || 'null') || {}; } catch { return {}; } };
   const [form, setForm] = useState(() => ({ meta_title: 'RecoverLab CRM — Professional Data Recovery Platform', meta_description: 'The complete SaaS CRM for data recovery labs. Manage cases, clients, inventory, billing and team with one platform.', meta_keywords: 'data recovery CRM, data recovery software, hard drive recovery tool', og_image_url: '', canonical_url: 'https://recoverlab.in', robots: 'index, follow', google_analytics_id: '', google_tag_manager_id: '', facebook_pixel_id: '', sitemap_enabled: true, schema_org_enabled: true, ...load() }));
   const [saved, setSaved] = useState(false);
-  const save = () => { localStorage.setItem('sa_seo', JSON.stringify(form)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const applySeo = (s) => {
+    if (!s) return;
+    try { document.title = s.meta_title || document.title; } catch (e) {}
+    try {
+      const setMeta = (name, value, prop = 'name') => {
+        if (!value) return;
+        let el = document.querySelector(`meta[${prop}="${name}"]`);
+        if (!el) { el = document.createElement('meta'); el.setAttribute(prop, name); document.head.appendChild(el); }
+        el.content = value;
+      };
+      setMeta('description', s.meta_description || '');
+      setMeta('keywords', s.meta_keywords || '');
+      setMeta('robots', s.robots || '');
+      // OpenGraph
+      const setOg = (name, value) => { if (!value) return; let el = document.querySelector(`meta[property="og:${name}"]`); if (!el) { el = document.createElement('meta'); el.setAttribute('property', `og:${name}`); document.head.appendChild(el); } el.content = value; };
+      setOg('title', s.meta_title || '');
+      setOg('description', s.meta_description || '');
+      if (s.og_image_url) setOg('image', s.og_image_url);
+      // canonical
+      if (s.canonical_url) {
+        let link = document.querySelector("link[rel='canonical']");
+        if (!link) { link = document.createElement('link'); link.rel = 'canonical'; document.head.appendChild(link); }
+        link.href = s.canonical_url;
+      }
+    } catch (e) {}
+
+    // Analytics scripts (lightweight injection; avoid duplicates)
+    try {
+      // Remove existing sa-ga or sa-gtm scripts
+      const existingGa = document.getElementById('sa-ga'); if (existingGa) existingGa.remove();
+      const existingGtag = document.getElementById('sa-gtm'); if (existingGtag) existingGtag.remove();
+      if (s.google_analytics_id) {
+        const s1 = document.createElement('script'); s1.id = 'sa-ga'; s1.async = true; s1.src = `https://www.googletagmanager.com/gtag/js?id=${s.google_analytics_id}`; document.head.appendChild(s1);
+        const s2 = document.createElement('script'); s2.id = 'sa-ga-init'; s2.innerHTML = `window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js', new Date());gtag('config','${s.google_analytics_id}');`; document.head.appendChild(s2);
+      }
+      if (s.google_tag_manager_id && !s.google_analytics_id) {
+        const sGtm = document.createElement('script'); sGtm.id = 'sa-gtm'; sGtm.innerHTML = `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${s.google_tag_manager_id}');`; document.head.appendChild(sGtm);
+      }
+    } catch (e) {}
+
+    // Dispatch event so other pages can react
+    try { window.dispatchEvent(new CustomEvent('sa_seo_update', { detail: s })); } catch (e) {}
+  };
+
+  const save = () => { localStorage.setItem('sa_seo', JSON.stringify(form)); applySeo(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
   const charCount = (str, max) => ({ color: (str || '').length > max ? '#ef4444' : (str || '').length > max * 0.9 ? '#f59e0b' : 'var(--text-muted)', text: `${(str || '').length}/${max}` });
 
@@ -1200,7 +1337,13 @@ function HomepageTab() {
     ...load(),
   }));
   const [saved, setSaved] = useState(false);
-  const save = () => { localStorage.setItem('sa_homepage', JSON.stringify(form)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const applyHomepage = (h) => {
+    try { window.dispatchEvent(new CustomEvent('sa_homepage_update', { detail: h })); } catch (e) {}
+    // also update localStorage so other code can read
+    try { localStorage.setItem('sa_homepage', JSON.stringify(h)); } catch (e) {}
+  };
+
+  const save = () => { applyHomepage(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -1273,6 +1416,67 @@ function InvoicesTab({ purchases, tenants }) {
   const [settings, setSettings] = useState(() => ({ auto_send: true, auto_activate_tenant: true, from_email: 'billing@recoverlab.in', from_name: 'RecoverLab Billing', subject_template: 'Your {{plan_label}} Plan Invoice — {{invoice_number}}', body_intro: 'Thank you for subscribing to RecoverLab CRM. Please find your invoice details below.', include_pdf: true, gst_percent: 18, invoice_prefix: 'RCL-INV', company_gstin: '', ...load() }));
   const [saved, setSaved] = useState(false);
   const save = () => { localStorage.setItem('sa_invoice_settings', JSON.stringify(settings)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const [resendingId, setResendingId] = useState(null);
+  const [resendMsg, setResendMsg] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const openPdf = async (id) => {
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/super-admin/purchases/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Failed to load PDF' })); alert(err.error); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (!w) { alert('Popup blocked. Allow popups to view PDF.'); URL.revokeObjectURL(url); }
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    }
+  };
+
+  const resendInvoice = async (id) => {
+    setResendingId(id);
+    setResendMsg('');
+    try {
+      const res = await saApi.post(`/purchases/${id}/resend-invoice`);
+      if (res.error) { setResendMsg(`Error: ${res.error}`); return; }
+      setResendMsg('Resent successfully');
+    } catch (e) {
+      setResendMsg(`Error: ${e.message}`);
+    } finally {
+      setResendingId(null);
+      setTimeout(() => setResendMsg(''), 4000);
+    }
+  };
+
+  const exportAll = async () => {
+    setExporting(true);
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/super-admin/purchases/export-all`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'success' }),
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Export failed' })); alert(err.error); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.download = `Invoices_Export_${dateStr}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Export failed: ${e.message}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const invoices = purchases.filter(p => p.status === 'success').map((p, i) => ({
     ...p,
@@ -1312,7 +1516,7 @@ function InvoicesTab({ purchases, tenants }) {
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
           <div className="card-title" style={{ margin: 0 }}>📄 Generated Invoices ({invoices.length})</div>
-          {invoices.length > 0 && <button className="btn btn-secondary btn-sm" onClick={() => alert('In production: exports all invoices as ZIP with PDFs')}>Export All</button>}
+          {invoices.length > 0 && <button className="btn btn-secondary btn-sm" onClick={exportAll} disabled={exporting}>{exporting ? 'Exporting...' : 'Export All'}</button>}
         </div>
         {invoices.length === 0 ? (
           <div className="empty-state" style={{ padding: 40 }}><div className="empty-icon">📭</div><div className="empty-title">No paid subscriptions yet</div><div className="empty-desc">Invoices are auto-generated when Razorpay payment.captured webhook fires</div></div>
@@ -1332,8 +1536,9 @@ function InvoicesTab({ purchases, tenants }) {
                     <td className="text-xs text-muted">{inv.timestamp ? new Date(inv.timestamp).toLocaleDateString('en-IN') : '—'}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => alert(`[Demo] Invoice ${inv.invoice_number} PDF download\n\nSubscriber: ${inv.tenant_name}\nAmount: ₹${inv.total_with_gst.toLocaleString('en-IN')} (incl. ${settings.gst_percent}% GST)\nRazorpay ID: ${inv.razorpay_payment_id || '—'}`)}>📄 PDF</button>
-                        <button className="btn btn-sm btn-secondary" onClick={() => alert(`[Demo] Resending invoice to ${inv.tenant_email}`)}>📄 Resend</button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => openPdf(inv.id)}>📄 PDF</button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => resendInvoice(inv.id)} disabled={resendingId === inv.id}>{resendingId === inv.id ? 'Sending...' : '📄 Resend'}</button>
+                        {resendMsg && resendingId === null && <span style={{ fontSize: '0.7rem', color: resendMsg.includes('Error') ? '#ef4444' : '#22c55e', alignSelf: 'center' }}>{resendMsg}</span>}
                       </div>
                     </td>
                   </tr>
@@ -1682,7 +1887,7 @@ function ActivityLogsTab() {
 
       <div style={{ display: 'grid', gap: 8 }}>
         {!logsLoading && logs.map(log => (
-          <div key={log.id} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderLeft: `4px solid ${SEV_COLORS[log.severity]}`, borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
+          <div key={log.id} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
             <div style={{ minWidth: 12, display: 'flex', alignItems: 'flex-start', paddingTop: 2 }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: SEV_COLORS[log.severity] }} />
             </div>
@@ -1711,7 +1916,7 @@ function ActivityLogsTab() {
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
               {userLogs.map(l => (
-                <div key={l.id || l.request_id || Math.random()} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderLeft: `4px solid ${SEV_COLORS[l.severity || 'info']}`, borderRadius: 'var(--radius-md)' }}>
+                <div key={l.id || l.request_id || Math.random()} className="sa-activity-card" style={{ display: 'flex', gap: 14, padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700 }}>{l.action || l.title}</div>
                     <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>{l.description || l.detail || l.title}</div>
@@ -1828,12 +2033,11 @@ function PlatformTab() {
 }
 
 // ── Stat Card (Premium) ────────────────────────────────────────────────────
-function StatCard({ icon, label, value, sub, color }) {
+function StatCard({ label, value, sub, color }) {
   const isNumeric = typeof value === 'number' || /^[₹\d,.\s]+$/.test(String(value));
   return (
     <div className="sa-stat-card" style={{ '--sa-stat-color': color }}>
       <div className="sa-stat-glow" style={{ background: color }} />
-      <div className="sa-stat-icon" style={{ color }}>{icon}</div>
       <div className="sa-stat-label">{label}</div>
       <div className={`sa-stat-value${isNumeric ? ' sa-stat-numeric' : ''}`}>{value}</div>
       {sub && <div className="sa-stat-sub">{sub}</div>}
@@ -1845,13 +2049,33 @@ function StatCard({ icon, label, value, sub, color }) {
 function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
   const plans = getPlans();
   const SEV_COLORS = { success:'#10b981', info:'var(--accent-primary)', warn:'#f59e0b', danger:'#ef4444' };
-  const recentActivity = [
-    { action:'TENANT_CREATED', detail:'Created tenant "DataRescue Mumbai"',  severity:'info',    at: new Date(Date.now()-3600000).toISOString() },
-    { action:'PAYMENT_RECEIVED', detail:'Payment ₹2,499 received from "HardDrive Pros"', severity:'success', at: new Date(Date.now()-43200000).toISOString() },
-    { action:'PLAN_CHANGED', detail:'Changed plan for "TechLab Delhi" → Professional', severity:'warn', at: new Date(Date.now()-86400000).toISOString() },
-    { action:'TENANT_SUSPENDED', detail:'Suspended "OldLab Chennai" (non-payment)', severity:'danger', at: new Date(Date.now()-172800000).toISOString() },
-    { action:'BRANDING_UPDATED', detail:'Platform branding settings updated', severity:'info', at: new Date(Date.now()-259200000).toISOString() },
-  ];
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setActivityLoading(true);
+    saApi.get('/dashboard/recent-activity').then(data => {
+      if (cancelled) return;
+      const activities = (data.activities || []).map(a => {
+        const actionUpper = (a.action || '').toUpperCase();
+        let severity = 'info';
+        if (/create|add|new/i.test(actionUpper)) severity = 'success';
+        else if (/update|edit|change|modify/i.test(actionUpper)) severity = 'info';
+        else if (/delete|remove|suspend|cancel|expire/i.test(actionUpper)) severity = 'danger';
+        else if (/payment|paid|revenue|invoice/i.test(actionUpper)) severity = 'success';
+        return {
+          action: a.action,
+          detail: a.description || a.title,
+          user_name: a.user_name,
+          severity,
+          at: a.created_at,
+        };
+      });
+      setRecentActivity(activities);
+      setActivityLoading(false);
+    }).catch(() => { if (!cancelled) setActivityLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
   const health = [
     { label:'API Server',        status:'operational' },
     { label:'Database',          status:'operational' },
@@ -1918,13 +2142,17 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
               Recent Activity
             </div>
-            {recentActivity.map((log, i) => (
+            {activityLoading ? (
+              <div style={{ padding: '20px 0', textAlign: 'center' }}><div className="spinner" style={{ width: 20, height: 20, margin: '0 auto' }} /></div>
+            ) : recentActivity.length === 0 ? (
+              <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>No recent activity</div>
+            ) : recentActivity.map((log, i) => (
               <div key={i} className="sa-activity-item">
                 <div className="sa-activity-dot" style={{ background: SEV_COLORS[log.severity] }} />
                 <div style={{ flex: 1 }}>
                   <span className="sa-activity-action" style={{ background: `${SEV_COLORS[log.severity]}18`, color: SEV_COLORS[log.severity] }}>{log.action}</span>
                   <div className="sa-activity-detail">{log.detail}</div>
-                  <div className="sa-activity-time">{timeAgo(log.at)}</div>
+                  <div className="sa-activity-time">{log.user_name} · {timeAgo(log.at)}</div>
                 </div>
               </div>
             ))}
@@ -1984,24 +2212,50 @@ function EmailDeliverabilityTab() {
   const [cfg, setCfg] = useState(loadCfg);
   const [saved, setSaved] = useState(false);
   const [testEmail, setTestEmail] = useState('');
-  const [testStatus, setTestStatus] = useState(null); // null | 'testing' | 'ok' | 'error'
+  const [testStatus, setTestStatus] = useState(null);
   const [testMsg, setTestMsg] = useState('');
+
+  // Fetch Super Admin SMTP config from backend on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        const res = await fetch('/api/settings/smtp/super-admin', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data && data.host) {
+          setCfg(c => ({
+            ...c,
+            smtp_host: data.host || '',
+            smtp_port: data.port || 587,
+            smtp_user: data.user || '',
+            smtp_pass: '',
+            smtp_from_email: data.from_email || '',
+            smtp_from_name: data.from_name || 'RecoverLab CRM',
+          }));
+        }
+      } catch {}
+    })();
+  }, []);
   const [tab, setTab] = useState('smtp');
 
   const save = async () => {
     localStorage.setItem('sa_email_config', JSON.stringify(cfg));
-    // Sync SMTP fields to backend COMPANY_SETTINGS
+    // Save to Super Admin SMTP config endpoint (separate from Admin/Company SMTP)
     try {
-      await fetch('/api/settings', {
+      const token = localStorage.getItem('accessToken');
+      await fetch('/api/settings/smtp/super-admin', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          smtp_host: cfg.smtp_host,
-          smtp_port: Number(cfg.smtp_port) || 587,
-          smtp_user: cfg.smtp_user,
-          ...(cfg.smtp_pass ? { smtp_password: cfg.smtp_pass } : {}),
-          smtp_from_name: cfg.smtp_from_name,
-          smtp_from_email: cfg.smtp_from_email,
+          host: cfg.smtp_host,
+          port: Number(cfg.smtp_port) || 587,
+          user: cfg.smtp_user,
+          ...(cfg.smtp_pass ? { password: cfg.smtp_pass } : {}),
+          from_name: cfg.smtp_from_name,
+          from_email: cfg.smtp_from_email,
         }),
       });
     } catch {}
@@ -2013,9 +2267,10 @@ function EmailDeliverabilityTab() {
     await save();
     setTestStatus('testing'); setTestMsg('');
     try {
-      const res = await fetch('/api/settings/smtp/test', {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch('/api/settings/smtp/super-admin/test', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ test_to: testEmail }),
       });
       const data = await res.json();
@@ -2286,11 +2541,17 @@ export default function SuperAdminPage() {
     loadPurchases();
   }, [loadPurchases]);
 
-  const handleImpersonate = (tenant) => {
-    sessionStorage.setItem('impersonating_as', tenant.company_name);
-    sessionStorage.setItem('impersonating_tenant_id', tenant.id);
-    alert(`Now viewing as: ${tenant.company_name}\n\nYou'll see their CRM data. Click "Exit" in the banner to return.`);
-    navigate('/');
+  const handleImpersonate = async (tenant) => {
+    try {
+      const res = await saApi.post(`/login-as/${tenant.id}`);
+      if (res.error) { alert(res.error); return; }
+      if (!res.token) { alert('Failed to get access token'); return; }
+      sessionStorage.setItem('accessTokenOverride', res.token);
+      const url = `${window.location.origin}/`;
+      window.open(url, '_blank');
+    } catch (e) {
+      alert('Impersonation failed: ' + (e.message || 'Unknown error'));
+    }
   };
 
   const handleToggle = async (tenant) => {
@@ -2385,7 +2646,7 @@ export default function SuperAdminPage() {
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
 
   return (
-    <div>
+    <div className="super-admin-layout">
       {/* ═══ Hero Header ═══ */}
       <div className="sa-hero">
         <div className="sa-hero-inner">
@@ -2554,7 +2815,7 @@ export default function SuperAdminPage() {
             ], [
               '', 'Total Revenue', fmtAmt(allPurchases.filter(p => p.status === 'success').reduce((s, p) => s + (p.amount || 0), 0)), '#8b5cf6',
             ]].map(([icon, label, val, color]) => (
-              <div key={label} className="card" style={{ borderLeft: `3px solid ${color}`, padding: '12px 16px' }}>
+              <div key={label} className="card" style={{ padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
                 <div style={{ fontSize: '1.4rem' }}>{icon}</div>
                 <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>{val}</div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 2 }}>{label}</div>
@@ -2664,6 +2925,13 @@ export default function SuperAdminPage() {
 
       {/* ── Email Deliverability Tab ──────────────────────────────────────────── */}
       {activeTab === 'email_delivery' && <EmailDeliverabilityTab />}
+
+      {/* Automation Center Tab */}
+      {activeTab === 'automation' && (
+        <React.Suspense fallback={<div className="spinner" style={{ width: 40, height: 40 }} /> }>
+          <SuperAdminAutomation />
+        </React.Suspense>
+      )}
 
       </div>{/* end sa-main */}
 

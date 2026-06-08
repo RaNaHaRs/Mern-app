@@ -4,6 +4,8 @@ const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const { isSuperAdmin, tenantCreatedByInUserScope, tenantAdminId } = require('../utils/tenantAccess');
+const { loadAdminSmtpConfig } = require('../services/invoiceService');
+const nodemailer = require('nodemailer');
 const logger = require('../config/logger');
 
 const router = express.Router();
@@ -416,12 +418,22 @@ router.post('/campaigns', async (req, res) => {
     
     // Count audience
     let audienceCount = 0;
+    let af = {};
+    try { af = typeof audience_filter === 'string' ? JSON.parse(audience_filter) : (audience_filter || {}); } catch(e) {}
+    const afClientIds = af?.client_ids;
     try {
-      const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 1) : null;
-      const clientQ = await query(
-        `SELECT COUNT(*) as cnt FROM clients ${tenantCondition ? `WHERE ${tenantCondition.clause}` : ''}`,
-        tenantCondition ? tenantCondition.params : []
-      );
+      let cntSql = `SELECT COUNT(*) as cnt FROM clients`;
+      let cntParams = [];
+      if (!isSuperAdmin(req.user)) {
+        const tc = tenantCreatedByInUserScope(req.user, cntParams.length + 1);
+        cntSql += ` WHERE ${tc.clause}`;
+        cntParams = tc.params;
+      }
+      if (Array.isArray(afClientIds) && afClientIds.length > 0) {
+        cntSql += `${cntParams.length === 0 ? ' WHERE' : ' AND'} id = ANY($${cntParams.length + 1}::uuid[])`;
+        cntParams.push(afClientIds);
+      }
+      const clientQ = await query(cntSql, cntParams);
       audienceCount = parseInt(clientQ.rows[0]?.cnt || 0);
     } catch(e) {}
 
@@ -466,62 +478,116 @@ router.put('/campaigns/:id', async (req, res) => {
 // POST /api/marketing/campaigns/:id/send  — launch campaign
 router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async (req, res) => {
   try {
-    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2) : null;
+    const tenantCondition = !isSuperAdmin(req.user) ? tenantCreatedByInUserScope(req.user, 2, 'c') : null;
     const camp = await query(
-      `SELECT * FROM marketing_campaigns WHERE id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
+      `SELECT c.*, et.html_body, et.subject as tpl_subject
+       FROM marketing_campaigns c
+       LEFT JOIN marketing_email_templates et ON et.id=c.email_template_id
+       WHERE c.id=$1${tenantCondition ? ` AND ${tenantCondition.clause}` : ''}`,
       tenantCondition ? [req.params.id, ...tenantCondition.params] : [req.params.id]
     );
     if (!camp.rows.length) return res.status(404).json({ error: 'Campaign not found' });
     const c = camp.rows[0];
     if (c.status === 'sent' || c.status === 'sending') return res.status(400).json({ error: 'Campaign already launched' });
 
-    // Mark as sending
     await query(`UPDATE marketing_campaigns SET status='sending', sent_at=NOW() WHERE id=$1`, [c.id]);
 
-    // Fetch audience (all clients with email/phone)
+    // Load SMTP config for email campaigns
+    let transporter = null;
+    let smtpFrom = {};
+    if (c.type === 'email') {
+      const smtp = await loadAdminSmtpConfig();
+      smtpFrom = { name: c.from_name || smtp.from_name || 'RecoverLab CRM', email: c.from_email || smtp.from_email || smtp.user };
+      transporter = nodemailer.createTransport({
+        host: smtp.host, port: smtp.port, secure: smtp.secure,
+        auth: { user: smtp.user, pass: smtp.pass },
+        tls: { rejectUnauthorized: false },
+      });
+    }
+
+    // Fetch audience
+    let audienceFilter = {};
+    try { audienceFilter = typeof c.audience_filter === 'string' ? JSON.parse(c.audience_filter) : (c.audience_filter || {}); } catch(e) {}
+    const clientIds = audienceFilter?.client_ids;
     let audienceQuery = `SELECT id, CONCAT_WS(' ', first_name, last_name) AS full_name, email, phone, company AS company_name FROM clients WHERE 1=1`;
     let audienceParams = [];
     if (!isSuperAdmin(req.user)) {
-      const tenantCondition = tenantCreatedByInUserScope(req.user, 1);
-      audienceQuery += ` AND ${tenantCondition.clause}`;
-      audienceParams = tenantCondition.params;
+      const tc = tenantCreatedByInUserScope(req.user, audienceParams.length + 1);
+      audienceQuery += ` AND ${tc.clause}`;
+      audienceParams = tc.params;
+    }
+    if (Array.isArray(clientIds) && clientIds.length > 0) {
+      audienceQuery += ` AND id = ANY($${audienceParams.length + 1}::uuid[])`;
+      audienceParams.push(clientIds);
     }
     const audience = await query(audienceQuery, audienceParams);
 
-    // Build recipient list
-    let inserted = 0;
+    let sent = 0, failed = 0;
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+
     for (const client of audience.rows) {
       if (c.type === 'email' && !client.email) continue;
-      if (c.type === 'whatsapp' && !client.phone) continue;
-      if (c.type === 'sms' && !client.phone) continue;
+      if (c.type !== 'email') continue; // only email for now
 
-      // Check unsubscribe list
+      // Check unsubscribe
       const unsub = await query(
         `SELECT id FROM marketing_unsubscribes
-         WHERE (email=$1 OR phone=$2)${!isSuperAdmin(req.user) ? ' AND tenant_id = $3' : ''}`,
-        !isSuperAdmin(req.user) ? [client.email, client.phone, currentTenantId(req.user)] : [client.email, client.phone]
+         WHERE (email=$1)${!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''}`,
+        !isSuperAdmin(req.user) ? [client.email, currentTenantId(req.user)] : [client.email]
       );
       if (unsub.rows.length) continue;
 
-      await query(
-        `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, personalization, tenant_id)
-         VALUES ($1,$2,$3,$4,$5,'queued',$6,$7)
-         ON CONFLICT DO NOTHING`,
-        [c.id, client.id, client.email, client.phone, client.full_name,
-         JSON.stringify({ name: client.full_name, company: client.company_name, email: client.email }),
-         c.tenant_id || currentTenantId(req.user)]
-      );
-      inserted++;
+      const personalization = { name: client.full_name, company: client.company_name, email: client.email };
+
+      try {
+        const subject = personalizeContent(c.subject_line || c.tpl_subject || '', personalization);
+        const htmlBody = personalizeContent(c.html_body || '', personalization);
+        const unsubscribeLink = `${baseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(client.email)}&campaign_id=${c.id}`;
+        const email = buildInboxFriendlyEmail({
+          subject,
+          htmlBody,
+          fromName: smtpFrom.name,
+          fromEmail: smtpFrom.email,
+          unsubscribeLink,
+          campaignId: `c${c.id}`,
+          recipientEmail: client.email,
+        });
+
+        await transporter.sendMail({
+          from: `"${smtpFrom.name}" <${smtpFrom.email}>`,
+          to: client.email,
+          subject: email.headers?.['X-Campaign-ID'] ? subject : subject,
+          html: email.html,
+          text: email.text,
+          headers: email.headers,
+        });
+
+        await query(
+          `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, sent_at, personalization, tenant_id)
+           VALUES ($1,$2,$3,$4,$5,'sent',NOW(),$6,$7) ON CONFLICT DO NOTHING`,
+          [c.id, client.id, client.email, client.phone, client.full_name,
+           JSON.stringify(personalization), c.tenant_id || currentTenantId(req.user)]
+        );
+        sent++;
+      } catch (err) {
+        logger.error(`Campaign ${c.id} send failed for ${client.email}: ${err.message}`);
+        await query(
+          `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, bounce_reason, personalization, tenant_id)
+           VALUES ($1,$2,$3,$4,$5,'failed',$6,$7,$8) ON CONFLICT DO NOTHING`,
+          [c.id, client.id, client.email, client.phone, client.full_name,
+           err.message, JSON.stringify(personalization), c.tenant_id || currentTenantId(req.user)]
+        );
+        failed++;
+      }
     }
 
-    // Update campaign stats
     await query(
-      `UPDATE marketing_campaigns SET status='sent', total_sent=$1, completed_at=NOW(), audience_count=$1 WHERE id=$2`,
-      [inserted, c.id]
+      `UPDATE marketing_campaigns SET status='sent', total_sent=($1::int), total_bounced=($2::int), completed_at=NOW(), audience_count=($1::int + $2::int) WHERE id=$3`,
+      [sent, failed, c.id]
     );
 
-    logger.info(`Campaign ${c.id} sent to ${inserted} recipients`);
-    res.json({ success: true, sent: inserted, campaignId: c.id });
+    logger.info(`Campaign ${c.id}: ${sent} sent, ${failed} failed`);
+    res.json({ success: true, sent, failed, campaignId: c.id });
   } catch (err) {
     await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [req.params.id]).catch(() => {});
     res.status(500).json({ error: err.message });
@@ -546,16 +612,33 @@ router.post('/campaigns/:id/send-test', async (req, res) => {
     
     if (c.type === 'email' && c.html_body) {
       const personalized = personalizeContent(c.html_body, test_variables || { name: 'Test User', email: test_email });
+      const smtp = await loadAdminSmtpConfig();
+      const smtpFrom = { name: c.from_name || smtp.from_name || 'RecoverLab CRM', email: c.from_email || smtp.from_email || smtp.user };
+      const transporter = nodemailer.createTransport({
+        host: smtp.host, port: smtp.port, secure: smtp.secure,
+        auth: { user: smtp.user, pass: smtp.pass },
+        tls: { rejectUnauthorized: false },
+      });
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const unsubscribeLink = `${baseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(test_email)}&campaign_id=${c.id}`;
       const email = buildInboxFriendlyEmail({
         subject: personalizeContent(c.subject_line || c.tpl_subject || 'Test Email', test_variables || {}),
         htmlBody: personalized,
-        fromName: c.from_name || 'RecoverLab CRM',
-        fromEmail: c.from_email || 'noreply@recoverlab.com',
-        unsubscribeLink: 'https://yourdomain.com/unsubscribe?token=test',
+        fromName: smtpFrom.name,
+        fromEmail: smtpFrom.email,
+        unsubscribeLink,
         campaignId: `test-${c.id}`,
+        recipientEmail: test_email,
       });
-      // In production: send via nodemailer/sendgrid
-      res.json({ success: true, message: `Test email would be sent to ${test_email}`, preview: email.html.substring(0, 500) });
+      await transporter.sendMail({
+        from: `"${smtpFrom.name}" <${smtpFrom.email}>`,
+        to: test_email,
+        subject: c.subject_line || c.tpl_subject || 'Test Email',
+        html: email.html,
+        text: email.text,
+        headers: email.headers,
+      });
+      res.json({ success: true, message: `Test email sent to ${test_email}` });
     } else if (c.type === 'whatsapp' && c.message_body) {
       const message = personalizeContent(c.message_body, test_variables || { name: 'Test User' });
       res.json({ success: true, message: `Test WhatsApp would be sent to ${test_phone}`, preview: message });

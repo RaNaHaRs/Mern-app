@@ -272,25 +272,7 @@
   border-color: var(--border-strong) !important;
 }
 
-.super-admin-layout .sa-stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--sa-stat-color, var(--sa-accent-primary));
-  border-radius: 8px 8px 0 0;
-}
 
-.super-admin-layout .sa-stat-glow {
-  position: absolute;
-  top: -20px; right: -20px;
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: var(--sa-stat-color, var(--sa-accent-primary));
-  opacity: 0.05;
-  filter: blur(18px);
-}
 
 .super-admin-layout .sa-stat-icon {
   width: 36px;
@@ -713,7 +695,7 @@
 }
 
 .sa-chat-container .sa-chat-header {
-  border-bottom: 2px solid rgba(0, 150, 136, 0.12) !important;
+  border-bottom: 1px solid var(--border-subtle) !important;
 }
 
 .sa-chat-container .sa-chat-unread-badge {

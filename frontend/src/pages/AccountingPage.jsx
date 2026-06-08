@@ -378,7 +378,9 @@ export default function AccountingPage() {
   const totalExpensesValue = getSummaryNumber('total_expenses', 'totalExpenses', 'expenses', 'total_expenses');
   const casePendingValue = getSummaryNumber('pendingRevenue', 'pending_revenue', 'case_total_pending', 'caseTotalPending');
   const overdueValue = getSummaryNumber('case_total_pending_overdue', 'overdueRevenue', 'overdue_revenue');
-  const netProfitValue = getSummaryNumber('netProfit', 'net_profit') || totalRevenueValue - totalExpensesValue;
+  const monthlyRevenueValue = getSummaryNumber('revenue_month', 'revenueMonth');
+  const netRevenueValue = totalRevenueValue - totalExpensesValue;
+  const profitMarginPercent = totalRevenueValue > 0 ? (netRevenueValue / totalRevenueValue) * 100 : 0;
   // Modals
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [pdfInvoice, setPdfInvoice] = useState(null);
@@ -467,11 +469,11 @@ export default function AccountingPage() {
           {/* KPI Cards */}
           <div className="stats-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(5, minmax(180px, 1fr))', overflowX: 'auto' }}>
             {[
-              { icon: '', label: 'Total Revenue', value: fmt(totalRevenueValue), color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
+              { icon: '', label: `${new Date().toLocaleString('en-US', { month: 'long' })} Revenue`, value: fmt(monthlyRevenueValue), color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
+              { icon: '', label: 'Total Revenue (Net)', value: `${fmt(netRevenueValue)} (${profitMarginPercent >= 0 ? '+' : ''}${profitMarginPercent.toFixed(1)}%)`, color: netRevenueValue >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: netRevenueValue >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
               { icon: '', label: 'Pending Amount', value: fmt(casePendingValue), color: 'var(--status-warning)', bg: 'rgba(245,158,11,0.1)' },
               { icon: '', label: 'Overdue (30+ days)', value: fmt(overdueValue), color: 'var(--status-danger)', bg: 'rgba(239,68,68,0.1)' },
               { icon: '', label: 'Total Expenses', value: fmt(totalExpensesValue), color: '#f472b6', bg: 'rgba(236,72,153,0.1)' },
-              { icon: '', label: 'Net Profit', value: fmt(netProfitValue), color: netProfitValue >= 0 ? 'var(--status-success)' : 'var(--status-danger)', bg: netProfitValue >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' },
             ].map(stat => (
               <div key={stat.label} className="stat-card" style={{ '--stat-color': stat.color, '--stat-bg': stat.bg }}>
                 <div className="stat-icon">{stat.icon}</div>

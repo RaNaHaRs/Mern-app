@@ -5,16 +5,20 @@ const { query } = require('../config/database');
  * Automatically matches donor drives based on model, firmware, PCB compatibility
  */
 
-async function findDonors(storageModelId, options = {}) {
+async function findDonors(storageModelId, options = {}, tenantId = null) {
   const { limit = 10, minScore = 30 } = options;
+
+  const tenantJoin = tenantId
+    ? ` AND COALESCE(sm.tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = sm.created_by)) = $2`
+    : '';
 
   // Get the target model's details
   const modelResult = await query(
     `SELECT sm.*, sb.name as brand_name 
      FROM storage_models sm
      JOIN storage_brands sb ON sm.brand_id = sb.id
-     WHERE sm.id = $1`,
-    [storageModelId]
+     WHERE sm.id = $1${tenantJoin}`,
+    tenantId ? [storageModelId, tenantId] : [storageModelId]
   );
 
   if (!modelResult.rows.length) {
@@ -24,6 +28,12 @@ async function findDonors(storageModelId, options = {}) {
   const targetModel = modelResult.rows[0];
 
   // Find donors from database donor_matching table
+  const donorTenantJoin = tenantId
+    ? `AND COALESCE(dm.tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = dm.created_by)) = $4
+      AND COALESCE(sm.tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = sm.created_by)) = $4
+      AND (ii.tenant_id IS NULL OR ii.tenant_id = $4)`
+    : '';
+
   const dbDonors = await query(
     `SELECT dm.*, 
             sm.model_number, sm.series, sm.capacity_gb, sm.controller_chip,
@@ -36,13 +46,17 @@ async function findDonors(storageModelId, options = {}) {
      JOIN storage_brands sb ON sm.brand_id = sb.id
      LEFT JOIN inventory_items ii ON ii.storage_model_id = sm.id 
           AND ii.category = 'donor_drive' AND ii.is_available = true
-     WHERE dm.model_id = $1 AND dm.compatibility_score >= $2
+     WHERE dm.model_id = $1 AND dm.compatibility_score >= $2${donorTenantJoin}
      ORDER BY dm.compatibility_score DESC, ii.quantity DESC NULLS LAST
      LIMIT $3`,
-    [storageModelId, minScore, limit]
+    tenantId
+      ? [storageModelId, minScore, limit, tenantId]
+      : [storageModelId, minScore, limit]
   );
 
   // Also find inventory donors by matching specs directly
+  const invTenantJoin = tenantId ? ` AND ii.tenant_id = $7` : '';
+
   const inventoryDonors = await query(
     `SELECT ii.*, sm.model_number, sm.series, sm.capacity_gb, 
             sm.controller_chip, sm.pcb_number, sm.firmware_family,
@@ -58,21 +72,31 @@ async function findDonors(storageModelId, options = {}) {
          sm.capacity_gb = $2 OR
          sm.pcb_number = $3 OR
          sm.firmware_family = $4
-       )
+       )${invTenantJoin}
      ORDER BY 
        (CASE WHEN sm.model_number = $5 THEN 100 ELSE 0 END) +
        (CASE WHEN sm.pcb_number = $3 THEN 40 ELSE 0 END) +
        (CASE WHEN sm.firmware_family = $4 THEN 30 ELSE 0 END) +
        (CASE WHEN sm.capacity_gb = $2 THEN 20 ELSE 0 END) DESC
      LIMIT $6`,
-    [
-      targetModel.brand_id,
-      targetModel.capacity_gb,
-      targetModel.pcb_number,
-      targetModel.firmware_family,
-      targetModel.model_number,
-      limit
-    ]
+    tenantId
+      ? [
+          targetModel.brand_id,
+          targetModel.capacity_gb,
+          targetModel.pcb_number,
+          targetModel.firmware_family,
+          targetModel.model_number,
+          limit,
+          tenantId
+        ]
+      : [
+          targetModel.brand_id,
+          targetModel.capacity_gb,
+          targetModel.pcb_number,
+          targetModel.firmware_family,
+          targetModel.model_number,
+          limit
+        ]
   );
 
   // Score and merge results
@@ -352,7 +376,7 @@ function matchCaseWithInventory(caseDrive, stockDrive) {
 /**
  * FETCH AND COMPUTE ALL DONOR MATCHES FOR ACTIVE CASES
  */
-async function getAllDonorMatches(options = {}) {
+async function getAllDonorMatches(options = {}, tenantId = null) {
   const { minScore = 30, brandFilter = null, topCount = 6 } = options;
   const normalizedBrandFilter = brandFilter ? String(brandFilter).trim().toLowerCase() : null;
 
@@ -366,6 +390,14 @@ async function getAllDonorMatches(options = {}) {
     return null;
   };
 
+  const tenantCondCases = tenantId
+    ? ` AND COALESCE(c.tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = c.created_by), (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u JOIN clients cl2 ON cl2.created_by = u.id WHERE cl2.id = c.client_id)) = $1`
+    : '';
+  const tenantCondInventory = tenantId ? ` AND ii.tenant_id = $1` : '';
+  const tenantCondDonorDrive = tenantId
+    ? ` AND COALESCE(tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = created_by)) = $1`
+    : '';
+
   // 1. Fetch all cases
   const casesResult = await query(
     `SELECT c.id, c.case_number, c.device_brand, c.device_model, c.serial_number, c.capacity_gb, c.interface, c.form_factor, c.stage,
@@ -375,13 +407,14 @@ async function getAllDonorMatches(options = {}) {
      FROM cases c
      LEFT JOIN storage_models sm ON c.storage_model_id = sm.id
      LEFT JOIN clients cl ON c.client_id = cl.id
-     WHERE c.stage NOT IN ('completed', 'delivered', 'failed')
-     ORDER BY c.case_number DESC`
+     WHERE c.stage NOT IN ('completed', 'delivered', 'failed')${tenantCondCases}
+     ORDER BY c.case_number DESC`,
+    tenantId ? [tenantId] : []
   );
 
   const cases = casesResult.rows;
 
-  // 2. Fetch case custom fields to extract extras like ssd_number or manual fields
+  // 2. Fetch case custom fields
   const customFieldsResult = await query(
     `SELECT ccfv.case_id, cf.field_key, ccfv.field_value
      FROM case_custom_field_values ccfv
@@ -399,7 +432,6 @@ async function getAllDonorMatches(options = {}) {
   // Attach custom fields to cases
   cases.forEach(c => {
     c.customFields = caseCustomFieldsMap[c.id] || {};
-    // Extract manual standard fields if filled via custom field schema
     c.pcb_number = c.customFields.pcb_number || c.sm_pcb_number || null;
     c.firmware = c.customFields.firmware || c.sm_firmware_family || null;
     c.site_code = c.customFields.site_code || null;
@@ -413,15 +445,19 @@ async function getAllDonorMatches(options = {}) {
             sm.controller_chip as sm_controller_chip, sm.platter_count as sm_platter_count
      FROM inventory_items ii
      LEFT JOIN storage_models sm ON ii.storage_model_id = sm.id
-     WHERE ii.deleted_at IS NULL AND ii.is_available = true AND ii.quantity > 0`
+     WHERE ii.deleted_at IS NULL AND ii.is_available = true AND ii.quantity > 0${tenantCondInventory}`,
+    tenantId ? [tenantId] : []
   );
 
   const stockItems = stockResult.rows;
 
-  // 4. Also fetch any legacy donor drives from the donor_drive table for completeness
+  // 4. Also fetch any legacy donor drives
   let donorDriveItems = [];
   try {
-    const ddResult = await query(`SELECT * FROM donor_drive WHERE status = 'available' AND quantity > 0`);
+    const ddResult = await query(
+      `SELECT * FROM donor_drive WHERE status = 'available' AND quantity > 0${tenantCondDonorDrive}`,
+      tenantId ? [tenantId] : []
+    );
     donorDriveItems = ddResult.rows;
   } catch (err) {
     // donor_drive table might not be active, ignore
@@ -503,7 +539,6 @@ async function getAllDonorMatches(options = {}) {
     });
 
     if (donorMatches.length > 0) {
-      // Sort matches by score descending
       donorMatches.sort((a, b) => b.score - a.score);
 
       caseMatches.push({

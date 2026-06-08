@@ -6,6 +6,8 @@ import React, {
   useCallback,
 } from "react";
 import { openPrintPreviewWindow } from "../utils/printPreview";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 // Simple ErrorBoundary to avoid leaving a blank/black overlay if a render
 // error occurs inside the modal. Shows a friendly message and Close button.
@@ -86,6 +88,52 @@ function getFieldConfig() {
   } catch {
     return {};
   }
+}
+
+/**
+ * Check if a case field is required based on field configuration.
+ * Returns true if field should show asterisk and be validated.
+ * @param {string} fieldKey - Field identifier (e.g., 'client_name', 'received_at', 'hdd_type')
+ * @returns {boolean}
+ */
+function isCaseFieldRequired(fieldKey) {
+  try {
+    const config = getFieldConfig();
+    // Check if field has explicit status in case_fields config
+    const status = config?.case_fields?.[fieldKey];
+    if (status) {
+      return status === 'required' || status === 'mandatory';
+    }
+    // Default required fields for case creation (backwards compatible)
+    const defaultRequired = [
+      'client_name',
+      'client_id',
+      'received_at',
+      'deadline_at',
+      'priority',
+      'reminder_days',
+      'assigned_engineer',
+      'hdd_type',
+      'case_number',
+      'interface',
+      'failure_types',
+      'symptoms',
+      'problem_description',
+    ];
+    return defaultRequired.includes(fieldKey);
+  } catch {
+    return true; // Fail safe: show as required if config read fails
+  }
+}
+
+/**
+ * Render required indicator (*) if field is required
+ * @param {string} fieldKey - Field identifier
+ * @returns {JSX.Element|null}
+ */
+function RequiredIndicator({ fieldKey }) {
+  if (!isCaseFieldRequired(fieldKey)) return null;
+  return <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>;
 }
 
 function getCaseSettingsList(caseSettings, key, fallback) {
@@ -319,7 +367,7 @@ const FAILURE_TYPES = [
 ];
 
 //  Inward Print (exported so CasesPage can use too) 
-export function printInwardForm(caseData, template = "standard") {
+function buildInwardFormHtml(caseData, template = "standard") {
   const co = (() => {
     try {
       return JSON.parse(
@@ -544,6 +592,58 @@ export function printInwardForm(caseData, template = "standard") {
 </body></html>`;
 
   openPrintPreviewWindow(html);
+}
+
+export function printInwardForm(caseData, template = "standard") {
+  const html = buildInwardFormHtml(caseData, template);
+  openPrintPreviewWindow(html);
+}
+
+async function generateInwardPdfBlob(caseData, template = "standard") {
+  const html = buildInwardFormHtml(caseData, template);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.left = '-9999px';
+  iframe.style.top = '-9999px';
+  iframe.style.width = '794px';
+  iframe.style.height = '1123px';
+  iframe.style.visibility = 'hidden';
+  document.body.appendChild(iframe);
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      if (iframe && iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+
+    iframe.onload = async () => {
+      try {
+        const body = iframe.contentDocument.body;
+        const canvas = await html2canvas(body, { scale: 2, useCORS: true });
+        const imgData = canvas.toDataURL('image/png');
+        const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation: 'portrait' });
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const imgProps = doc.getImageProperties(imgData);
+        const ratio = Math.min(pageWidth / imgProps.width, pageHeight / imgProps.height);
+        const imgWidth = imgProps.width * ratio;
+        const imgHeight = imgProps.height * ratio;
+
+        doc.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+        let blob = doc.output('blob');
+        if (!blob) {
+          const arrayBuffer = doc.output('arraybuffer');
+          blob = new Blob([arrayBuffer], { type: 'application/pdf' });
+        }
+        cleanup();
+        resolve(blob);
+      } catch (err) {
+        cleanup();
+        reject(err);
+      }
+    };
+
+    iframe.srcdoc = html;
+  });
 }
 
 //  Step indicator 
@@ -851,7 +951,7 @@ function NewClientForm({ onCreated, onCancel }) {
     <div className="form-group" style={{ margin: 0 }}>
       <label className="form-label" style={{ fontSize: "0.72rem" }}>
         {label}
-        {req && <span style={{ color: "var(--danger)" }}>*</span>}
+        {req && <RequiredIndicator fieldKey={`client_${key}`} />}
       </label>
       <input
         type={type}
@@ -941,7 +1041,7 @@ function StepClient({
         <>
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">
-              Search Existing Client <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+              Search Existing Client <RequiredIndicator fieldKey="client_id" />
             </label>
             <input
               className="form-input"
@@ -1091,7 +1191,7 @@ function StepClient({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">
-            Received At <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            Received At <RequiredIndicator fieldKey="received_at" />
           </label>
           <input
             type="datetime-local"
@@ -1108,7 +1208,7 @@ function StepClient({
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">
-            Deadline / SLA <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            Deadline / SLA <RequiredIndicator fieldKey="deadline_at" />
           </label>
           <input
             type="datetime-local"
@@ -1134,7 +1234,7 @@ function StepClient({
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">
-            Priority <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            Priority <RequiredIndicator fieldKey="priority" />
           </label>
           <select
             className="form-select"
@@ -1156,7 +1256,7 @@ function StepClient({
         </div>
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">
-            Stale Reminder (days) <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            Stale Reminder (days) <RequiredIndicator fieldKey="reminder_days" />
           </label>
           <input
             type="number"
@@ -1175,7 +1275,7 @@ function StepClient({
         </div>
         <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
           <label className="form-label">
-            Assigned Engineer <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            Assigned Engineer <RequiredIndicator fieldKey="assigned_engineer" />
           </label>
           <select
             className="form-select"
@@ -1217,9 +1317,9 @@ function StepDevice({ form, setForm, capacities, stepErrors, caseSettings, hddTy
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label required">
+          <label className="form-label">
             HDD / Device Type
-            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            <RequiredIndicator fieldKey="hdd_type" />
           </label>
           <select
             className="form-select"
@@ -1242,9 +1342,9 @@ function StepDevice({ form, setForm, capacities, stepErrors, caseSettings, hddTy
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label required">
+          <label className="form-label">
             Case Number (Manual)
-            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            <RequiredIndicator fieldKey="case_number" />
           </label>
           <input
             className="form-input"
@@ -1299,9 +1399,9 @@ function StepDevice({ form, setForm, capacities, stepErrors, caseSettings, hddTy
           )}
         </div>
         <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label required">
+          <label className="form-label">
             Interface
-            <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+            <RequiredIndicator fieldKey="interface" />
           </label>
           <select
             className="form-select"
@@ -1463,7 +1563,7 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, 
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">
-          Failure Types <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          Failure Types <RequiredIndicator fieldKey="failure_types" />
         </label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           {FAILURE_TYPES_LIST.map((ft) => {
@@ -1485,7 +1585,7 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, 
       </div>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">
-          Symptoms <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          Symptoms <RequiredIndicator fieldKey="symptoms" />
         </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {SYMPTOMS.map((s) => {
@@ -1505,7 +1605,7 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, 
       </div>
       <div className="form-group" style={{ margin: 0 }}>
         <label className="form-label">
-          Problem Description <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>
+          Problem Description <RequiredIndicator fieldKey="problem_description" />
         </label>
         <TextareaAutocomplete
           value={form.problem_description || ""}
@@ -1622,18 +1722,37 @@ export default function NewCaseModal({ onClose, onCreated }) {
     const errs = {};
     // Step 0: Client
     if (idx === 0) {
-      if (!form.client_id) errs.client = "Please select or create a client";
-      if (!form.received_at) errs.received_at = "Received At is required";
-      if (!form.deadline_at) errs.deadline_at = "Deadline / SLA is required";
-      if (!form.priority) errs.priority = "Priority is required";
-      if (!form.reminder_days && form.reminder_days !== 0) errs.reminder_days = "Reminder days required";
+      if (isCaseFieldRequired('client_id') && !form.client_id) {
+        errs.client = "Please select or create a client";
+      }
+      if (isCaseFieldRequired('received_at') && !form.received_at) {
+        errs.received_at = "Received At is required";
+      }
+      if (isCaseFieldRequired('deadline_at') && !form.deadline_at) {
+        errs.deadline_at = "Deadline / SLA is required";
+      }
+      if (isCaseFieldRequired('priority') && !form.priority) {
+        errs.priority = "Priority is required";
+      }
+      if (isCaseFieldRequired('reminder_days') && !form.reminder_days && form.reminder_days !== 0) {
+        errs.reminder_days = "Reminder days required";
+      }
+      if (isCaseFieldRequired('assigned_engineer') && !form.assigned_engineer) {
+        errs.assigned_engineer = "Assigned Engineer is required";
+      }
     }
 
     // Step 1: Device
     if (idx === 1) {
-      if (!form.hdd_type) errs.hdd_type = "HDD / Device Type is required";
-      if (!form.case_number) errs.case_number = "Case number is required";
-      if (!form.interface) errs.interface = "Interface is required";
+      if (isCaseFieldRequired('hdd_type') && !form.hdd_type) {
+        errs.hdd_type = "HDD / Device Type is required";
+      }
+      if (isCaseFieldRequired('case_number') && !form.case_number) {
+        errs.case_number = "Case number is required";
+      }
+      if (isCaseFieldRequired('interface') && !form.interface) {
+        errs.interface = "Interface is required";
+      }
     }
 
     // Step 2: HDD fields (require all defined fields for the selected type)
@@ -1675,9 +1794,15 @@ export default function NewCaseModal({ onClose, onCreated }) {
       const fCfg = getFieldConfig();
       const showDiagnosis = sectionEnabled(fCfg, "diagnosis");
       
-      if (!(form.failure_types || []).length) errs.failure_types = "Select at least one failure type";
-      if (!(form.symptoms || []).length) errs.symptoms = "Select at least one symptom";
-      if (!form.problem_description?.trim()) errs.problem_description = "Problem description is required";
+      if (isCaseFieldRequired('failure_types') && !(form.failure_types || []).length) {
+        errs.failure_types = "Select at least one failure type";
+      }
+      if (isCaseFieldRequired('symptoms') && !(form.symptoms || []).length) {
+        errs.symptoms = "Select at least one symptom";
+      }
+      if (isCaseFieldRequired('problem_description') && !form.problem_description?.trim()) {
+        errs.problem_description = "Problem description is required";
+      }
     }
 
     // Step 4: Commercial — all fields optional
@@ -1790,6 +1915,17 @@ export default function NewCaseModal({ onClose, onCreated }) {
     usersApi
       .list()
       .then((d) => setEngineers(d.users || []))
+      .catch(() => {});
+  }, []);
+
+  // Pre-fill next tenant-scoped case number on mount
+  useEffect(() => {
+    casesApi.getNextNumber()
+      .then((data) => {
+        if (data && data.case_number) {
+          setForm((f) => ({ ...f, case_number: data.case_number }));
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -1908,7 +2044,8 @@ export default function NewCaseModal({ onClose, onCreated }) {
       delete payload.images;
       delete payload.attachments;
 
-      const newCase = await casesApi.create(payload);
+      const createPayload = { ...payload, skip_case_created: true };
+      const newCase = await casesApi.create(createPayload);
 
       // Persist the problem and diagnosis into suggestion history for future autocomplete
       try {
@@ -1942,6 +2079,25 @@ export default function NewCaseModal({ onClose, onCreated }) {
             JSON.stringify(attachments),
           );
         } catch {}
+      }
+
+      try {
+        const pdfBlob = await generateInwardPdfBlob({ ...newCase, ...payload, images }, printTemplate);
+        const file = new File([pdfBlob], `${newCase.case_number || newCase.id}-inward.pdf`, {
+          type: 'application/pdf',
+        });
+        const formData = new FormData();
+        formData.append('inward_pdf', file);
+        formData.append('file_type', 'report');
+        if (payload.email) formData.append('email', payload.email);
+        if (payload.client_email) formData.append('client_email', payload.client_email);
+        if (payload.first_name) formData.append('first_name', payload.first_name);
+        if (payload.quotation_amount != null) formData.append('quotation_amount', String(payload.quotation_amount));
+        if (payload.advance_amount != null) formData.append('advance_amount', String(payload.advance_amount));
+        if (payload.problem_description) formData.append('problem_description', payload.problem_description);
+        await casesApi.uploadInwardPdf(newCase.id, formData);
+      } catch (uploadErr) {
+        console.error('Unable to upload inward PDF attachment:', uploadErr);
       }
 
       onCreated(newCase);

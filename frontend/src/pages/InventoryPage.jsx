@@ -823,11 +823,10 @@ export default function InventoryPage() {
           { icon: '', value: lowStockAlerts, label: 'Donor Drive', color: lowStockAlerts > 0 ? 'var(--status-danger)' : 'var(--status-success)', bg: lowStockAlerts > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' },
           { icon: '', value: `₹${totalValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, label: 'Stock Value', color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
         ].map(s => (
-          <div key={s.label} className="stat-card" style={{ '--stat-color': s.color, '--stat-bg': s.bg }}>
-            <div className="stat-icon">{s.icon}</div>
-            <div className="stat-value">{s.value}</div>
-            <div className="stat-label">{s.label}</div>
-          </div>
+            <div key={s.label} className="stat-card compact" style={{ '--stat-color': s.color, '--stat-bg': s.bg }}>
+              <div className="stat-value">{s.value}</div>
+              <div className="stat-label">{s.label}</div>
+            </div>
         ))}
       </div>
       )}

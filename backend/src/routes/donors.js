@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { isSuperAdmin, tenantAdminId } = require('../utils/tenantAccess');
 const { findDonors, getAllDonorMatches } = require('../services/donorEngine');
 
 const router = express.Router();
@@ -9,11 +10,12 @@ router.use(authenticate);
 router.get('/matches', async (req, res) => {
   try {
     const { min_score, brand, top_count } = req.query;
+    const tenantId = isSuperAdmin(req.user) ? null : tenantAdminId(req.user);
     const result = await getAllDonorMatches({
       minScore: parseFloat(min_score || 30),
       brandFilter: brand,
       topCount: parseInt(top_count, 10) || 6
-    });
+    }, tenantId);
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -21,7 +23,8 @@ router.get('/matches', async (req, res) => {
 router.get('/find/:model_id', async (req, res) => {
   try {
     const { min_score } = req.query;
-    const result = await findDonors(req.params.model_id, { minScore: parseFloat(min_score||30) });
+    const tenantId = isSuperAdmin(req.user) ? null : tenantAdminId(req.user);
+    const result = await findDonors(req.params.model_id, { minScore: parseFloat(min_score||30) }, tenantId);
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -29,9 +32,13 @@ router.get('/find/:model_id', async (req, res) => {
 router.post('/compatibility', async (req, res) => {
   try {
     const { model_id, donor_model_id } = req.body;
+    const tenantId = tenantAdminId(req.user);
+    const tenantClause = tenantId
+      ? ` AND COALESCE(tenant_id, (SELECT COALESCE(u.tenant_id, u.tenant_owner_id, u.id) FROM users u WHERE u.id = created_by)) = $2`
+      : '';
     const [model, donor] = await Promise.all([
-      query('SELECT * FROM storage_models WHERE id = $1', [model_id]),
-      query('SELECT * FROM storage_models WHERE id = $1', [donor_model_id])
+      query(`SELECT * FROM storage_models WHERE id = $1${tenantClause}`, tenantId ? [model_id, tenantId] : [model_id]),
+      query(`SELECT * FROM storage_models WHERE id = $1${tenantClause}`, tenantId ? [donor_model_id, tenantId] : [donor_model_id])
     ]);
     if (!model.rows.length || !donor.rows.length) return res.status(404).json({ error: 'Model not found' });
 

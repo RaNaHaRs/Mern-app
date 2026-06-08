@@ -1,6 +1,8 @@
 const BASE_URL = '/api';
 
 function getToken() {
+  const override = sessionStorage.getItem('accessTokenOverride');
+  if (override) return override;
   return localStorage.getItem('accessToken');
 }
 
@@ -14,11 +16,16 @@ async function parseJsonResponse(res) {
   }
 }
 
+function getImpersonateTenant() {
+  try { return sessionStorage.getItem('impersonating_tenant_id'); } catch { return null; }
+}
+
 async function request(path, options = {}) {
   const token = getToken();
   const headers = {
     ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(getImpersonateTenant() ? { 'X-Impersonate-Tenant-Id': getImpersonateTenant() } : {}),
     ...options.headers,
   };
 
@@ -131,6 +138,7 @@ export const casesApi = {
   list: (params) => api.get('/cases', params),
   get: (id) => api.get(`/cases/${id}`),
   create: (data) => api.post('/cases', data),
+  createWithFile: (formData) => api.upload('/cases', formData),
   update: (id, data) => api.put(`/cases/${id}`, data),
   delete: (id) => api.delete(`/cases/${id}`),
   bulkDelete: (ids) => api.post('/cases/bulk-delete', { ids }),
@@ -151,6 +159,8 @@ export const casesApi = {
   uploadImages: (id, formData) => api.upload(`/cases/${id}/images`, formData),
   deleteImage: (id, imgId) => api.delete(`/cases/${id}/images/${imgId}`),
   transferToClient: (id, transfer_to_client) => api.patch(`/cases/${id}/transfer-to-client`, { transfer_to_client }),
+  uploadInwardPdf: (id, formData) => api.upload(`/cases/${id}/inward-pdf`, formData),
+  getNextNumber: () => api.get('/cases/next-number'),
 };
 
 export const solutionsApi = {
@@ -292,4 +302,18 @@ export const accountingApi = {
   restorePurchase: (id) => api.post(`/accounting/purchases/${id}/restore`),
   listInvoicesRecycleBin: () => api.get('/accounting/invoices/recycle-bin'),
   restoreInvoice: (id) => api.post(`/accounting/invoices/${id}/restore`),
+};
+
+// ─── Marketing API ────────────────────────────────────────────
+export const marketingApi = {
+  // Email templates
+  listEmailTemplates: (params) => api.get('/marketing/email-templates', params),
+  createEmailTemplate: (data) => api.post('/marketing/email-templates', data),
+  // Campaigns
+  listCampaigns: (params) => api.get('/marketing/campaigns', params),
+  createCampaign: (data) => api.post('/marketing/campaigns', data),
+  sendCampaign: (id) => api.post(`/marketing/campaigns/${id}/send`),
+  sendTest: (id, data) => api.post(`/marketing/campaigns/${id}/send-test`, data),
+  getCampaignStats: (id) => api.get(`/marketing/campaigns/${id}/stats`),
+  deleteCampaign: (id) => api.delete(`/marketing/campaigns/${id}`),
 };
