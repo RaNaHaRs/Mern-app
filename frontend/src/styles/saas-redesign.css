@@ -867,7 +867,7 @@
 
 /* Hamburger toggle button */
 .saas-app .hamburger-btn {
-  display: none;
+  display: flex;
   position: fixed;
   top: 12px;
   left: 12px;

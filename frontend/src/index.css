@@ -2121,9 +2121,9 @@ html[data-font-size="large"]   { font-size: 16px; }
    MOBILE RESPONSIVE — full breakpoints
    ══════════════════════════════════════════════════════════════ */
 
-/* Hamburger button — show on mobile */
+/* Hamburger button */
 .hamburger-btn {
-  display: none;
+  display: flex;
   position: fixed;
   top: 12px;
   left: 12px;
@@ -2234,26 +2234,10 @@ html[data-font-size="large"]   { font-size: 16px; }
   .stat-value { font-size: 1.4rem; }
 }
 
-/* Hide all non-chat icon elements globally, preserve chat and theme toggle */
-[class*="icon"] {
-  display: none !important;
-  visibility: hidden !important;
-}
-
-[class*="icon"] * {
-  display: none !important;
-  visibility: hidden !important;
-}
-
-.chat-btn-icon,
-.chat-header-icon,
-.chat-empty-icon,
-.chat-search-icon,
-.chat-live-dot,
-.chat-item-unread-badge,
-.chat-role-badge {
-  display: inline-flex !important;
-  visibility: visible !important;
+/* Heroicons base styling — keep icons visible */
+.hi-outline, .hi-solid, .hi-micro {
+  display: inline-flex;
+  vertical-align: middle;
 }
 
 /* ══════════════════════════════════════════════════════════════

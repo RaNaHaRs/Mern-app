@@ -12,12 +12,13 @@ const fmtAmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN')}`;
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
 
+const checkRes = async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error || d.errors?.[0]?.msg || `HTTP ${r.status}`); return d; };
 const saApi = {
-  get: (path) => fetch(`${BASE_URL}/super-admin${path}`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
-  post: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
-  patch: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'PATCH', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
-  del: (path) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${getToken()}` } }).then(r => r.json()),
-  put: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'PUT', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json()),
+  get: (path) => fetch(`${BASE_URL}/super-admin${path}`, { headers: { Authorization: `Bearer ${getToken()}` } }).then(checkRes),
+  post: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(checkRes),
+  patch: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'PATCH', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(checkRes),
+  del: (path) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'DELETE', headers: { Authorization: `Bearer ${getToken()}` } }).then(checkRes),
+  put: (path, body) => fetch(`${BASE_URL}/super-admin${path}`, { method: 'PUT', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(checkRes),
 };
 
 const DEFAULT_PLANS = [
@@ -81,17 +82,11 @@ function AddTenantModal({ onClose, onDone }) {
     if (Object.keys(errs).length) { setFieldErrors(errs); return; }
     setLoading(true);
     try {
-      const res = await saApi.post('/tenants', {
+      await saApi.post('/tenants', {
         ...form,
         amount: selPlan.price * form.subscription_months,
         expiry_date: new Date(Date.now() + form.subscription_months * 30 * 86400000).toISOString().slice(0, 10),
       });
-      if (res.error) { setFieldErrors({ _general: res.error }); return; }
-      if (res.errors) {
-        const errs = {};
-        res.errors.forEach(e => { errs[e.param || '_general'] = e.msg || e.message; });
-        setFieldErrors(errs); return;
-      }
       alert(`✅ Subscriber "${form.company_name}" created!\n\nLogin: ${form.admin_email}\nPassword: ${form.admin_password}`);
       onDone();
       onClose();
@@ -240,8 +235,7 @@ function EditTenantModal({ tenant, onClose, onDone }) {
   const handle = async () => {
     setLoading(true);
     try {
-      const res = await saApi.patch(`/tenants/${tenant.id}`, form);
-      if (res.error) throw new Error(res.error);
+      await saApi.patch(`/tenants/${tenant.id}`, form);
       onDone();
       onClose();
     } catch (e) { alert(e.message); } finally { setLoading(false); }
@@ -320,9 +314,6 @@ function TenantUsersModal({ tenant, onClose }) {
     if (!confirm(`${action} ${u.full_name || u.username}?`)) return;
     try {
       const res = await saApi.patch(`/tenants/${tenant.id}/users/${u.id}`, { is_active: !u.is_active });
-      if (res?.error) {
-        throw new Error(res.error);
-      }
       if (res.id) {
         setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: res.is_active } : x));
       } else {
@@ -499,7 +490,7 @@ function PlansManager({ tenants }) {
   const persist = (p) => {
     localStorage.setItem('sa_custom_plans', JSON.stringify(p));
     setPlans(p); setSaved(true); setTimeout(() => setSaved(false), 2500);
-    saApi.put('/plans', { plans: p }).catch(() => {}); // async save to backend
+    saApi.put('/plans', { plans: p }).catch(() => {}); // async save to backend (best-effort)
   };
   const persistPerms = (p) => {
     localStorage.setItem('sa_plan_permissions', JSON.stringify(p));
@@ -533,7 +524,7 @@ function PlansManager({ tenants }) {
   };
   const restorePlan = async (plan) => {
     if (plan && plan.id) {
-      await saApi.patch(`/plans/${plan.id}`, { is_active: true });
+      await saApi.patch(`/plans/${plan.id}`, { is_active: true }).catch(() => {});
     }
     loadActivePlans();
     loadDeletedPlans();
@@ -958,19 +949,21 @@ function CouponManager() {
   const genCode = () => setForm(f => ({ ...f, code: Math.random().toString(36).substring(2,8).toUpperCase() }));
   const addCoupon = async () => {
     if (!form.code || !form.discount_value) { alert('Code and discount value are required'); return; }
-    const res = await saApi.post('/coupons', { ...form, code: form.code.toUpperCase() });
-    if (res.error) { alert(res.error); return; }
-    if (res.errors) { alert(res.errors.map(e => e.msg || e.message).join(', ')); return; }
-    reload();
-    setForm({ code:'', type:'global', target_email:'', discount_type:'percent', discount_value:10, max_uses:'', expiry_date:'', description:'' });
-    setShowAdd(false);
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
+    try {
+      await saApi.post('/coupons', { ...form, code: form.code.toUpperCase() });
+      reload();
+      setForm({ code:'', type:'global', target_email:'', discount_type:'percent', discount_value:10, max_uses:'', expiry_date:'', description:'' });
+      setShowAdd(false);
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch (e) { alert(e.message); }
   };
   const removeCoupon = async (code) => {
     if (!confirm(`Remove coupon ${code}?`)) return;
-    await saApi.del(`/coupons/${code}`);
-    reload();
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
+    try {
+      await saApi.del(`/coupons/${code}`);
+      reload();
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+    } catch {}
   };
 
   return (
@@ -1369,12 +1362,13 @@ function AccountsTab() {
 
   const addAccount = async () => {
     if (!form.name || !form.email) { alert('Name and email required'); return; }
-    const res = await saApi.post('/accounts', form);
-    if (res.error) { alert(res.error); return; }
-    setForm({ name: '', email: '', password: '', role: 'support_admin', permissions: 'view_only' });
-    setShowAdd(false);
-    setSaved(true); setTimeout(() => setSaved(false), 1500);
-    reload();
+    try {
+      await saApi.post('/accounts', form);
+      setForm({ name: '', email: '', password: '', role: 'support_admin', permissions: 'view_only' });
+      setShowAdd(false);
+      setSaved(true); setTimeout(() => setSaved(false), 1500);
+      reload();
+    } catch (e) { alert(e.message); }
   };
 
   const ROLE_LABELS = { super_admin: 'Super Admin', support_admin: 'Support Admin', billing_admin: 'Billing Admin', content_admin: 'Content Admin' };
@@ -1438,10 +1432,10 @@ function AccountsTab() {
               <div style={{ display: 'flex', gap: 6 }}>
                 {acc.role !== 'super_admin' && (
                   <>
-                    <button className="btn btn-sm btn-secondary" onClick={async () => { const res = await saApi.patch(`/accounts/${acc.id}`, { is_active: !acc.is_active }); if (!res.error) reload(); }}>
+                    <button className="btn btn-sm btn-secondary" onClick={async () => { try { await saApi.patch(`/accounts/${acc.id}`, { is_active: !acc.is_active }); reload(); } catch {} }}>
                       {acc.is_active ? '\u23F8 Deactivate' : '\u25B6 Activate'}
                     </button>
-                    <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }} onClick={async () => { if (!confirm(`Delete ${acc.name}?`)) return; const res = await saApi.del(`/accounts/${acc.id}`); if (!res.error) reload(); }}>Delete</button>
+                    <button className="btn btn-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', borderColor: 'rgba(239,68,68,0.2)', fontSize: '0.72rem' }} onClick={async () => { if (!confirm(`Delete ${acc.name}?`)) return; try { await saApi.del(`/accounts/${acc.id}`); reload(); } catch {} }}>Delete</button>
                   </>
                 )}
               </div>
@@ -1551,7 +1545,7 @@ function ActivityLogsTab() {
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
       <style>body{font-family:Arial,Helvetica,sans-serif;padding:20px}h1{font-size:18px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;font-size:12px}th{background:#f4f4f4}</style>
       </head><body><h1>${title}</h1><table><thead><tr><th>Timestamp</th><th>Action</th><th>Detail</th><th>Module</th></tr></thead><tbody>
-      ${rows.map(r => `<tr><td>${new Date(r.created_at || r.at || r.at).toLocaleString()}</td><td>${(r.action||r.action||'')}</td><td>${(r.description||r.detail||r.detail||'')}</td><td>${r.module||r.resource_type||''}</td></tr>`).join('')}
+      ${rows.map(r => `<tr><td>${new Date(r.created_at || r.at || Date.now()).toLocaleString()}</td><td>${(r.action||r.title||'')}</td><td>${(r.description||r.detail||'')}</td><td>${r.module||r.resource_type||''}</td></tr>`).join('')}
       </tbody></table></body></html>`;
 
     const w = window.open('', '_blank');
@@ -2301,9 +2295,10 @@ export default function SuperAdminPage() {
 
   const handleToggle = async (tenant) => {
     const newStatus = tenant.status === 'suspended' ? 'active' : 'suspended';
-    const res = await saApi.patch(`/tenants/${tenant.id}`, { status: newStatus });
-    if (res.error) { alert(res.error); return; }
-    load();
+    try {
+      await saApi.patch(`/tenants/${tenant.id}`, { status: newStatus });
+      load();
+    } catch (e) { alert(e.message); }
   };
 
   const filtered = tenants.filter(t => {
