@@ -201,9 +201,12 @@ code, kbd, pre { font-family: var(--font-mono); }
 }
 
 .page-content {
-  padding: 24px 28px 40px;
+  padding: 24px 24px 24px 24px;
   flex: 1;
   animation: page-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 @keyframes page-enter {
@@ -364,7 +367,7 @@ code, kbd, pre { font-family: var(--font-mono); }
   width: 32px;
   height: 32px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -372,6 +375,7 @@ code, kbd, pre { font-family: var(--font-mono); }
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .user-info { flex: 1; min-width: 0; }
@@ -594,7 +598,7 @@ code, kbd, pre { font-family: var(--font-mono); }
 }
 .btn-ghost:hover:not(:disabled) { background: var(--sidebar-hover); color: var(--text-primary); }
 
-.btn-sm { padding: 5px 10px; font-size: 0.72rem; }
+.btn-sm { padding: 4px 8px; font-size: 0.68rem; }
 .btn-lg { padding: 11px 22px; font-size: 0.88rem; }
 .btn-icon { padding: 0; width: 34px; height: 34px; border-radius: var(--radius-full); display: flex; align-items: center; justify-content: center; }
 
@@ -735,6 +739,33 @@ code, kbd, pre { font-family: var(--font-mono); }
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Inner scroll wrapper for tables */
+.table-container > div {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-container > div::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-container > div::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-container > div::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 3px;
+}
+
+.table-container > div::-webkit-scrollbar-thumb:hover {
+  background: var(--border-subtle);
 }
 
 .table-header {
@@ -749,7 +780,8 @@ code, kbd, pre { font-family: var(--font-mono); }
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  min-width: max-content;
 }
 
 thead tr {
@@ -758,9 +790,9 @@ thead tr {
 }
 
 thead th {
-  padding: 10px 16px;
+  padding: 8px 8px;
   text-align: left;
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -778,10 +810,10 @@ tbody tr:hover { background: var(--accent-glow); }
 tbody tr:last-child { border-bottom: none; }
 
 td {
-  padding: 11px 16px;
+  padding: 9px 8px;
   color: var(--text-secondary);
   vertical-align: middle;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
 }
 
 td:first-child { color: var(--text-primary); font-weight: 500; }
@@ -1989,8 +2021,6 @@ input[type="datetime-local"], input[type="date"], input[type="time"] {
    ══════════════════════════════════════════════════════════════ */
 .floating-chat-container {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
   z-index: 9999;
   font-family: var(--font-sans);
 }

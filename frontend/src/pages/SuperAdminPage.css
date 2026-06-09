@@ -240,6 +240,7 @@
 .super-admin-layout .sa-main {
   flex: 1;
   min-width: 0;
+  padding: 0 24px 24px;
   animation: saFadeIn 0.22s ease;
 }
 

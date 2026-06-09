@@ -1,6 +1,41 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { fieldConfigApi } from '../services/fieldConfigApi';
 import { categoryToConfigKey } from '../constants/inventoryConfig';
+
+function SearchableSelect({ options, value, onChange, placeholder, required }) {
+  const [searchText, setSearchText] = useState('');
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef(null);
+  useEffect(() => {
+    const handler = (e) => { if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const filtered = options.filter(o => o.toLowerCase().includes(searchText.toLowerCase()));
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      <input type="text" className="form-input" placeholder={placeholder}
+        value={open ? searchText : (value || '')}
+        onChange={(e) => { setSearchText(e.target.value); setOpen(true); }}
+        onFocus={() => { setSearchText(''); setOpen(true); }}
+        autoComplete="off" spellCheck={false} required={required}
+      />
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, maxHeight: 180, overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 6, marginTop: 2, boxShadow: '0 4px 12px rgba(0,0,0,0.12)' }}>
+          {filtered.length ? filtered.map(o => (
+            <div key={o} onClick={() => { onChange(o); setSearchText(''); setOpen(false); }}
+              style={{ padding: '6px 10px', cursor: 'pointer', fontSize: '0.78rem', background: value === o ? 'var(--accent-glow)' : 'transparent', color: value === o ? 'var(--accent-primary)' : 'var(--text-secondary)', fontWeight: value === o ? 700 : 400 }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-elevated)'}
+              onMouseLeave={e => e.currentTarget.style.background = value === o ? 'var(--accent-glow)' : 'transparent'}
+            >{o}</div>
+          )) : (
+            <div style={{ padding: '8px 10px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No matches</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustomFieldValues, caseSettings, stepErrors = {}, showStepErrors = false }) {
   const normKey = categoryToConfigKey(hddKey) || '';
@@ -275,11 +310,20 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
                   />
                   <span style={{ fontSize: '0.9rem' }}>Yes / No</span>
                 </label>
-              ) : field.field_type === 'select' || field.field_key === 'interface' || field.field_key === 'capacity' || field.field_key === 'form_factor' ? (
+              ) : field.field_type === 'select' || field.field_key === 'interface' || field.field_key === 'capacity' || field.field_key === 'form_factor' || field.field_key === 'manufacture_country' ? (
                 (() => {
                   let options = [];
                   if (field.field_key === 'manufacture_country') {
                     options = getCaseSettingsList('manufacture_countries', ['Thailand', 'China', 'Malaysia', 'Philippines']);
+                    return (
+                      <SearchableSelect
+                        options={options}
+                        value={form[field.field_key] || ''}
+                        onChange={(val) => handleFieldChange(field.field_key, val)}
+                        placeholder={`Select ${FIELD_LABELS[field.field_key] || field.field_label}...`}
+                        required={isMandatory}
+                      />
+                    );
                   } else if (field.field_key === 'interface') {
                     options = getCaseSettingsList('interfaces', ['SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'mSATA', 'M2', 'eSATA']);
                   } else if (field.field_key === 'capacity') {

@@ -84,17 +84,13 @@ async function migrate() {
       { name: '041_tenant_case_sequences', file: '041_tenant_case_sequences.sql' },
       { name: '042_add_reset_password_token_to_users', file: '042_add_reset_password_token_to_users.sql' },
       { name: '043_password_reset_rate_limit', file: '043_password_reset_rate_limit.sql' },
-<<<<<<< HEAD
       { name: '044_add_user_profile_fields', file: '044_add_user_profile_fields.sql' },
       { name: '050_inventory_extended_schema', file: '050_inventory_extended_schema.sql' },
       { name: '051_make_tenant_user_id_nullable', file: '051_make_tenant_user_id_nullable.sql' },
-      { name: '052_create_payment_links_table', file: '052_create_payment_links_table.sql' }
-=======
-      { name: '050_inventory_extended_schema', file: '050_inventory_extended_schema.sql' },
       { name: '051_add_discount_to_case_inventory_items', file: '051_add_discount_to_case_inventory_items.sql' },
+      { name: '052_create_payment_links_table', file: '052_create_payment_links_table.sql' },
       { name: '052_add_charge_to_client_inventory', file: '052_add_charge_to_client_inventory.sql' },
       { name: '053_add_deleted_at_to_accounting_quotes', file: '053_add_deleted_at_to_accounting_quotes.sql' }
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
     ];
 
     // Execute all SQL file migrations

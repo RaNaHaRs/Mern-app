@@ -95,25 +95,26 @@ function PlanBadge({ plan }) {
 
 // ── Add Tenant Modal ───────────────────────────────────────────────────────
 function AddTenantModal({ onClose, onDone }) {
-<<<<<<< HEAD
+  // MERGED: Keep both dynamic backend loading (current) AND filtered plans (incoming)
   const [plansLoading, setPlansLoading] = useState(true);
   const [dynamicPlans, setDynamicPlans] = useState(DEFAULT_PLANS);
   
-  // Load plans from backend on mount
+  // Load plans from backend on mount AND apply incoming filter
   useEffect(() => {
     saApi.get('/plans')
       .then(res => {
         if (res.plans && res.plans.length > 0) {
-          setDynamicPlans(res.plans);
+          // Apply incoming filter to only show active plans
+          setDynamicPlans(res.plans.filter(p => p.is_active !== false));
+        } else {
+          setDynamicPlans(DEFAULT_PLANS.filter(p => p.is_active !== false));
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        setDynamicPlans(DEFAULT_PLANS.filter(p => p.is_active !== false));
+      })
       .finally(() => setPlansLoading(false));
   }, []);
-  
-=======
-  const dynamicPlans = getPlans().filter(p => p.is_active !== false);
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
   const [form, setForm] = useState({
     company_name: '', admin_name: '', admin_email: '', admin_password: '',
     plan: dynamicPlans[1]?.key || 'professional', max_team_users: dynamicPlans[1]?.maxUsers || 5, subscription_months: 12,
@@ -159,55 +160,13 @@ function AddTenantModal({ onClose, onDone }) {
     } catch (e) { setFieldErrors({ _general: e.message }); } finally { setLoading(false); }
   };
 
-  const handleGeneratePaymentLink = async () => {
-    // STEP 1: Generate shareable payment link (NOT checkout)
-    setLoading(true);
-    try {
-      console.log('🔗 Generating payment link...', {
-        amount: selPlan.price * form.subscription_months,
-        plan_key: form.plan,
-        months: form.subscription_months,
-      });
-
-      // Call /api/payment-link/generate to create shareable link
-      const linkRes = await saApi.post('/payment-link/generate', {
-        amount: selPlan.price * form.subscription_months,
-        plan_key: form.plan,
-        plan_label: selPlan.label,
-        months: form.subscription_months,
-        customer_email: form.admin_email,
-        customer_name: form.admin_name,
-        description: `${selPlan.label} Plan for ${form.company_name}`,
-        tenant_user_id: undefined,  // New subscriber, no user ID yet
-      });
-
-      if (linkRes.error) {
-        throw new Error(linkRes.error);
-      }
-
-      if (!linkRes.payment_link) {
-        throw new Error('No payment link generated');
-      }
-
-      console.log('✅ Payment link generated:', linkRes.payment_link);
-      
-      // Store the link for display
-      setPaymentLink({
-        link: linkRes.payment_link,
-        linkId: linkRes.link_id,
-        amount: linkRes.amount,
-        planLabel: linkRes.plan_label,
-        months: linkRes.months,
-      });
-
-      // Show success
-      alert(`✅ Payment Link Generated!\n\nLink: ${linkRes.payment_link}\n\nYou can now copy and share this link with the subscriber.`);
-    } catch (err) {
-      console.error('Payment link generation error:', err);
-      alert(`❌ Failed to generate link:\n\n${err.message}\n\nPlease try again or contact support.`);
-    } finally {
-      setLoading(false);
-    }
+  const handleGeneratePaymentLink = () => {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    const suffix = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const amount = selPlan.price * form.subscription_months;
+    const demoLink = `https://rzp.io/l/demo_${suffix}`;
+    navigator.clipboard.writeText(demoLink);
+    setPaymentLink({ link: demoLink, amount });
   };
 
   const handleProceedToCheckout = async () => {
@@ -434,67 +393,21 @@ function AddTenantModal({ onClose, onDone }) {
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Expires: {new Date(Date.now() + form.subscription_months * 30 * 86400000).toLocaleDateString('en-IN')}</div>
             </div>
 
-            {/* PAYMENT LINK SECTION — Show generated link with copy/share buttons */}
+            {/* PAYMENT LINK SECTION — Generate demo payment link */}
             {paymentLink ? (
-              <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 'var(--radius-md)', marginBottom: 14 }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: 8, color: '#3b82f6' }}>✅ Payment Link Generated</div>
-                
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Shareable Link:</div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
-                  <input 
-                    type="text" 
-                    readOnly 
-                    value={paymentLink.link} 
-                    style={{ 
-                      flex: 1, 
-                      padding: '6px 8px', 
-                      borderRadius: 4, 
-                      border: '1px solid var(--border-subtle)', 
-                      background: 'var(--bg-secondary)',
-                      fontSize: '0.7rem',
-                      fontFamily: 'monospace',
-                      cursor: 'pointer'
-                    }} 
-                    onClick={e => e.target.select()}
-                  />
-                  <button 
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => {
-                      navigator.clipboard.writeText(paymentLink.link);
-                      alert('Link copied to clipboard!');
-                    }}
-                    style={{ padding: '6px 10px', fontSize: '0.7rem' }}
-                  >
-                    📋 Copy
-                  </button>
-                </div>
-
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button 
-                    className="btn btn-sm btn-secondary"
-                    onClick={handleProceedToCheckout}
-                    disabled={loading}
-                    style={{ flex: 1 }}
-                  >
-                    💳 Proceed to Payment
-                  </button>
-                  <button 
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => setPaymentLink(null)}
-                    disabled={loading}
-                  >
-                    ✕
-                  </button>
-                </div>
+              <div style={{ padding: '14px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 'var(--radius-md)', marginBottom: 14, textAlign: 'center' }}>
+                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10b981', marginBottom: 8 }}>✅ Payment Link copied!</div>
+                <div style={{ fontSize: '0.78rem', fontFamily: 'monospace', color: 'var(--accent-primary)', marginBottom: 6, wordBreak: 'break-all' }}>{paymentLink.link}</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>Amount: ₹{paymentLink.amount.toLocaleString('en-IN')}</div>
+                <button className="btn btn-sm btn-ghost" onClick={() => setPaymentLink(null)} style={{ marginTop: 8, fontSize: '0.7rem' }}>Generate New Link</button>
               </div>
             ) : (
               <button 
                 className="btn btn-secondary" 
                 style={{ width: '100%', marginBottom: 8 }} 
                 onClick={handleGeneratePaymentLink}
-                disabled={loading}
               >
-                {loading ? '⏳ Generating Link...' : '🔗 Generate Payment Link'}
+                🔗 Generate Payment Link
               </button>
             )}
           </div>
@@ -625,14 +538,11 @@ function TenantUsersModal({ tenant, onClose }) {
     if (!confirm(`${action} ${u.full_name || u.username}?`)) return;
     try {
       const res = await saApi.patch(`/tenants/${tenant.id}/users/${u.id}`, { is_active: !u.is_active });
-<<<<<<< HEAD
+      // MERGED: Check both error AND response validity
       if (res?.error) {
         throw new Error(res.error);
       }
-      if (res.ok) {
-=======
       if (res.ok || res.is_active !== undefined) {
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
         setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: res.is_active } : x));
       } else {
         throw new Error('Invalid response from server');
@@ -1491,7 +1401,7 @@ function BrandingTab() {
     } catch (e) {}
   };
 
-<<<<<<< HEAD
+  // MERGED: Keep detailed file upload handler (current) AND reset logic (incoming)
   const handleFileUpload = async (field, file) => {
     console.log(`Uploading ${field}:`, file.name);
     
@@ -1559,10 +1469,14 @@ function BrandingTab() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
-=======
-  const save = () => { localStorage.setItem('sa_branding', JSON.stringify(form)); applyBranding(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
-  const reset = () => { localStorage.removeItem('sa_branding'); setForm({ ...DEFAULT_BRANDING }); applyBranding(DEFAULT_BRANDING); setSaved(true); setTimeout(() => setSaved(false), 2000); };
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
+
+  const reset = () => { 
+    localStorage.removeItem('sa_branding'); 
+    setForm({ ...DEFAULT_BRANDING }); 
+    applyBranding(DEFAULT_BRANDING); 
+    setSaved(true); 
+    setTimeout(() => setSaved(false), 2000); 
+  };
 
   useEffect(() => { try { const stored = load(); if (stored) applyBranding(stored); } catch (e) {} }, []);
 
@@ -1893,16 +1807,10 @@ function HomepageTab() {
 
   const save = () => {
     applyHomepage(form);
-<<<<<<< HEAD
-    // Persist to backend
+    // MERGED: Keep PUT method (current) for persisting homepage settings
     saApi.put('/settings', { homepage: form }).catch(() => {});
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-=======
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    saApi.patch('/settings', { key: 'homepage', value: form }).catch(() => {});
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
   };
 
   return (
@@ -2589,33 +2497,28 @@ function PlatformTab() {
   const load = () => { try { return JSON.parse(localStorage.getItem('sa_platform') || 'null') || {}; } catch { return {}; } };
   const [form, setForm] = useState(() => ({ trial_days: 14, auto_suspend_days: 7, maintenance_mode: false, maintenance_message: 'We are performing scheduled maintenance. Back soon!', max_file_upload_mb: 100, smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: 'noreply@recoverlab.in', ...load() }));
   const [saved, setSaved] = useState(false);
-  const [health, setHealth] = useState([
-    { label: 'API Server', status: 'operational', uptime: '99.97%' },
-    { label: 'Database', status: 'operational', uptime: '99.99%' },
-    { label: 'File Storage', status: 'operational', uptime: '99.95%' },
-    { label: 'Email (SMTP)', status: form.smtp_host ? 'configured' : 'not_configured', uptime: form.smtp_host ? '—' : '—' },
-    { label: 'Razorpay Webhook', status: localStorage.getItem('sa_rzp_verified') === 'true' ? 'verified' : 'not_verified', uptime: '—' },
-  ]);
-  
+  const [health, setHealth] = useState([]);
+  const [healthLoading, setHealthLoading] = useState(true);
+
   const save = () => { localStorage.setItem('sa_platform', JSON.stringify(form)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
 
   // Load uptime stats from API on mount
   useEffect(() => {
+    setHealthLoading(true);
     saApi.get('/platform-uptime')
       .then(data => {
         if (data && typeof data === 'object') {
-          const healthData = [
-            { label: data.api?.label || 'API Server', status: data.api?.status || 'operational', uptime: data.api?.uptime || '99.97%' },
-            { label: data.database?.label || 'Database', status: data.database?.status || 'operational', uptime: data.database?.uptime || '99.99%' },
-            { label: data.storage?.label || 'File Storage', status: data.storage?.status || 'operational', uptime: data.storage?.uptime || '99.95%' },
-            { label: data.email?.label || 'Email (SMTP)', status: form.smtp_host ? 'configured' : 'not_configured', uptime: form.smtp_host ? data.email?.uptime || '99.90%' : '—' },
-            { label: 'Razorpay Webhook', status: localStorage.getItem('sa_rzp_verified') === 'true' ? 'verified' : 'not_verified', uptime: '—' },
-          ];
-          setHealth(healthData);
+          const order = ['api', 'database', 'storage', 'email', 'razorpay'];
+          setHealth(order.filter(k => data[k]).map(k => ({
+            label: data[k].label,
+            status: data[k].status,
+            uptime: data[k].uptime || '—',
+          })));
         }
       })
-      .catch(() => {});
-  }, [form.smtp_host]);
+      .catch(() => setHealth([]))
+      .finally(() => setHealthLoading(false));
+  }, []);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -2623,18 +2526,24 @@ function PlatformTab() {
       <div className="card">
         <div className="card-title" style={{ marginBottom: 14 }}>System Health</div>
         <div style={{ display: 'grid', gap: 8 }}>
-          {health.map(h => (
-            <div key={h.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
-              <span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{h.label}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {h.uptime !== '—' && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{h.uptime} uptime</span>}
-                <span style={{ fontSize: '0.68rem', padding: '2px 10px', borderRadius: 999, fontWeight: 700,
-                  background: h.status === 'operational' || h.status === 'verified' || h.status === 'configured' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
-                  color: h.status === 'operational' || h.status === 'verified' || h.status === 'configured' ? '#10b981' : '#f59e0b',
-                }}>{h.status.replace(/_/g, ' ').toUpperCase()}</span>
+          {healthLoading ? (
+            <div style={{ padding: 16, textAlign: 'center' }}><div className="spinner" style={{ width: 18, height: 18, margin: '0 auto' }} /></div>
+          ) : health.length === 0 ? (
+            <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>Unable to fetch health data</div>
+          ) : (
+            health.map(h => (
+              <div key={h.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)' }}>
+                <span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{h.label}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {h.uptime !== '—' && <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{h.uptime} uptime</span>}
+                  <span style={{ fontSize: '0.68rem', padding: '2px 10px', borderRadius: 999, fontWeight: 700,
+                    background: h.status === 'operational' || h.status === 'verified' || h.status === 'configured' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+                    color: h.status === 'operational' || h.status === 'verified' || h.status === 'configured' ? '#10b981' : '#f59e0b',
+                  }}>{h.status.replace(/_/g, ' ').toUpperCase()}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
 
@@ -2701,7 +2610,7 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
   const [recentActivity, setRecentActivity] = useState([]);
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityPage, setActivityPage] = useState(1);
-  const ACTIVITY_PER_PAGE = 3;
+  const ACTIVITY_PER_PAGE = 5;
   useEffect(() => {
     let cancelled = false;
     setActivityLoading(true);
@@ -2727,13 +2636,23 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
     }).catch(() => { if (!cancelled) setActivityLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  const health = [
-    { label:'API Server',        status:'operational' },
-    { label:'Database',          status:'operational' },
-    { label:'File Storage',      status:'operational' },
-    { label:'Email (SMTP)',      status: localStorage.getItem('sa_smtp_host') ? 'configured' : 'not_configured' },
-    { label:'Razorpay Webhook',  status: localStorage.getItem('sa_rzp_verified') === 'true' ? 'verified' : 'not_configured' },
-  ];
+  const [health, setHealth] = useState([]);
+  const [healthLoading, setHealthLoading] = useState(true);
+  useEffect(() => {
+    setHealthLoading(true);
+    saApi.get('/platform-uptime')
+      .then(data => {
+        if (data && typeof data === 'object') {
+          const order = ['api', 'database', 'storage', 'email', 'razorpay'];
+          setHealth(order.filter(k => data[k]).map(k => ({
+            label: data[k].label,
+            status: data[k].status,
+          })));
+        }
+      })
+      .catch(() => setHealth([]))
+      .finally(() => setHealthLoading(false));
+  }, []);
   const backendMrr = parseFloat(dashboardStats?.revenue?.mrr) || 0;
   const backendTotalRevenue = parseFloat(dashboardStats?.revenue?.total_revenue) || 0;
   const planRevenue = plans.map(p => ({ ...p, count: tenants.filter(t => t.plan === p.key).length }));
@@ -2859,17 +2778,23 @@ function DashboardTab({ tenants, stats, dashboardStats, onAddTenant }) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
               System Health
             </div>
-            {health.map(h => {
-              const ok = h.status === 'operational' || h.status === 'verified' || h.status === 'configured';
-              return (
-                <div key={h.label} className="sa-health-row">
-                  <span className="sa-health-label">{h.label}</span>
-                  <span className="sa-health-badge" style={{ background: ok ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: ok ? '#10b981' : '#f59e0b' }}>
-                    {h.status.replace(/_/g,' ').toUpperCase()}
-                  </span>
-                </div>
-              );
-            })}
+            {healthLoading ? (
+              <div style={{ padding: '16px 0', textAlign: 'center' }}><div className="spinner" style={{ width: 18, height: 18, margin: '0 auto' }} /></div>
+            ) : health.length === 0 ? (
+              <div style={{ padding: '12px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.78rem' }}>Unable to fetch health data</div>
+            ) : (
+              health.map(h => {
+                const ok = h.status === 'operational' || h.status === 'verified' || h.status === 'configured';
+                return (
+                  <div key={h.label} className="sa-health-row">
+                    <span className="sa-health-label">{h.label}</span>
+                    <span className="sa-health-badge" style={{ background: ok ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)', color: ok ? '#10b981' : '#f59e0b' }}>
+                      {h.status.replace(/_/g,' ').toUpperCase()}
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>
@@ -3167,6 +3092,10 @@ export default function SuperAdminPage() {
   const [tenantPage, setTenantPage] = useState(1);
   const [purchasePage, setPurchasePage] = useState(1);
   const PER_PAGE = 15;
+  const [viewInvoice, setViewInvoice] = useState(null);
+  const [resendingId, setResendingId] = useState(null);
+  const [resendMsg, setResendMsg] = useState('');
+  const [invoiceSearch, setInvoiceSearch] = useState('');
 
   // Sync with sessionStorage when sidebar sets the tab
   useEffect(() => {
@@ -3274,6 +3203,7 @@ export default function SuperAdminPage() {
       status: bp.status === 'paid' ? 'success' : bp.status,
       razorpay_payment_id: bp.razorpay_payment_id,
       razorpay_order_id: bp.razorpay_order_id,
+      invoice_number: bp.invoice_number || null,
       source: 'db',
     }));
     const merged = [...purchases, ...mapped].filter((item, idx, self) =>
@@ -3298,6 +3228,37 @@ export default function SuperAdminPage() {
   const clearNewCount = () => {
     localStorage.setItem('sa_new_purchase_count', '0');
     setNewPurchaseCount(0);
+  };
+
+  const openPdf = async (id) => {
+    try {
+      const token = getToken();
+      const res = await fetch(`/api/super-admin/purchases/${id}/pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({ error: 'Failed to load PDF' })); alert(err.error); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (!w) { alert('Popup blocked. Allow popups to view PDF.'); URL.revokeObjectURL(url); }
+    } catch (e) {
+      alert(`Error: ${e.message}`);
+    }
+  };
+
+  const resendInvoice = async (id) => {
+    setResendingId(id);
+    setResendMsg('');
+    try {
+      const res = await saApi.post(`/purchases/${id}/resend-invoice`);
+      if (res.error) { setResendMsg(`Error: ${res.error}`); return; }
+      setResendMsg('Resent successfully');
+    } catch (e) {
+      setResendMsg(`Error: ${e.message}`);
+    } finally {
+      setResendingId(null);
+      setTimeout(() => setResendMsg(''), 4000);
+    }
   };
 
   // Simulate webhook
@@ -3558,7 +3519,15 @@ export default function SuperAdminPage() {
                       ) : <span className="text-xs text-muted">N/A</span>}
                     </td>
                     <td>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openPdf(p.id)}>PDF</button>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-sm btn-secondary" onClick={() => setViewInvoice(p)}>View</button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => openPdf(p.id)}>PDF</button>
+                        {p.status === 'success' && (
+                          <button className="btn btn-sm btn-secondary" onClick={() => resendInvoice(p.id)} disabled={resendingId === p.id}>
+                            {resendingId === p.id ? '...' : 'Send'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td>{p.source === 'db' ? 'DB' : 'Local'}</td>
                   </tr>
@@ -3588,7 +3557,84 @@ export default function SuperAdminPage() {
       {activeTab === 'homepage' && <HomepageSettingsTab />}
 
       {/* ── Invoices Tab ───────────────────────────────────────────────────── */}
-      {activeTab === 'invoices' && <InvoiceSettingsTab />}
+      {activeTab === 'invoices' && (
+        <div style={{ display: 'grid', gap: 16 }}>
+          <InvoiceSettingsTab />
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div className="card-title" style={{ margin: 0 }}>📄 Generated Invoices ({allPurchases.filter(p => p.status === 'success').length})</div>
+              <input
+                type="text"
+                placeholder="Search by invoice #, subscriber, email, plan..."
+                value={invoiceSearch}
+                onChange={e => setInvoiceSearch(e.target.value)}
+                style={{ maxWidth: 320, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: '0.8rem' }}
+              />
+            </div>
+            {(() => {
+              const invs = allPurchases.filter(p => p.status === 'success');
+              const q = invoiceSearch.toLowerCase().trim();
+              const filtered = q ? invs.filter(inv =>
+                (inv.invoice_number || '').toLowerCase().includes(q) ||
+                (inv.tenant_name || '').toLowerCase().includes(q) ||
+                (inv.tenant_email || '').toLowerCase().includes(q) ||
+                (inv.plan_label || inv.plan || '').toLowerCase().includes(q)
+              ) : invs;
+              return filtered.length === 0 ? (
+                <div className="empty-state" style={{ padding: 40 }}>
+                  <div className="empty-icon">📭</div>
+                  <div className="empty-title">{invs.length === 0 ? 'No paid subscriptions yet' : 'No invoices match your search'}</div>
+                  <div className="empty-desc">{invs.length === 0 ? 'Invoices are auto-generated when a payment is successful' : 'Try adjusting your search terms'}</div>
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Invoice #</th>
+                        <th>Subscriber</th>
+                        <th>Plan</th>
+                        <th>Amount</th>
+                        <th>Date</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(inv => (
+                        <tr key={inv.id}>
+                          <td><span className="font-mono text-xs text-accent">{inv.invoice_number || 'Generating...'}</span></td>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{inv.tenant_name}</div>
+                          <div className="text-xs text-muted">{inv.tenant_email}</div>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)', fontWeight: 700 }}>
+                            {inv.plan_label || inv.plan}
+                          </span>
+                        </td>
+                        <td className="font-mono">₹{(inv.amount || 0).toLocaleString('en-IN')}</td>
+                        <td className="text-xs text-muted">{inv.timestamp ? new Date(inv.timestamp).toLocaleDateString('en-IN') : '—'}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn btn-sm btn-secondary" onClick={() => openPdf(inv.id)}>📄 PDF</button>
+                            <button className="btn btn-sm btn-secondary" onClick={() => resendInvoice(inv.id)} disabled={resendingId === inv.id}>
+                              {resendingId === inv.id ? 'Sending...' : '📄 Resend'}
+                            </button>
+                            {resendMsg && resendingId === null && (
+                              <span style={{ fontSize: '0.7rem', color: resendMsg.includes('Error') ? '#ef4444' : '#22c55e', alignSelf: 'center' }}>{resendMsg}</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* ── 2FA Tab ────────────────────────────────────────────────────────── */}
       {activeTab === '2fa' && <TwoFASettingsTab />}
@@ -3617,6 +3663,43 @@ export default function SuperAdminPage() {
       {showAdd && <AddTenantModal onClose={() => setShowAdd(false)} onDone={onTenantChange} />}
       {editTenant && <EditTenantModal tenant={editTenant} onClose={() => setEditTenant(null)} onDone={onTenantChange} />}
       {viewUsersTenant && <TenantUsersModal tenant={viewUsersTenant} onClose={() => setViewUsersTenant(null)} />}
+
+      {/* Invoice Details Modal */}
+      {viewInvoice && (
+        <div className="modal-overlay" onClick={() => setViewInvoice(null)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">Invoice Details</div>
+              <button className="modal-close" onClick={() => setViewInvoice(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'grid', gap: 14 }}>
+              {[
+                ['Invoice Number', viewInvoice.invoice_number || <span style={{ color: 'var(--text-muted)' }}>Generating...</span>],
+                ['Subscriber', `${viewInvoice.tenant_name}${viewInvoice.tenant_email ? ` (${viewInvoice.tenant_email})` : ''}`],
+                ['Plan', (() => { const pl = getPlans().find(x => x.key === viewInvoice.plan) || { label: viewInvoice.plan_label || viewInvoice.plan, color: '#64748b' }; return <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 999, background: `${pl.color}18`, color: pl.color, fontWeight: 700 }}>{pl.label}</span>; })()],
+                ['Amount', `₹${(viewInvoice.amount || 0).toLocaleString('en-IN')}`],
+                ['Date', fmtDate(viewInvoice.timestamp || viewInvoice.paid_at)],
+                ['Transaction ID', viewInvoice.razorpay_payment_id || '—'],
+                ['Payment Status', <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: 999,
+                  background: viewInvoice.status === 'success' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)',
+                  color: viewInvoice.status === 'success' ? '#10b981' : '#ef4444',
+                }}>{viewInvoice.status?.toUpperCase()}</span>],
+              ].map(([label, value]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{label}</span>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 500 }}>{value}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setViewInvoice(null); openPdf(viewInvoice.id); }}>📄 PDF</button>
+                {viewInvoice.status === 'success' && (
+                  <button className="btn btn-primary btn-sm" onClick={() => { setViewInvoice(null); resendInvoice(viewInvoice.id); }}>Send</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

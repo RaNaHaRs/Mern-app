@@ -442,6 +442,48 @@ router.delete(
   }
 );
 
+// ─── PUT /api/field-config/custom/:id ───────────────────────────────
+// Update a custom field (is_mandatory)
+router.put(
+  '/custom/:id',
+  requireMinRole('admin'),
+  [body('isMandatory').optional().isBoolean(), body('fieldLabel').optional().isString()],
+  auditLog('update_custom_field', 'field_config'),
+  async (req, res) => {
+    try {
+      const { isMandatory, fieldLabel } = req.body;
+      const sets = [];
+      const params = [];
+      let idx = 1;
+
+      if (isMandatory !== undefined) {
+        sets.push(`is_mandatory = $${idx++}`);
+        params.push(isMandatory);
+      }
+      if (fieldLabel !== undefined) {
+        sets.push(`field_label = $${idx++}`);
+        params.push(fieldLabel);
+      }
+      if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
+
+      params.push(req.params.id);
+      if (!isSuperAdmin(req.user)) params.push(currentTenantId(req));
+
+      const result = await query(
+        `UPDATE custom_fields SET ${sets.join(', ')}, updated_at = NOW()
+         WHERE id = $${idx++} ${!isSuperAdmin(req.user) ? `AND tenant_id = $${idx}` : ''}
+         RETURNING *`,
+        params
+      );
+
+      if (!result.rows.length) return res.status(404).json({ error: 'Custom field not found' });
+      res.json(result.rows[0]);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 // ─── PUT /api/field-config/section/:sectionKey ──────────────────────
 // Toggle section visibility
 router.put(

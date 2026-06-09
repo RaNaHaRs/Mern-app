@@ -1293,31 +1293,6 @@ export default function SettingsPage() {
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const [savingPw, setSavingPw] = useState(false);
-  // Profile form
-  const [profileForm, setProfileForm] = useState({ fullName: user?.fullName || '', phone: user?.phone || '', specializations: (user?.specializations || []).join(', '), notes: user?.notes || '' });
-  const [profileSaving, setProfileSaving] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [profileError, setProfileError] = useState('');
-
-  useEffect(() => {
-    setProfileForm({ fullName: user?.fullName || '', phone: user?.phone || '', specializations: (user?.specializations || []).join(', '), notes: user?.notes || '' });
-  }, [user]);
-
-  const handleSaveProfile = async () => {
-    setProfileSaving(true); setProfileError(''); setProfileSaved(false);
-    try {
-      const { authApi } = await import('../services/api');
-      await authApi.updateProfile({
-        full_name: profileForm.fullName,
-        phone: profileForm.phone,
-        specializations: profileForm.specializations.split(',').map(s => s.trim()).filter(Boolean),
-        notes: profileForm.notes,
-      });
-      setProfileSaved(true);
-      setTimeout(() => setProfileSaved(false), 2000);
-    } catch (err) { setProfileError(err.message); }
-    finally { setProfileSaving(false); }
-  };
 
   // Company settings
   const [company, setCompany] = useState(null);
@@ -1908,10 +1883,10 @@ export default function SettingsPage() {
                   </div>
                 )}
               </div>
-<<<<<<< HEAD
 
+              {/* MERGED: Keep both detailed display mode AND simplified incoming version */}
               {!isEditingProfile ? (
-                /* Display Mode */
+                /* Display Mode - Enhanced */
                 <>
                   {/* Avatar Display */}
                   <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap:'wrap' }}>
@@ -2036,17 +2011,14 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Username</label>
+                      <label className="form-label">Phone</label>
                       <input 
-                        type="text" 
+                        type="tel" 
                         className="form-input" 
-                        value={profileForm.username} 
-                        disabled
-                        style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                        value={profileForm.phone || ''} 
+                        onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))}
+                        placeholder="+91 98765 43210"
                       />
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                        Username cannot be changed
-                      </div>
                     </div>
                   </div>
 
@@ -2062,15 +2034,20 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Phone Number</label>
+                      <label className="form-label">Username</label>
                       <input 
-                        type="tel" 
+                        type="text" 
                         className="form-input" 
-                        value={profileForm.phone || ''} 
-                        onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))}
-                        placeholder="+91 98765 43210"
+                        value={profileForm.username} 
+                        disabled
+                        style={{ opacity: 0.6, cursor: 'not-allowed' }}
                       />
                     </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Specializations (comma-separated)</label>
+                    <input className="form-input" value={profileForm.specializations} onChange={e => setProfileForm(f => ({ ...f, specializations: e.target.value }))} placeholder="e.g. HDD, SSD, RAID" />
                   </div>
 
                   <div className="form-group">
@@ -2084,37 +2061,13 @@ export default function SettingsPage() {
                       style={{ resize: 'vertical' }}
                     />
                   </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Notes</label>
+                    <textarea className="form-textarea" style={{ minHeight: 60 }} value={profileForm.notes} onChange={e => setProfileForm(f => ({ ...f, notes: e.target.value }))} />
+                  </div>
                 </>
               )}
-=======
-              <div className="form-row form-row-2">
-                <div className="form-group"><label className="form-label">Full Name</label><input className="form-input" value={profileForm.fullName} onChange={e => setProfileForm(f => ({ ...f, fullName: e.target.value }))} /></div>
-                <div className="form-group"><label className="form-label">Phone</label><input className="form-input" value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} /></div>
-              </div>
-              <div className="form-group"><label className="form-label">Specializations (comma-separated)</label><input className="form-input" value={profileForm.specializations} onChange={e => setProfileForm(f => ({ ...f, specializations: e.target.value }))} placeholder="e.g. HDD, SSD, RAID" /></div>
-              <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" style={{ minHeight: 60 }} value={profileForm.notes} onChange={e => setProfileForm(f => ({ ...f, notes: e.target.value }))} /></div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <button className="btn btn-primary" onClick={handleSaveProfile} disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save Profile'}</button>
-                {profileSaved && <span style={{ fontSize: '0.82rem', color: 'var(--accent-success)' }}>Profile saved!</span>}
-                {profileError && <span style={{ fontSize: '0.82rem', color: '#ef4444' }}>{profileError}</span>}
-              </div>
-              <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid var(--border-subtle)' }} />
-              <div className="tech-data-table">
-                {[
-                  ['Email', user?.email],
-                  ['Username', user?.username],
-                  ['Role', user?.role?.replace('_', ' ')],
-                  ['Account Status', user?.is_active ? ' Active' : ' Inactive'],
-                  ['Last Login', user?.last_login ? new Date(user.last_login).toLocaleString('en-IN') : 'N/A'],
-                  ['Member Since', user?.created_at ? new Date(user.created_at).toLocaleDateString('en-IN') : 'N/A'],
-                ].map(([l, v]) => (
-                  <div key={l} className="tech-data-cell">
-                    <div className="tech-data-label">{l}</div>
-                    <div className="tech-data-value">{v || '—'}</div>
-                  </div>
-                ))}
-              </div>
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
             </div>
           )}
 

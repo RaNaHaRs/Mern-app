@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import UserAvatar from './UserAvatar';
 
 const initials = (name) => (name || '?').split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
+const BTN_POS_KEY = 'sa_chat_fab_pos';
 
 export default function SuperAdminFloatingChat() {
   const [isOpen, setIsOpen] = useState(false);
@@ -30,6 +31,17 @@ export default function SuperAdminFloatingChat() {
   const selectedChatIdRef = useRef(null);
   const chatsRef = useRef([]);
 
+  // Draggable FAB position (persisted in localStorage)
+  const [fabPos, setFabPos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(BTN_POS_KEY)) || { right: 24, bottom: 24 }; }
+    catch { return { right: 24, bottom: 24 }; }
+  });
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const fabPosRef = useRef(fabPos);
+  useEffect(() => { fabPosRef.current = fabPos; }, [fabPos]);
+  useEffect(() => { localStorage.setItem(BTN_POS_KEY, JSON.stringify(fabPos)); }, [fabPos]);
+
   useEffect(() => {
     contactsRef.current = contacts;
   }, [contacts]);
@@ -46,7 +58,6 @@ export default function SuperAdminFloatingChat() {
     chatsRef.current = chats;
   }, [chats]);
 
-  // Scroll to bottom when conversation changes or new message is added
   useEffect(() => {
     if (messageEndRef.current) {
       messageEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -58,13 +69,11 @@ export default function SuperAdminFloatingChat() {
     const token = localStorage.getItem('accessToken');
     if (!token) return;
 
-    // Fetch self
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((user) => setCurrentUser(user))
       .catch(() => {});
 
-    // Fetch allowed chat users and recent conversations
     fetch('/api/chat/contacts', { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((data) => {
@@ -95,7 +104,6 @@ export default function SuperAdminFloatingChat() {
       })
       .catch(() => {});
 
-    // Establish socket connection using window.location.origin (goes through Vite proxy)
     const backendUrl = window.location.origin;
     const s = io(backendUrl, {
       auth: { token },
@@ -215,48 +223,6 @@ export default function SuperAdminFloatingChat() {
     };
   }, []);
 
-  // Auto-select most recent conversation once chats are loaded
-  useEffect(() => {
-    if (!selectedChatId && chats.length > 0 && currentUser && socket?.connected) {
-      const first = chats[0];
-      if (first && first.participantId && first.room) {
-        const id = first.id;
-        setSelectedChatId(id);
-        setChats(prev => prev.map(c => c.id === id ? { ...c, unread: 0 } : c));
-        socket.emit('joinRoom', first.room);
-        socket.emit('markSeen', { room: first.room });
-        const token = localStorage.getItem('accessToken');
-        setLoadingMessages(true);
-        fetch(`/api/chat/conversations/${first.participantId}/messages?limit=200`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-          .then(r => r.json())
-          .then(data => {
-            if (Array.isArray(data.messages)) {
-              setChats(prev => prev.map(pc =>
-                pc.id === id
-                  ? {
-                      ...pc,
-                      messages: data.messages.map(m => ({
-                        id: m.id,
-                        sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
-                        text: m.text || '',
-                        time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-                        filePath: m.filePath,
-                        mimeType: m.mimeType,
-                        seen: !!m.seen_at,
-                      }))
-                    }
-                  : pc
-              ));
-            }
-          })
-          .catch(() => {})
-          .finally(() => setLoadingMessages(false));
-      }
-    }
-  }, [chats, currentUser, socket?.connected]);
-
   const attachmentUrl = (message) => {
     const token = localStorage.getItem('accessToken');
     return message?.filePath && token ? `${message.filePath}?token=${encodeURIComponent(token)}` : message?.filePath;
@@ -266,7 +232,6 @@ export default function SuperAdminFloatingChat() {
     return chats.find((c) => c.id === selectedChatId) || null;
   }, [chats, selectedChatId]);
 
-  // Send standard text message
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!newMessageText.trim() || !selectedChatId || !currentUser) return;
@@ -285,49 +250,50 @@ export default function SuperAdminFloatingChat() {
     setNewMessageText('');
   };
 
-  // Select chat from contact row list
   const handleSelectChat = (id) => {
     const chat = chats.find((c) => c.id === id);
     setSelectedChatId(id);
     setChats((prevChats) => prevChats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)));
 
-    if (chat && chat.participantId && currentUser) {
-      if (socket && chat.room) {
-        socket.emit('joinRoom', chat.room);
-        socket.emit('markSeen', { room: chat.room });
-        setLoadingMessages(true);
-        const token = localStorage.getItem('accessToken');
-        fetch(`/api/chat/conversations/${chat.participantId}/messages?limit=200`, { headers: { Authorization: `Bearer ${token}` } })
-          .then((r) => r.json())
-          .then((data) => {
-            if (Array.isArray(data.messages)) {
-              setChats((prev) =>
-                prev.map((pc) =>
-                  pc.id === id
-                    ? {
-                        ...pc,
-                        messages: data.messages.map((m) => ({
-                          id: m.id,
-                          sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
-                          text: m.text || '',
-                          time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-                          filePath: m.filePath,
-                          mimeType: m.mimeType,
-                          seen: !!m.seen_at,
-                        })),
-                      }
-                    : pc
-                )
-              );
-            }
-          })
-          .catch(() => {})
-          .finally(() => setLoadingMessages(false));
-      }
+    if (!chat || !chat.participantId || !currentUser) return;
+
+    // Always join room and mark seen if socket is available
+    if (socket && chat.room) {
+      socket.emit('joinRoom', chat.room);
+      socket.emit('markSeen', { room: chat.room });
     }
+
+    // Always load messages from DB regardless of socket state
+    setLoadingMessages(true);
+    const token = localStorage.getItem('accessToken');
+    fetch(`/api/chat/conversations/${chat.participantId}/messages?limit=200`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.messages)) {
+          setChats((prev) =>
+            prev.map((pc) =>
+              pc.id === id
+                ? {
+                    ...pc,
+                    messages: data.messages.map((m) => ({
+                      id: m.id,
+                      sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
+                      text: m.text || '',
+                      time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                      filePath: m.filePath,
+                      mimeType: m.mimeType,
+                      seen: !!m.seen_at,
+                    })),
+                  }
+                : pc
+            )
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMessages(false));
   };
 
-  // Open/initialize chat room when clicking a contact who hasn't been messaged before
   const handleSelectContact = (user) => {
     const id = `conv-${user.id}`;
     const existing = chats.find((c) => c.participantId === user.id || c.id === id);
@@ -356,7 +322,6 @@ export default function SuperAdminFloatingChat() {
     }
   };
 
-  // Handle file uploads as message attachments
   const handleFileSelect = async (file) => {
     if (!file || !selectedChatId || !currentUser) return;
     const chat = chats.find((c) => c.id === selectedChatId);
@@ -374,7 +339,6 @@ export default function SuperAdminFloatingChat() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Upload failed');
-      // The socket server will emit newMessage, which appends it. No local optimism required.
     } catch (e) {
       console.warn('File attachment upload failed', e.message);
     }
@@ -392,13 +356,12 @@ export default function SuperAdminFloatingChat() {
     }
   };
 
-  // Group contacts dynamically for command center lists
   const filteredContacts = useMemo(() => {
     return contacts.filter((c) => {
       if (currentUser && String(c.id) === String(currentUser.id)) return false;
       const q = searchQuery.trim().toLowerCase();
       const matchesSearch = (c.full_name || c.username || '').toLowerCase().includes(q);
-      
+
       if (activeTab === 'focused') {
         return c.role === 'admin' && matchesSearch;
       }
@@ -410,11 +373,34 @@ export default function SuperAdminFloatingChat() {
     return chats.reduce((acc, c) => acc + c.unread, 0);
   }, [chats]);
 
+  const handleFabMouseDown = (e) => {
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    isDragging.current = false;
+    const onMove = (ev) => {
+      const dx = ev.clientX - dragStart.current.x;
+      const dy = ev.clientY - dragStart.current.y;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        isDragging.current = true;
+        const pos = fabPosRef.current;
+        const newRight = pos.right !== undefined ? Math.max(0, pos.right - dx) : undefined;
+        const newBottom = pos.bottom !== undefined ? Math.max(0, pos.bottom - dy) : undefined;
+        if (newRight !== undefined) { setFabPos({ right: newRight, bottom: newBottom || pos.bottom }); }
+        dragStart.current = { x: ev.clientX, y: ev.clientY };
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   return (
-    <div className="floating-chat-container sa-chat-container">
+    <div className="floating-chat-container sa-chat-container" style={{ right: fabPos.right, bottom: fabPos.bottom }}>
       {/* ── 1. Floating Panel ── */}
       <div className={`floating-chat-panel sa-chat-panel ${isOpen ? 'open' : ''}`}>
-        
+
         {/* Panel Header */}
         <div className="chat-panel-header sa-chat-header">
           {activeChat ? (
@@ -445,14 +431,13 @@ export default function SuperAdminFloatingChat() {
               </div>
             </div>
           )}
-          <button className="chat-close-panel-btn" onClick={() => setIsOpen(false)}>
+          <button className="chat-close-panel-btn" onClick={() => { setIsOpen(false); setSelectedChatId(null); }}>
             ✕
           </button>
         </div>
 
         {/* Panel Body */}
         {activeChat ? (
-          /* Active Thread View */
           <div className="chat-thread-container">
             <div className="chat-messages-scroller">
               {loadingMessages ? (
@@ -497,7 +482,6 @@ export default function SuperAdminFloatingChat() {
               <div ref={messageEndRef} />
             </div>
 
-            {/* Message Input Box */}
             <form onSubmit={handleSendMessage} className="chat-input-form">
               <input
                 type="text"
@@ -529,9 +513,7 @@ export default function SuperAdminFloatingChat() {
             </form>
           </div>
         ) : (
-          /* Contacts/Chats List View */
           <div className="chat-list-container">
-            {/* Search Input */}
             <div className="chat-search-wrapper">
               <input
                 type="text"
@@ -542,7 +524,6 @@ export default function SuperAdminFloatingChat() {
               />
             </div>
 
-            {/* List Tabs */}
             <div className="chat-tabs-bar">
               <button 
                 className={`chat-tab-btn ${activeTab === 'focused' ? 'active' : ''}`}
@@ -558,14 +539,13 @@ export default function SuperAdminFloatingChat() {
               </button>
             </div>
 
-            {/* Scrollable list */}
             <div className="chat-list-scroller">
               {filteredContacts.length > 0 ? (
                 filteredContacts.map((user) => {
                   const id = `conv-${user.id}`;
                   const isOnline = onlineUsers.includes(String(user.id));
                   const conversation = chats.find((c) => String(c.participantId) === String(user.id));
-                  
+
                   return (
                     <div 
                       key={user.id} 
@@ -579,13 +559,6 @@ export default function SuperAdminFloatingChat() {
                           size={38}
                           className="chat-user-avatar"
                         />
-                        {isOnline && (
-                          <span style={{
-                            position: 'absolute', bottom: -2, right: -2, width: 10, height: 10,
-                            borderRadius: '50%', background: '#10b981', border: '2px solid var(--bg-card)',
-                            display: 'inline-block'
-                          }} />
-                        )}
                         {conversation?.unread > 0 && (
                           <span style={{
                             position: 'absolute', top: -4,
@@ -605,6 +578,13 @@ export default function SuperAdminFloatingChat() {
                           }}>
                             {conversation.unread > 9 ? '9+' : conversation.unread}
                           </span>
+                        )}
+                        {isOnline && (
+                          <span style={{
+                            position: 'absolute', bottom: -2, right: -2, width: 10, height: 10,
+                            borderRadius: '50%', background: '#10b981', border: '2px solid var(--bg-card)',
+                            display: 'inline-block'
+                          }} />
                         )}
                       </div>
                       <div className="chat-item-mid">
@@ -653,7 +633,13 @@ export default function SuperAdminFloatingChat() {
       <button
         type="button"
         className={`floating-chat-btn sa-floating-chat-btn ${isOpen ? 'active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        onMouseDown={handleFabMouseDown}
+        onClick={() => {
+          if (!isDragging.current) {
+            if (!isOpen) setSelectedChatId(null);
+            setIsOpen(prev => !prev);
+          }
+        }}
         title="Toggle Team Chat"
         aria-label="Toggle Super Admin Chat"
       >

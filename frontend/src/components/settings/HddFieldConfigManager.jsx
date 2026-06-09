@@ -193,7 +193,27 @@ export default function HddFieldConfigManager({ deviceTypes = [] }) {
     }
   };
 
+  const toggleCustomFieldMandatory = async (cf) => {
+    try {
+      const currentlyMandatory = cf.is_mandatory === true || cf.isMandatory === true;
+      await fieldConfigApi.updateCustomField(cf.id, { isMandatory: !currentlyMandatory });
+      const refreshed = await fieldConfigApi.loadToLocalStorage();
+      const normalized = {
+        hdd_fields: refreshed.hdd_fields || refreshed.hddFields || {},
+        custom_fields: refreshed.custom_fields || refreshed.customFields || {},
+        sections: refreshed.sections || {},
+      };
+      setConfig(normalized);
+      localStorage.setItem('crm_field_config', JSON.stringify(normalized));
+      try { window.dispatchEvent(new Event('crm_field_config_updated')); } catch (e) { /* ignore */ }
+      flashSaved();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
   const removeCustomField = async (catKey, cf) => {
+    if (!window.confirm(`Remove custom field "${cf.label}" from this category?`)) return;
     try {
       if (cf.id) await fieldConfigApi.deleteCustomField(cf.id);
       // Refresh authoritative config from server into localStorage and state
@@ -316,10 +336,11 @@ export default function HddFieldConfigManager({ deviceTypes = [] }) {
                       fontSize: '1.1rem',
                       padding: '2px 6px',
                       fontWeight: 700,
+                      lineHeight: 1,
                       transition: 'opacity 0.2s'
                     }}
                     title="Delete field from this category">
-                    
+                    ✕
                   </button>
                 </div>
               </div>
@@ -330,16 +351,37 @@ export default function HddFieldConfigManager({ deviceTypes = [] }) {
           )}
         </div>
 
-        <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', padding: 14 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: 10 }}>
-             Custom fields for {activeDeviceTypeLabel}
-          </div>
-          {customFields(activeConfigKey).map(cf => (
-            <div key={cf.id || cf.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: 'rgba(99,102,241,0.08)', borderRadius: 6, marginBottom: 6 }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent-secondary)' }}> {cf.label}</span>
-              <button type="button" onClick={() => removeCustomField(activeConfigKey, cf)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 11 }}></button>
+          <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', padding: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: 10 }}>
+               Custom fields for {activeDeviceTypeLabel}
             </div>
-          ))}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+              <span style={{ padding: '2px 8px', borderRadius: 20, background: 'rgba(239,68,68,0.15)', color: '#ef4444', fontWeight: 700 }}>Mandatory</span>
+              <span style={{ padding: '2px 8px', borderRadius: 20, background: 'rgba(59,130,246,0.1)', color: '#3b82f6', fontWeight: 700 }}>Optional</span>
+            </div>
+            {customFields(activeConfigKey).map(cf => (
+              <div key={cf.id || cf.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 12px', background: 'rgba(99,102,241,0.08)', borderRadius: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent-secondary)' }}> {cf.label}</span>
+                <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 20, fontWeight: 700,
+                    background: (cf.is_mandatory || cf.isMandatory) ? 'rgba(239,68,68,0.15)' : 'rgba(59,130,246,0.1)',
+                    color: (cf.is_mandatory || cf.isMandatory) ? '#ef4444' : '#3b82f6' }}>
+                    {(cf.is_mandatory || cf.isMandatory) ? 'Mandatory' : 'Optional'}
+                  </span>
+                  <button type="button" onClick={() => toggleCustomFieldMandatory(cf)}
+                    style={{ fontSize: '0.7rem', padding: '3px 9px', borderRadius: 5, border: '1px solid var(--border-default)',
+                      background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 400 }}>
+                    Toggle
+                  </button>
+                  <button type="button" onClick={() => removeCustomField(activeConfigKey, cf)}
+                    title="Delete custom field"
+                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1.1rem',
+                      padding: '2px 6px', fontWeight: 700, lineHeight: 1 }}>
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
           <div style={{ display: 'flex', gap: 8 }}>
             <input className="form-input" style={{ flex: 1 }} placeholder='e.g. "Voltage", "IMEI"'
               value={newFieldLabel} onChange={e => setNewFieldLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addCustomField(); }} />

@@ -2,83 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import UserAvatar from './UserAvatar';
 
-// ── Mock Initial Conversations ──
-const INITIAL_CHATS = [
-  {
-    id: 1,
-    name: 'Rahul Sharma',
-    role: 'Senior Recovery Engineer',
-    avatar: 'RS',
-    avatarBg: 'linear-gradient(135deg, #0d9488, #0f766e)',
-    lastMessage: "I've started the mechanical recovery on Case #2024-089.",
-    time: '10:42 AM',
-    unread: 2,
-    tab: 'focused',
-    messages: [
-      { id: 1, sender: 'them', text: "Hey! Did you check the donor parts for the Seagate drive?", time: "10:35 AM" },
-      { id: 2, sender: 'me', text: "Yes, I found a matching head stack in the donor inventory.", time: "10:40 AM" },
-      { id: 3, sender: 'them', text: "Awesome! I've started the mechanical recovery on Case #2024-089.", time: "10:42 AM" }
-    ]
-  },
-  {
-    id: 2,
-    name: 'Sneha Patel',
-    role: 'Client Relations',
-    avatar: 'SP',
-    avatarBg: 'linear-gradient(135deg, #4f46e5, #4338ca)',
-    lastMessage: 'Client for Case #2024-091 approved the quotation.',
-    time: 'Yesterday',
-    unread: 0,
-    tab: 'focused',
-    messages: [
-      { id: 1, sender: 'me', text: "Has the client for Case #2024-091 responded yet?", time: "Yesterday 9:15 AM" },
-      { id: 2, sender: 'them', text: "Yes! Client for Case #2024-091 approved the quotation. I will update the billing tracker now.", time: "Yesterday 11:20 AM" }
-    ]
-  },
-  {
-    id: 3,
-    name: 'Vikram Singh',
-    role: 'Lab Technician',
-    avatar: 'VS',
-    avatarBg: 'linear-gradient(135deg, #0ea5e9, #0369a1)',
-    lastMessage: 'Disk imaging completed successfully. 1.8TB recovered.',
-    time: 'Friday',
-    unread: 0,
-    tab: 'focused',
-    messages: [
-      { id: 1, sender: 'them', text: "I'm setting up the PC-3000 task for the Western Digital drive now.", time: "Friday 2:00 PM" },
-      { id: 2, sender: 'them', text: "Disk imaging completed successfully. 1.8TB recovered.", time: "Friday 4:30 PM" }
-    ]
-  },
-  {
-    id: 4,
-    name: 'RecoverLab Bot',
-    role: 'System Alerts',
-    avatar: '🤖',
-    avatarBg: 'linear-gradient(135deg, #64748b, #475569)',
-    lastMessage: 'Nightly cloud backup completed successfully at 03:00 AM.',
-    time: '3:00 AM',
-    unread: 0,
-    tab: 'other',
-    messages: [
-      { id: 1, sender: 'them', text: "Nightly cloud backup completed successfully at 03:00 AM.", time: "3:00 AM" }
-    ]
-  },
-  {
-    id: 5,
-    name: 'Billing Support',
-    role: 'Platform billing',
-    avatar: '💳',
-    avatarBg: 'linear-gradient(135deg, #d97706, #b45309)',
-    lastMessage: 'Subscription invoice RL-8291 has been generated.',
-    time: 'May 22',
-    unread: 0,
-    tab: 'other',
-    messages: [
-      { id: 1, sender: 'them', text: "Subscription invoice RL-8291 has been generated.", time: "May 22" }
-    ]
-  }
-];
+const BTN_POS_KEY = 'chat_fab_pos';
 
 export default function FloatingChat() {
   const [isOpen, setIsOpen] = useState(false);
@@ -88,7 +12,7 @@ export default function FloatingChat() {
   const [activeTab, setActiveTab] = useState('focused');
   const [newMessageText, setNewMessageText] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
-  
+
   const messageEndRef = useRef(null);
 
   const [socket, setSocket] = useState(null);
@@ -103,6 +27,17 @@ export default function FloatingChat() {
   const currentUserRef = useRef(null);
   const selectedChatIdRef = useRef(null);
   const chatsRef = useRef([]);
+
+  // Draggable FAB position (persisted in localStorage)
+  const [fabPos, setFabPos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(BTN_POS_KEY)) || { right: 24, bottom: 24 }; }
+    catch { return { right: 24, bottom: 24 }; }
+  });
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const fabPosRef = useRef(fabPos);
+  useEffect(() => { fabPosRef.current = fabPos; }, [fabPos]);
+  useEffect(() => { localStorage.setItem(BTN_POS_KEY, JSON.stringify(fabPos)); }, [fabPos]);
 
   useEffect(() => {
     contactsRef.current = contacts;
@@ -120,14 +55,12 @@ export default function FloatingChat() {
     chatsRef.current = chats;
   }, [chats]);
 
-  // Scroll to bottom when conversation changes or new message is added
   useEffect(() => {
     if (messageEndRef.current) {
       messageEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [selectedChatId, chats]);
 
-  // Helper to build a 1:1 room name
   const roomForUser = (a, b) => {
     try {
       const ids = [String(a), String(b)].sort();
@@ -147,13 +80,11 @@ export default function FloatingChat() {
     const token = localStorage.getItem('accessToken');
     if (!token) return;
 
-    // Fetch current user
     fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(user => setCurrentUser(user))
       .catch(err => console.warn('Failed to fetch current user', err));
 
-    // Fetch allowed contacts & existing conversations
     fetch('/api/chat/contacts', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(data => {
@@ -182,8 +113,6 @@ export default function FloatingChat() {
       })
       .catch(err => console.warn('Failed to fetch chat contacts', err));
 
-    // Connect to backend Socket.IO server
-    // Use the same host as frontend, Socket.IO will figure out the correct port
     const backendUrl = window.location.origin;
     const s = io(backendUrl, {
       auth: { token },
@@ -193,46 +122,41 @@ export default function FloatingChat() {
       reconnectionAttempts: Infinity,
       transports: ['websocket', 'polling'],
     });
-    
+
     setSocket(s);
 
-    // Handle socket connection
     s.on('connect', () => {
-      console.info('✓ Socket connected');
+      console.info('Socket connected');
       const activeChat = chatsRef.current.find((c) => c.id === selectedChatIdRef.current);
       if (activeChat?.room) {
         s.emit('joinRoom', activeChat.room);
       }
     });
 
-    // Handle socket disconnection
     s.on('disconnect', () => {
       console.warn('Socket disconnected');
     });
 
-    // Handle connection error
     s.on('connect_error', (err) => {
       console.error('Socket connection error', err);
     });
 
-    // Handle online users list
     s.on('onlineUsers', (users) => {
       setOnlineUsers(Array.isArray(users) ? users.map(String) : []);
     });
 
-    // Handle incoming messages
     s.on('newMessage', (msg) => {
       const currentUserId = currentUserRef.current?.id;
       const otherId = String(msg.sender_id) === String(currentUserId) 
         ? String(msg.recipient_id) 
         : String(msg.sender_id);
-      
+
       if (!otherId || otherId === 'undefined') return;
 
       setChats((prev) => {
         const existing = prev.find((c) => c.room === msg.room);
         const isOwn = String(msg.sender_id) === String(currentUserId);
-        
+
         const formattedMsg = {
           id: msg.id,
           sender: isOwn ? 'me' : 'them',
@@ -245,9 +169,8 @@ export default function FloatingChat() {
         };
 
         if (existing) {
-          // Check if message already exists (prevent duplicates)
           if (existing.messages.some((m) => String(m.id) === String(msg.id))) return prev;
-          
+
           return prev.map((c) =>
             c.room === msg.room
               ? {
@@ -255,13 +178,11 @@ export default function FloatingChat() {
                   messages: [...(c.messages || []), formattedMsg],
                   lastMessage: msg.text || (msg.filePath ? '📎 Attachment' : ''),
                   time: new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-                  // Only increment unread if not currently viewing this chat and message is not from current user
                   unread: !isOwn && selectedChatIdRef.current !== c.id ? c.unread + 1 : c.unread,
                 }
               : c
           );
         } else {
-          // Create new conversation if it doesn't exist
           const contact = contactsRef.current.find((u) => String(u.id) === String(otherId));
           if (!contact) return prev;
 
@@ -283,7 +204,6 @@ export default function FloatingChat() {
       });
     });
 
-    // Handle messages marked as seen
     s.on('messagesSeen', ({ room, userId }) => {
       setChats(prev => prev.map(c => 
         c.room === room 
@@ -296,7 +216,6 @@ export default function FloatingChat() {
       ));
     });
 
-    // Handle typing indicators
     s.on('typing', ({ userName }) => {
       const activeChat = chatsRef.current.find((c) => c.id === selectedChatIdRef.current);
       if (!activeChat) return;
@@ -307,7 +226,6 @@ export default function FloatingChat() {
       }, 1800);
     });
 
-    // Handle errors
     s.on('error', (err) => {
       console.error('Socket error:', err);
     });
@@ -318,52 +236,8 @@ export default function FloatingChat() {
     };
   }, []);
 
-  // Auto-select most recent conversation once contacts/chats are loaded
-  useEffect(() => {
-    if (!selectedChatId && chats.length > 0 && currentUser && socket?.connected) {
-      const first = chats[0];
-      if (first && first.participantId) {
-        const id = first.id;
-        setSelectedChatId(id);
-        setChats(prevChats => prevChats.map(c => c.id === id ? { ...c, unread: 0 } : c));
-        if (first.room) {
-          socket.emit('joinRoom', first.room);
-          socket.emit('markSeen', { room: first.room });
-          const token = localStorage.getItem('accessToken');
-          fetch(`/api/chat/conversations/${first.participantId}/messages?limit=200`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-            .then(r => r.json())
-            .then(data => {
-              if (Array.isArray(data.messages)) {
-                setChats(prev => prev.map(pc =>
-                  pc.id === id
-                    ? {
-                        ...pc,
-                        messages: data.messages.map(m => ({
-                          id: m.id,
-                          sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
-                          text: m.text || '',
-                          time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-                          filePath: m.filePath,
-                          mimeType: m.mimeType,
-                          created_at: m.created_at,
-                          seen: !!m.seen_at,
-                        }))
-                      }
-                    : pc
-                ));
-              }
-            })
-            .catch(err => console.warn('Failed to load initial message history', err));
-        }
-      }
-    }
-  }, [chats, currentUser, socket?.connected]);
-
   const activeChat = chats.find(c => c.id === selectedChatId);
 
-  // Send message handler
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!newMessageText.trim() || !selectedChatId || !currentUser) return;
@@ -382,7 +256,6 @@ export default function FloatingChat() {
     setNewMessageText('');
   };
 
-  // File upload for attachments
   const fileInputRef = useRef(null);
   const handleFileSelect = async (file) => {
     if (!file || !selectedChatId || !currentUser) return;
@@ -405,54 +278,51 @@ export default function FloatingChat() {
   const handleSelectChat = (id) => {
     const chat = chats.find(c => c.id === id);
     setSelectedChatId(id);
-    
-    // Reset unread count when chat is opened
+
     setChats(prevChats => prevChats.map(c => c.id === id ? { ...c, unread: 0 } : c));
 
-    if (chat && chat.participantId && currentUser && socket) {
-      // Join the room and mark messages as seen
-      if (chat.room) {
-        socket.emit('joinRoom', chat.room);
-        socket.emit('markSeen', { room: chat.room });
-        
-        // Load message history
-        setLoadingMessages(true);
-        const token = localStorage.getItem('accessToken');
-        fetch(`/api/chat/conversations/${chat.participantId}/messages?limit=200`, { 
-          headers: { Authorization: `Bearer ${token}` } 
-        })
-          .then(r => r.json())
-          .then(data => {
-            if (Array.isArray(data.messages)) {
-              setChats(prev => prev.map(pc => 
-                pc.id === id 
-                  ? {
-                      ...pc, 
-                      messages: data.messages.map(m => ({
-                        id: m.id,
-                        sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
-                        text: m.text || '',
-                        time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-                        filePath: m.filePath,
-                        mimeType: m.mimeType,
-                        created_at: m.created_at,
-                        seen: !!m.seen_at,
-                      }))
-                    }
-                  : pc
-              ));
-            }
-          })
-          .catch(err => console.warn('Failed to load message history', err))
-          .finally(() => setLoadingMessages(false));
-      }
+    if (!chat || !chat.participantId || !currentUser) return;
+
+    // Always join room and mark seen if socket is available
+    if (socket && chat.room) {
+      socket.emit('joinRoom', chat.room);
+      socket.emit('markSeen', { room: chat.room });
     }
+
+    // Always load messages from DB regardless of socket state
+    setLoadingMessages(true);
+    const token = localStorage.getItem('accessToken');
+    fetch(`/api/chat/conversations/${chat.participantId}/messages?limit=200`, { 
+      headers: { Authorization: `Bearer ${token}` } 
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.messages)) {
+          setChats(prev => prev.map(pc => 
+            pc.id === id 
+              ? {
+                  ...pc, 
+                  messages: data.messages.map(m => ({
+                    id: m.id,
+                    sender: String(m.sender_id) === String(currentUser.id) ? 'me' : 'them',
+                    text: m.text || '',
+                    time: new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                    filePath: m.filePath,
+                    mimeType: m.mimeType,
+                    created_at: m.created_at,
+                    seen: !!m.seen_at,
+                  }))
+                }
+              : pc
+          ));
+        }
+      })
+      .catch(err => console.warn('Failed to load message history', err))
+      .finally(() => setLoadingMessages(false));
   };
 
-  // Get total unread count for floating button badge
   const totalUnread = chats.reduce((acc, c) => acc + c.unread, 0);
 
-  // Contacts filtered by search and role; used as sidebar entries
   const filteredContacts = contacts.filter(user => {
     if (currentUser && String(user.id) === String(currentUser.id)) return false;
     const q = searchQuery.trim().toLowerCase();
@@ -466,11 +336,33 @@ export default function FloatingChat() {
     return user.role !== 'admin' && user.role !== 'super_admin';
   });
 
+  const handleFabMouseDown = (e) => {
+    dragStart.current = { x: e.clientX, y: e.clientY };
+    isDragging.current = false;
+    const onMove = (ev) => {
+      const dx = ev.clientX - dragStart.current.x;
+      const dy = ev.clientY - dragStart.current.y;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        isDragging.current = true;
+        const pos = fabPosRef.current;
+        const newRight = pos.right !== undefined ? Math.max(0, pos.right - dx) : undefined;
+        const newBottom = pos.bottom !== undefined ? Math.max(0, pos.bottom - dy) : undefined;
+        if (newRight !== undefined) { setFabPos({ right: newRight, bottom: newBottom || pos.bottom }); }
+        dragStart.current = { x: ev.clientX, y: ev.clientY };
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   return (
-    <div className="floating-chat-container">
-      {/* ── 1. Floating Panel ── */}
+    <div className="floating-chat-container" style={{ right: fabPos.right, bottom: fabPos.bottom }}>
       <div className={`floating-chat-panel ${isOpen ? 'open' : ''}`}>
-        
+
         {/* Panel Header */}
         <div className="chat-panel-header">
           {activeChat ? (
@@ -501,14 +393,13 @@ export default function FloatingChat() {
               </div>
             </div>
           )}
-          <button className="chat-close-panel-btn" onClick={() => setIsOpen(false)}>
+          <button className="chat-close-panel-btn" onClick={() => { setIsOpen(false); setSelectedChatId(null); }}>
             ✕
           </button>
         </div>
 
         {/* Panel Body */}
         {activeChat ? (
-          /* Active Thread View */
           <div className="chat-thread-container">
             <div className="chat-messages-scroller">
               {activeChat.messages.map(msg => (
@@ -539,7 +430,6 @@ export default function FloatingChat() {
               <div ref={messageEndRef} />
             </div>
 
-            {/* Message Input Box */}
             <form onSubmit={handleSendMessage} className="chat-input-form">
               <input
                 type="text"
@@ -566,9 +456,7 @@ export default function FloatingChat() {
             </form>
           </div>
         ) : (
-          /* Contacts/Chats List View */
           <div className="chat-list-container">
-            {/* Search Input */}
             <div className="chat-search-wrapper">
               <span className="chat-search-icon">🔍</span>
               <input
@@ -580,7 +468,6 @@ export default function FloatingChat() {
               />
             </div>
 
-            {/* List Tabs */}
             <div className="chat-tabs-bar">
               <button 
                 className={`chat-tab-btn ${activeTab === 'focused' ? 'active' : ''}`}
@@ -596,7 +483,6 @@ export default function FloatingChat() {
               </button>
             </div>
 
-            {/* Scrollable list */}
             <div className="chat-list-scroller">
                 {filteredContacts.length > 0 ? (
                   filteredContacts.map(user => {
@@ -609,7 +495,6 @@ export default function FloatingChat() {
                       key={user.id} 
                       className="chat-item-row"
                       onClick={() => {
-                        // Ensure a chat item exists for this contact
                         const existing = chats.find(c => c.participantId === user.id || c.id === id);
                         if (!existing) {
                           const room = roomForUser(currentUser ? currentUser.id : 'me', user.id);
@@ -641,13 +526,27 @@ export default function FloatingChat() {
                           size={38}
                           className="chat-user-avatar"
                         />
-                        {isOnline && (
-                          <span style={{
-                            position: 'absolute', bottom: -2, right: -2, width: 10, height: 10,
-                            borderRadius: '50%', background: '#10b981', border: '2px solid var(--bg-card)',
-                            display: 'inline-block'
-                          }} />
-                        )}
+                        <div style={{ position: 'absolute', top: -4, right: -4, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                          {isOnline && (
+                            <span style={{
+                              width: 10, height: 10,
+                              borderRadius: '50%', background: '#10b981', border: '2px solid var(--bg-card)',
+                              display: 'inline-block'
+                            }} />
+                          )}
+                          {conversation && conversation.unread > 0 && (
+                            <span style={{
+                              minWidth: 18, height: 18, borderRadius: 999,
+                              background: '#ef4444', color: '#ffffff',
+                              fontSize: 10, fontWeight: 700,
+                              lineHeight: '18px', textAlign: 'center',
+                              padding: '0 4px', border: '2px solid var(--bg-card)',
+                              boxSizing: 'border-box',
+                            }}>
+                              {conversation.unread > 9 ? '9+' : conversation.unread}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="chat-item-mid">
                         <div className="chat-item-row-top" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -726,7 +625,13 @@ export default function FloatingChat() {
       {/* ── 2. Floating Action Button (FAB) ── */}
       <button 
         className={`floating-chat-btn ${isOpen ? 'active' : ''}`} 
-        onClick={() => setIsOpen(!isOpen)}
+        onMouseDown={handleFabMouseDown}
+        onClick={() => {
+          if (!isDragging.current) {
+            if (!isOpen) setSelectedChatId(null);
+            setIsOpen(prev => !prev);
+          }
+        }}
         title="Toggle Team Chat"
       >
         <span className="chat-btn-icon">💬</span>

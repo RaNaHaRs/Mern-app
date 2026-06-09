@@ -236,7 +236,7 @@ router.put('/profile', auditLog('update_own_profile', 'user'), async (req, res) 
     // Update profile - use avatar_url to match existing schema
     const result = await query(
       `UPDATE users 
-       SET full_name = $1, email = $2, phone = COALESCE($3, phone), bio = COALESCE($4, bio), avatar_url = COALESCE($5, avatar_url), updated_at = NOW() 
+       SET full_name = $1, email = $2, phone = COALESCE($3, phone), bio = COALESCE($4, bio), avatar_url = $5, updated_at = NOW() 
        WHERE id = $6
        RETURNING id, username, email, full_name, phone, bio, avatar_url, role, is_active, created_at, last_login`,
       [fullName, email, phone || null, bio || null, avatar || null, userId]

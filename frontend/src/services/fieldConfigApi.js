@@ -19,6 +19,9 @@ export const fieldConfigApi = {
   addCustomField: async (hddType, fieldLabel, fieldType, isMandatory = false) =>
     api.post('/field-config/custom', { hddType, fieldLabel, fieldType, isMandatory }),
 
+  updateCustomField: async (fieldId, data) =>
+    api.put(`/field-config/custom/${fieldId}`, data),
+
   deleteCustomField: async (fieldId) =>
     api.delete(`/field-config/custom/${fieldId}`),
 
@@ -58,10 +61,12 @@ export const fieldConfigApi = {
   loadToLocalStorage: async () => {
     try {
       const config = await fieldConfigApi.getConfig();
+      const existing = JSON.parse(localStorage.getItem('crm_field_config') || '{}');
       const normalized = {
         hdd_fields: config.hdd_fields || config.hddFields || {},
         custom_fields: config.custom_fields || config.customFields || {},
         sections: config.sections || {},
+        case_fields: existing.case_fields || {},
       };
       localStorage.setItem('crm_field_config', JSON.stringify(normalized));
       return normalized;

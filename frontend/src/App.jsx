@@ -204,51 +204,23 @@ function Sidebar({ open, onClose, branding }) {
         </div>
 
         <div className="sidebar-footer">
-<<<<<<< HEAD
           <div className="user-card" onClick={() => { navigate('/settings'); onClose(); }}>
-            <div className="user-avatar" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <UserAvatar
-                name={user?.fullName || user?.username}
-                avatarUrl={user?.avatar || user?.avatarUrl}
-                size={36}
-                style={{ borderRadius: '50%' }}
-              />
-=======
-          {user && (
-            <div style={{
-              padding: '10px 12px',
-              marginBottom: 8,
-              background: 'rgba(255,255,255,0.04)',
-              borderRadius: 8,
-              border: '1px solid var(--border-subtle)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                  background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '0.72rem', fontWeight: 800, color: '#fff', overflow: 'hidden',
-                }}>
+            {user && (
+              <>
+                <div className="user-avatar">
                   {user.avatar
                     ? <img src={user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     : (user.fullName || user.username || '?').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
                   }
                 </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {user.fullName || user.username}
-                  </div>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {user.email}
-                  </div>
-                  <div style={{ fontSize: '0.6rem', color: 'var(--accent-primary)', fontWeight: 600, marginTop: 1, textTransform: 'capitalize' }}>
-                    {(user.role || '').replace(/_/g, ' ')}
-                  </div>
+                <div className="user-info">
+                  <div className="user-name">{user.fullName || user.username}</div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.email}</div>
+                  <div className="user-role">{(user.role || '').replace(/_/g, ' ')}</div>
                 </div>
-              </div>
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
-            </div>
-          )}
+              </>
+            )}
+          </div>
           <button onClick={handleLogout} title="Sign out">
             {Icons.logout} Logout
           </button>
@@ -427,7 +399,7 @@ function AppLayout() {
 
 // ── Root App ───────────────────────────────────────────────────
 export default function App() {
-<<<<<<< HEAD
+  // MERGED: Keep both branding fetch (current) AND temp comment (incoming)
   useEffect(() => {
     fetch('/api/settings/branding').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) return;
@@ -442,9 +414,7 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
-=======
-  // TEMP 2
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
+
   return (
     <ThemeProvider>
       <FontSizeProvider>

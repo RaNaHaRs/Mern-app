@@ -84,46 +84,76 @@ function gs(key, def) {
 
 function getFieldConfig() {
   try {
-    return JSON.parse(localStorage.getItem("crm_field_config") || "{}");
+    const raw = localStorage.getItem("crm_field_config");
+    if (!raw) return {};
+    return JSON.parse(raw);
   } catch {
     return {};
+  }
+}
+
+function ensureCaseFields() {
+  try {
+    const raw = localStorage.getItem("crm_field_config");
+    const config = raw ? JSON.parse(raw) : {};
+    if (config.case_fields) return;
+    config.case_fields = {
+      client_id: 'required',
+      received_at: 'required',
+      deadline_at: 'required',
+      priority: 'required',
+      reminder_days: 'required',
+      assigned_engineer: 'optional',
+      hdd_type: 'required',
+      case_number: 'required',
+      interface: 'required',
+      capacity: 'optional',
+      failure_types: 'required',
+      symptoms: 'required',
+      problem_description: 'required',
+      initial_diagnosis: 'optional',
+      quotation_amount: 'optional',
+      advance_amount: 'optional',
+    };
+    localStorage.setItem('crm_field_config', JSON.stringify(config));
+  } catch {}
+}
+
+// Initialise case_fields once on module load
+ensureCaseFields();
+
+/**
+ * Get the configured status for a case-level field.
+ * Returns 'required', 'optional', or 'hidden'.
+ * Falls back to 'required' for default-required fields if config not yet saved.
+ * @param {string} fieldKey
+ * @returns {string}
+ */
+function getFieldStatus(fieldKey) {
+  try {
+    const config = getFieldConfig();
+    const status = config?.case_fields?.[fieldKey];
+    if (status) return status;
+    // Default required fields (used only until Settings → Field Configuration saves explicit status)
+    const defaultRequired = [
+      'client_id', 'received_at', 'deadline_at', 'priority', 'reminder_days',
+      'hdd_type', 'case_number', 'interface',
+      'failure_types', 'symptoms', 'problem_description',
+    ];
+    return defaultRequired.includes(fieldKey) ? 'required' : 'optional';
+  } catch {
+    return 'required';
   }
 }
 
 /**
  * Check if a case field is required based on field configuration.
  * Returns true if field should show asterisk and be validated.
- * @param {string} fieldKey - Field identifier (e.g., 'client_name', 'received_at', 'hdd_type')
+ * @param {string} fieldKey
  * @returns {boolean}
  */
 function isCaseFieldRequired(fieldKey) {
-  try {
-    const config = getFieldConfig();
-    // Check if field has explicit status in case_fields config
-    const status = config?.case_fields?.[fieldKey];
-    if (status) {
-      return status === 'required' || status === 'mandatory';
-    }
-    // Default required fields for case creation (backwards compatible)
-    const defaultRequired = [
-      'client_name',
-      'client_id',
-      'received_at',
-      'deadline_at',
-      'priority',
-      'reminder_days',
-      'assigned_engineer',
-      'hdd_type',
-      'case_number',
-      'interface',
-      'failure_types',
-      'symptoms',
-      'problem_description',
-    ];
-    return defaultRequired.includes(fieldKey);
-  } catch {
-    return true; // Fail safe: show as required if config read fails
-  }
+  return getFieldStatus(fieldKey) === 'required';
 }
 
 /**
@@ -133,7 +163,11 @@ function isCaseFieldRequired(fieldKey) {
  */
 function RequiredIndicator({ fieldKey }) {
   if (!isCaseFieldRequired(fieldKey)) return null;
-  return <span style={{ color: "var(--danger)", marginLeft: 6 }}>*</span>;
+  return <span style={{ color: "var(--danger)", marginLeft: 4 }}>*</span>;
+}
+
+function isFieldHidden(fieldKey) {
+  return getFieldStatus(fieldKey) === 'hidden';
 }
 
 function getCaseSettingsList(caseSettings, key, fallback) {
@@ -1189,114 +1223,124 @@ function StepClient({
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Received At <RequiredIndicator fieldKey="received_at" />
-          </label>
-          <input
-            type="datetime-local"
-            className="form-input"
-            value={form.received_at || ""}
-            onChange={(e) => set("received_at", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.received_at && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.received_at}
-            </div>
-          )}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Deadline / SLA <RequiredIndicator fieldKey="deadline_at" />
-          </label>
-          <input
-            type="datetime-local"
-            className="form-input"
-            value={form.deadline_at || ""}
-            onChange={(e) => set("deadline_at", e.target.value)}
-            style={inputStyle}
-          />
-          {stepErrors.deadline_at && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.deadline_at}
-            </div>
-          )}
-          <div
-            style={{
-              fontSize: "0.65rem",
-              color: "var(--text-muted)",
-              marginTop: 3,
-            }}
-          >
-            Default: 4 days from now
+        {!isFieldHidden('received_at') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Received At <RequiredIndicator fieldKey="received_at" />
+            </label>
+            <input
+              type="datetime-local"
+              className="form-input"
+              value={form.received_at || ""}
+              onChange={(e) => set("received_at", e.target.value)}
+              style={inputStyle}
+            />
+            {stepErrors.received_at && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.received_at}
+              </div>
+            )}
           </div>
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Priority <RequiredIndicator fieldKey="priority" />
-          </label>
-          <select
-            className="form-select"
-            value={form.priority}
-            onChange={(e) => set("priority", parseInt(e.target.value))}
-            style={inputStyle}
-          >
-            {Object.entries(PRIORITIES).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-          {stepErrors.priority && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.priority}
+        )}
+        {!isFieldHidden('deadline_at') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Deadline / SLA <RequiredIndicator fieldKey="deadline_at" />
+            </label>
+            <input
+              type="datetime-local"
+              className="form-input"
+              value={form.deadline_at || ""}
+              onChange={(e) => set("deadline_at", e.target.value)}
+              style={inputStyle}
+            />
+            {stepErrors.deadline_at && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.deadline_at}
+              </div>
+            )}
+            <div
+              style={{
+                fontSize: "0.65rem",
+                color: "var(--text-muted)",
+                marginTop: 3,
+              }}
+            >
+              Default: 4 days from now
             </div>
-          )}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Stale Reminder (days) <RequiredIndicator fieldKey="reminder_days" />
-          </label>
-          <input
-            type="number"
-            min="1"
-            max="90"
-            className="form-input"
-            value={form.reminder_days}
-            onChange={(e) => set("reminder_days", parseInt(e.target.value))}
-            style={inputStyle}
-          />
-          {stepErrors.reminder_days && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.reminder_days}
-            </div>
-          )}
-        </div>
-        <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
-          <label className="form-label">
-            Assigned Engineer
-          </label>
-          <select
-            className="form-select"
-            value={form.assigned_engineer || ""}
-            onChange={(e) => set("assigned_engineer", e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">Select Engineer...</option>
-            {engineers.map((eng) => (
-              <option key={eng.id} value={eng.id}>
-                {eng.full_name || eng.username} (
-                {(eng.role || "").replace(/_/g, " ")})
-              </option>
-            ))}
-          </select>
-          {stepErrors.assigned_engineer && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.assigned_engineer}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!isFieldHidden('priority') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Priority <RequiredIndicator fieldKey="priority" />
+            </label>
+            <select
+              className="form-select"
+              value={form.priority}
+              onChange={(e) => set("priority", parseInt(e.target.value))}
+              style={inputStyle}
+            >
+              {Object.entries(PRIORITIES).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            {stepErrors.priority && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.priority}
+              </div>
+            )}
+          </div>
+        )}
+        {!isFieldHidden('reminder_days') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Stale Reminder (days) <RequiredIndicator fieldKey="reminder_days" />
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="90"
+              className="form-input"
+              value={form.reminder_days}
+              onChange={(e) => set("reminder_days", parseInt(e.target.value))}
+              style={inputStyle}
+            />
+            {stepErrors.reminder_days && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.reminder_days}
+              </div>
+            )}
+          </div>
+        )}
+        {!isFieldHidden('assigned_engineer') && (
+          <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
+            <label className="form-label">
+              Assigned Engineer <RequiredIndicator fieldKey="assigned_engineer" />
+            </label>
+            <select
+              className="form-select"
+              value={form.assigned_engineer || ""}
+              onChange={(e) => set("assigned_engineer", e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">Select Engineer...</option>
+              {engineers.map((eng) => (
+                <option key={eng.id} value={eng.id}>
+                  {eng.full_name || eng.username} (
+                  {(eng.role || "").replace(/_/g, " ")})
+                </option>
+              ))}
+            </select>
+            {stepErrors.assigned_engineer && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.assigned_engineer}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1316,115 +1360,125 @@ function StepDevice({ form, setForm, capacities, stepErrors, caseSettings, hddTy
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            HDD / Device Type
-            <RequiredIndicator fieldKey="hdd_type" />
-          </label>
-          <select
-            className="form-select"
-            value={form.hdd_type || ""}
-            onChange={(e) => set("hdd_type", e.target.value)}
-            style={{ ...inputStyle, ...invalidStyle("hdd_type") }}
-            aria-invalid={!!stepErrors.hdd_type}
-          >
-            <option value="">Select HDD Type...</option>
-            {hddTypes.map((h) => (
-              <option key={h.key} value={h.key}>
-                {h.label}
-              </option>
-            ))}
-          </select>
-          {stepErrors.hdd_type && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.hdd_type}
-            </div>
-          )}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Case Number (Manual)
-            <RequiredIndicator fieldKey="case_number" />
-          </label>
-          <input
-            className="form-input"
-            placeholder="Case number / job tag"
-            value={form.case_number || ""}
-            onChange={(e) => set("case_number", e.target.value)}
-            style={{ ...inputStyle, ...invalidStyle("case_number") }}
-            aria-invalid={!!stepErrors.case_number}
-          />
-          {stepErrors.case_number && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.case_number}
-            </div>
-          )}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">Capacity</label>
-          <select
-            className="form-select"
-            value={form.capacity || ""}
-            onChange={(e) => {
-              const value = e.target.value;
-              set("capacity", value);
-              if (value !== "__others__") {
-                set("selected_custom_capacity", "");
-              }
-            }}
-            style={inputStyle}
-          >
-            <option value="">Select Capacity...</option>
-            {capacities
-              .filter((c) => c !== "1.5TB")
-              .map((c) => (
-                <option key={c} value={c}>
-                  {c}
+        {!isFieldHidden('hdd_type') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              HDD / Device Type
+              <RequiredIndicator fieldKey="hdd_type" />
+            </label>
+            <select
+              className="form-select"
+              value={form.hdd_type || ""}
+              onChange={(e) => set("hdd_type", e.target.value)}
+              style={{ ...inputStyle, ...invalidStyle("hdd_type") }}
+              aria-invalid={!!stepErrors.hdd_type}
+            >
+              <option value="">Select HDD Type...</option>
+              {hddTypes.map((h) => (
+                <option key={h.key} value={h.key}>
+                  {h.label}
                 </option>
               ))}
-            {form.selected_custom_capacity && !capacities.includes(form.selected_custom_capacity) && (
-              <option key={form.selected_custom_capacity} value={form.selected_custom_capacity}>
-                {form.selected_custom_capacity}
-              </option>
+            </select>
+            {stepErrors.hdd_type && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.hdd_type}
+              </div>
             )}
-            <option value="__others__">Others (add custom)</option>
-          </select>
-          {form.capacity === "__others__" && (
-            <StepDeviceCustomInput
-              form={form}
-              setForm={set}
-              inputStyle={inputStyle}
-              stepErrors={{}}
+          </div>
+        )}
+        {!isFieldHidden('case_number') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Case Number (Manual)
+              <RequiredIndicator fieldKey="case_number" />
+            </label>
+            <input
+              className="form-input"
+              placeholder="Case number / job tag"
+              value={form.case_number || ""}
+              onChange={(e) => set("case_number", e.target.value)}
+              style={{ ...inputStyle, ...invalidStyle("case_number") }}
+              aria-invalid={!!stepErrors.case_number}
             />
-          )}
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label className="form-label">
-            Interface
-            <RequiredIndicator fieldKey="interface" />
-          </label>
-          <select
-            className="form-select"
-            value={form.interface || ""}
-            onChange={(e) => set("interface", e.target.value)}
-            style={{ ...inputStyle, ...invalidStyle("interface") }}
-            aria-invalid={!!stepErrors.interface}
-          >
-            <option value="">Select...</option>
-            {getCaseSettingsList(caseSettings, "interfaces", ["SATA", "NVMe", "SAS", "IDE", "USB", "PCIe", "M2", "eSATA"]).map(
-              (i) => (
-                <option key={i} value={i}>
-                  {i}
-                </option>
-              )
+            {stepErrors.case_number && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.case_number}
+              </div>
             )}
-          </select>
-          {stepErrors.interface && (
-            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-              {stepErrors.interface}
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!isFieldHidden('capacity') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Capacity <RequiredIndicator fieldKey="capacity" />
+            </label>
+            <select
+              className="form-select"
+              value={form.capacity || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                set("capacity", value);
+                if (value !== "__others__") {
+                  set("selected_custom_capacity", "");
+                }
+              }}
+              style={inputStyle}
+            >
+              <option value="">Select Capacity...</option>
+              {capacities
+                .filter((c) => c !== "1.5TB")
+                .map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              {form.selected_custom_capacity && !capacities.includes(form.selected_custom_capacity) && (
+                <option key={form.selected_custom_capacity} value={form.selected_custom_capacity}>
+                  {form.selected_custom_capacity}
+                </option>
+              )}
+              <option value="__others__">Others (add custom)</option>
+            </select>
+            {form.capacity === "__others__" && (
+              <StepDeviceCustomInput
+                form={form}
+                setForm={set}
+                inputStyle={inputStyle}
+                stepErrors={{}}
+              />
+            )}
+          </div>
+        )}
+        {!isFieldHidden('interface') && (
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">
+              Interface
+              <RequiredIndicator fieldKey="interface" />
+            </label>
+            <select
+              className="form-select"
+              value={form.interface || ""}
+              onChange={(e) => set("interface", e.target.value)}
+              style={{ ...inputStyle, ...invalidStyle("interface") }}
+              aria-invalid={!!stepErrors.interface}
+            >
+              <option value="">Select...</option>
+              {getCaseSettingsList(caseSettings, "interfaces", ["SATA", "NVMe", "SAS", "IDE", "USB", "PCIe", "M2", "eSATA"]).map(
+                (i) => (
+                  <option key={i} value={i}>
+                    {i}
+                  </option>
+                )
+              )}
+            </select>
+            {stepErrors.interface && (
+              <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+                {stepErrors.interface}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {!form.hdd_type && (
         <div
@@ -1561,69 +1615,75 @@ function StepProblemView({ form, setForm, toggle, SYMPTOMS, FAILURE_TYPES_LIST, 
   const showImages = sectionEnabled(getFieldConfig(), "image_upload");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">
-          Failure Types <RequiredIndicator fieldKey="failure_types" />
-        </label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {FAILURE_TYPES_LIST.map((ft) => {
-            const on = (form.failure_types || []).includes(ft);
-            return (
-              <label key={ft} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`, borderRadius: 8, cursor: "pointer", background: on ? "var(--accent-glow)" : "transparent", fontSize: "0.78rem", fontWeight: on ? 700 : 400, color: on ? "var(--accent-primary)" : "var(--text-secondary)", userSelect: "none" }}>
-                <input type="checkbox" style={{ display: "none" }} checked={on} onChange={() => toggle("failure_types", ft)} />
-                {on ? " " : ""}
-                {ft.replace(/_/g, " ")}
-              </label>
-            );
-          })}
-        </div>
-        {stepErrors.failure_types && (
-          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-            {stepErrors.failure_types}
-          </div>
-        )}
-      </div>
-      <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">
-          Symptoms <RequiredIndicator fieldKey="symptoms" />
-        </label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {SYMPTOMS.map((s) => {
-            const on = (form.symptoms || []).includes(s);
-            return (
-              <button key={s} type="button" onClick={() => toggle("symptoms", s)} style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`, background: on ? "var(--accent-glow)" : "transparent", color: on ? "var(--accent-primary)" : "var(--text-muted)", fontSize: "0.72rem", cursor: "pointer", fontWeight: on ? 700 : 400 }}>
-                {s.replace(/_/g, " ")}
-              </button>
-            );
-          })}
-        </div>
-        {stepErrors.symptoms && (
-          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-            {stepErrors.symptoms}
-          </div>
-        )}
-      </div>
-      <div className="form-group" style={{ margin: 0 }}>
-        <label className="form-label">
-          Problem Description <RequiredIndicator fieldKey="problem_description" />
-        </label>
-        <TextareaAutocomplete
-          value={form.problem_description || ""}
-          onChange={(val) => set("problem_description", val)}
-          placeholder="Client's description of the problem..."
-          fetchSuggestions={fetchProblemSuggestions}
-          hasError={showStepErrors && !!stepErrors.problem_description}
-        />
-        {showStepErrors && stepErrors.problem_description && (
-          <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
-            {stepErrors.problem_description}
-          </div>
-        )}
-      </div>
-      {showDiagnosis && (
+      {!isFieldHidden('failure_types') && (
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label">
-            Initial Diagnosis / Observation
+            Failure Types <RequiredIndicator fieldKey="failure_types" />
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {FAILURE_TYPES_LIST.map((ft) => {
+              const on = (form.failure_types || []).includes(ft);
+              return (
+                <label key={ft} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`, borderRadius: 8, cursor: "pointer", background: on ? "var(--accent-glow)" : "transparent", fontSize: "0.78rem", fontWeight: on ? 700 : 400, color: on ? "var(--accent-primary)" : "var(--text-secondary)", userSelect: "none" }}>
+                  <input type="checkbox" style={{ display: "none" }} checked={on} onChange={() => toggle("failure_types", ft)} />
+                  {on ? " " : ""}
+                  {ft.replace(/_/g, " ")}
+                </label>
+              );
+            })}
+          </div>
+          {stepErrors.failure_types && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.failure_types}
+            </div>
+          )}
+        </div>
+      )}
+      {!isFieldHidden('symptoms') && (
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label">
+            Symptoms <RequiredIndicator fieldKey="symptoms" />
+          </label>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {SYMPTOMS.map((s) => {
+              const on = (form.symptoms || []).includes(s);
+              return (
+                <button key={s} type="button" onClick={() => toggle("symptoms", s)} style={{ padding: "4px 10px", borderRadius: 20, border: `1px solid ${on ? "var(--accent-primary)" : "var(--border-default)"}`, background: on ? "var(--accent-glow)" : "transparent", color: on ? "var(--accent-primary)" : "var(--text-muted)", fontSize: "0.72rem", cursor: "pointer", fontWeight: on ? 700 : 400 }}>
+                  {s.replace(/_/g, " ")}
+                </button>
+              );
+            })}
+          </div>
+          {stepErrors.symptoms && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.symptoms}
+            </div>
+          )}
+        </div>
+      )}
+      {!isFieldHidden('problem_description') && (
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label">
+            Problem Description <RequiredIndicator fieldKey="problem_description" />
+          </label>
+          <TextareaAutocomplete
+            value={form.problem_description || ""}
+            onChange={(val) => set("problem_description", val)}
+            placeholder="Client's description of the problem..."
+            fetchSuggestions={fetchProblemSuggestions}
+            hasError={showStepErrors && !!stepErrors.problem_description}
+          />
+          {showStepErrors && stepErrors.problem_description && (
+            <div style={{ color: "var(--danger)", fontSize: "0.78rem", marginTop: 6 }}>
+              {stepErrors.problem_description}
+            </div>
+          )}
+        </div>
+      )}
+      {!isFieldHidden('initial_diagnosis') && showDiagnosis && (
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label">
+            Initial Diagnosis / Observation <RequiredIndicator fieldKey="initial_diagnosis" />
           </label>
           <TextareaAutocomplete
             value={form.initial_diagnosis || ""}
