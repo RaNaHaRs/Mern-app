@@ -90,7 +90,8 @@ async function migrate() {
       { name: '051_add_discount_to_case_inventory_items', file: '051_add_discount_to_case_inventory_items.sql' },
       { name: '052_create_payment_links_table', file: '052_create_payment_links_table.sql' },
       { name: '052_add_charge_to_client_inventory', file: '052_add_charge_to_client_inventory.sql' },
-      { name: '053_add_deleted_at_to_accounting_quotes', file: '053_add_deleted_at_to_accounting_quotes.sql' }
+      { name: '053_add_deleted_at_to_accounting_quotes', file: '053_add_deleted_at_to_accounting_quotes.sql' },
+      { name: '054_update_case_financials_view', file: '054_update_case_financials_view.sql' }
     ];
 
     // Execute all SQL file migrations
