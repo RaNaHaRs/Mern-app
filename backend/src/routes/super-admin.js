@@ -21,7 +21,6 @@ const fs            = require('fs');
 const path          = require('path');
 const multer        = require('multer');
 const jwt           = require('jsonwebtoken');
-const multer        = require('multer');
 const { ZipArchive } = require('archiver');
 const { body, query: qv, validationResult } = require('express-validator');
 const { query }     = require('../config/database');
