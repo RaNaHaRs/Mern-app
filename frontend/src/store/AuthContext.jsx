@@ -183,14 +183,6 @@ export function AuthProvider({ children }) {
     setUser(userData);
   };
 
-  // Re-fetch current user from backend (picks up permission changes without re-login)
-  const refreshUser = useCallback(async () => {
-    try {
-      const u = await authApi.me();
-      setUser(u);
-    } catch {}
-  }, []);
-
   const logout = useCallback(async (reason) => {
     const refreshToken = localStorage.getItem('refreshToken');
     try { await authApi.logout(refreshToken); } catch {}
@@ -321,7 +313,6 @@ export function AuthProvider({ children }) {
       isPlatformStaff,
       sessionWarning, resetActivity,
       impersonating, exitImpersonation,
-      refreshUser,  // NEW: refresh user data after subscription changes
       PERMISSION_MODULES, STAFF_PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions,
     }}>
       {children}
