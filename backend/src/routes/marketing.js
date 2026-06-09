@@ -495,14 +495,39 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
     // Load SMTP config for email campaigns
     let transporter = null;
     let smtpFrom = {};
+    let smsApiKey = null, smsSenderId = 'RCRLAB';
+
     if (c.type === 'email') {
       const smtp = await loadAdminSmtpConfig();
+      if (!smtp.host || !smtp.user || !smtp.pass) {
+        await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+        return res.status(400).json({ error: 'Email not configured. Go to Settings → Integrations → Email (SMTP) to add your email credentials.' });
+      }
       smtpFrom = { name: c.from_name || smtp.from_name || 'RecoverLab CRM', email: c.from_email || smtp.from_email || smtp.user };
       transporter = nodemailer.createTransport({
         host: smtp.host, port: smtp.port, secure: smtp.secure,
         auth: { user: smtp.user, pass: smtp.pass },
         tls: { rejectUnauthorized: false },
       });
+      // Verify SMTP connection before sending to any recipients
+      try {
+        await transporter.verify();
+      } catch (smtpErr) {
+        await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+        return res.status(400).json({ error: `SMTP connection failed: ${smtpErr.message}. Check your email settings in Settings → Integrations → Email.` });
+      }
+    } else if (c.type === 'sms') {
+      const { loadCompanySettings } = require('./settings');
+      const companySettings = await loadCompanySettings();
+      smsApiKey = companySettings.fast2sms_api_key;
+      smsSenderId = companySettings.fast2sms_sender_id || 'RCRLAB';
+      if (!smsApiKey) {
+        await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+        return res.status(400).json({ error: 'SMS not configured. Go to Settings → Company → Fast2SMS API Key to enable SMS sending.' });
+      }
+    } else if (c.type === 'whatsapp') {
+      await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+      return res.status(400).json({ error: 'WhatsApp sending is not yet configured. Please contact support to set up WhatsApp Business API.' });
     }
 
     // Fetch audience
@@ -527,7 +552,7 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
 
     for (const client of audience.rows) {
       if (c.type === 'email' && !client.email) continue;
-      if (c.type !== 'email') continue; // only email for now
+      if (c.type === 'sms' && !client.phone) continue;
 
       // Check unsubscribe
       const unsub = await query(
@@ -540,27 +565,56 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
       const personalization = { name: client.full_name, company: client.company_name, email: client.email };
 
       try {
-        const subject = personalizeContent(c.subject_line || c.tpl_subject || '', personalization);
-        const htmlBody = personalizeContent(c.html_body || '', personalization);
-        const unsubscribeLink = `${baseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(client.email)}&campaign_id=${c.id}`;
-        const email = buildInboxFriendlyEmail({
-          subject,
-          htmlBody,
-          fromName: smtpFrom.name,
-          fromEmail: smtpFrom.email,
-          unsubscribeLink,
-          campaignId: `c${c.id}`,
-          recipientEmail: client.email,
-        });
-
-        await transporter.sendMail({
-          from: `"${smtpFrom.name}" <${smtpFrom.email}>`,
-          to: client.email,
-          subject: email.headers?.['X-Campaign-ID'] ? subject : subject,
-          html: email.html,
-          text: email.text,
-          headers: email.headers,
-        });
+        if (c.type === 'email') {
+          const subject = personalizeContent(c.subject_line || c.tpl_subject || '', personalization);
+          const htmlBody = personalizeContent(c.html_body || '', personalization);
+          const unsubscribeLink = `${baseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(client.email)}&campaign_id=${c.id}`;
+          const email = buildInboxFriendlyEmail({
+            subject, htmlBody,
+            fromName: smtpFrom.name, fromEmail: smtpFrom.email,
+            unsubscribeLink, campaignId: `c${c.id}`, recipientEmail: client.email,
+          });
+          await transporter.sendMail({
+            from: `"${smtpFrom.name}" <${smtpFrom.email}>`,
+            to: client.email, subject,
+            html: email.html, text: email.text, headers: email.headers,
+          });
+        } else if (c.type === 'sms') {
+          const message = personalizeContent(c.sms_template || '', personalization);
+          // Normalize phone: strip leading 0, country code, spaces, dashes
+          const rawPhone = String(client.phone || '').replace(/\D/g, '');
+          const phone = rawPhone.startsWith('91') && rawPhone.length === 12 ? rawPhone.slice(2) : rawPhone.replace(/^0+/, '');
+          const https = require('https');
+          await new Promise((resolve, reject) => {
+            const params = new URLSearchParams({
+              authorization: smsApiKey,
+              sender_id: smsSenderId,
+              message,
+              language: 'english',
+              route: 'v3',
+              numbers: phone,
+            });
+            const options = {
+              hostname: 'www.fast2sms.com',
+              path: `/dev/bulkV2?${params.toString()}`,
+              method: 'GET',
+              headers: { 'cache-control': 'no-cache' },
+            };
+            const req2 = https.request(options, res2 => {
+              let data = '';
+              res2.on('data', d => { data += d; });
+              res2.on('end', () => {
+                try {
+                  const json = JSON.parse(data);
+                  if (json.return === true) resolve(json);
+                  else reject(new Error(json.message || JSON.stringify(json)));
+                } catch { reject(new Error(data)); }
+              });
+            });
+            req2.on('error', reject);
+            req2.end();
+          });
+        }
 
         await query(
           `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, sent_at, personalization, tenant_id)
@@ -570,7 +624,7 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
         );
         sent++;
       } catch (err) {
-        logger.error(`Campaign ${c.id} send failed for ${client.email}: ${err.message}`);
+        logger.error(`Campaign ${c.id} send failed for ${client.phone || client.email}: ${err.message}`);
         await query(
           `INSERT INTO marketing_campaign_recipients (campaign_id, client_id, email, phone, name, status, bounce_reason, personalization, tenant_id)
            VALUES ($1,$2,$3,$4,$5,'failed',$6,$7,$8) ON CONFLICT DO NOTHING`,
@@ -579,6 +633,18 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
         );
         failed++;
       }
+    }
+
+    if (sent === 0 && failed > 0) {
+      // All sends failed — revert to draft and return the error from the first failure
+      const firstFail = await query(
+        `SELECT bounce_reason FROM marketing_campaign_recipients WHERE campaign_id=$1 AND status='failed' LIMIT 1`,
+        [c.id]
+      );
+      await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+      const reason = firstFail.rows[0]?.bounce_reason || 'Unknown error';
+      logger.error(`Campaign ${c.id} all sends failed. First error: ${reason}`);
+      return res.status(400).json({ error: `All ${failed} sends failed. First error: ${reason}` });
     }
 
     await query(

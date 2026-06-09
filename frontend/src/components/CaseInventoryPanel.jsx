@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { casesApi, inventoryApi } from '../services/api';
+import { useAuth } from '../store/AuthContext';
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -28,6 +29,7 @@ const inputStyle = {
 };
 
 export default function CaseInventoryPanel({ caseId }) {
+  const { isAdmin } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expenses, setExpenses] = useState(null);
@@ -35,12 +37,17 @@ export default function CaseInventoryPanel({ caseId }) {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [selectedInventory, setSelectedInventory] = useState([]);
+  const [editingCost, setEditingCost] = useState(null); // itemId being edited
+  const [costForm, setCostForm] = useState({ unit_cost: '', discount: '', charge_to_client: false, client_charge_amount: '' });
+  const [savingCost, setSavingCost] = useState(false);
   const [form, setForm] = useState({
     inventory_item_id: '',
     qty_allocated: 1,
     usage_type: 'CONSUMED',
     unit_cost: '',
-    notes: ''
+    notes: '',
+    charge_to_client: false,
+    client_charge_amount: '',
   });
   const [expenseForm, setExpenseForm] = useState({
     expense_type: 'direct_purchase',
@@ -97,7 +104,10 @@ export default function CaseInventoryPanel({ caseId }) {
         body: JSON.stringify({
           ...form,
           qty_allocated: parseInt(form.qty_allocated),
-          unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : undefined
+          unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : undefined,
+          charge_to_client: form.charge_to_client,
+          client_charge_amount: form.charge_to_client && form.client_charge_amount
+            ? parseFloat(form.client_charge_amount) : undefined,
         })
       });
 
@@ -112,7 +122,9 @@ export default function CaseInventoryPanel({ caseId }) {
         qty_allocated: 1,
         usage_type: 'CONSUMED',
         unit_cost: '',
-        notes: ''
+        notes: '',
+        charge_to_client: false,
+        client_charge_amount: '',
       });
       setShowAddItem(false);
     } catch (err) {
@@ -210,6 +222,51 @@ export default function CaseInventoryPanel({ caseId }) {
     }
   };
 
+  const handleOpenCostEdit = (item) => {
+    setEditingCost(item.id);
+    const gross = parseFloat(item.unit_cost || 0) * item.qty_allocated;
+    const discount = parseFloat(item.discount_amount || 0);
+    const effective = Math.max(0, gross - discount);
+    setCostForm({
+      unit_cost: parseFloat(item.unit_cost || 0).toFixed(2),
+      discount: discount.toFixed(2),
+      charge_to_client: item.charge_to_client || false,
+      client_charge_amount: item.charge_to_client
+        ? parseFloat(item.client_charge_amount || effective).toFixed(2)
+        : effective.toFixed(2),
+    });
+  };
+
+  const handleSaveCost = async (itemId) => {
+    setSavingCost(true);
+    try {
+      const res = await fetch(`${BASE_URL}/cases/${caseId}/inventory/${itemId}/cost`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getToken()}`
+        },
+        body: JSON.stringify({
+          unit_cost: parseFloat(costForm.unit_cost),
+          discount: parseFloat(costForm.discount || 0),
+          charge_to_client: costForm.charge_to_client,
+          client_charge_amount: costForm.charge_to_client && costForm.client_charge_amount
+            ? parseFloat(costForm.client_charge_amount) : 0,
+        })
+      });
+      if (!res.ok) {
+        alert(`Error: ${await parseErrorMsg(res)}`);
+        return;
+      }
+      setEditingCost(null);
+      await loadItems();
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setSavingCost(false);
+    }
+  };
+
   if (loading) {
     return <div className="spinner" />;
   }
@@ -232,10 +289,10 @@ export default function CaseInventoryPanel({ caseId }) {
                 <label>Select Inventory Item *</label>
                 <InventorySelector
                   value={form.inventory_item_id}
-                  onChange={(id, item) => {
-                    setForm({ ...form, inventory_item_id: id });
-                    setSelectedInventory([...selectedInventory, item]);
-                  }}
+                    onChange={(id, item) => {
+                      setForm({ ...form, inventory_item_id: id, unit_cost: item.unit_cost });
+                      setSelectedInventory([...selectedInventory, item]);
+                    }}
                 />
               </div>
 
@@ -252,14 +309,15 @@ export default function CaseInventoryPanel({ caseId }) {
                 </div>
 
                 <div className="form-group">
-                  <label>Unit Cost (optional)</label>
+                  <label>Cost to Case (Amount) *</label>
                   <input
                     type="number"
                     step="0.01"
                     value={form.unit_cost}
                     onChange={(e) => setForm({ ...form, unit_cost: e.target.value })}
-                    placeholder="Auto-fetched if available"
+                    placeholder="Enter amount or apply discount"
                     style={inputStyle}
+                    required={form.usage_type === 'CONSUMED'}
                   />
                 </div>
               </div>
@@ -268,14 +326,70 @@ export default function CaseInventoryPanel({ caseId }) {
                 <label>Usage Type *</label>
                 <select
                   value={form.usage_type}
-                  onChange={(e) => setForm({ ...form, usage_type: e.target.value })}
+                  onChange={(e) => {
+                    const ut = e.target.value;
+                    setForm({ ...form, usage_type: ut,
+                      charge_to_client: ut === 'CONSUMED' ? form.charge_to_client : false,
+                      client_charge_amount: ut === 'CONSUMED' ? form.client_charge_amount : '',
+                    });
+                  }}
                   style={inputStyle}
                 >
-                  <option value="CONSUMED">CONSUMED - Stock decreases, cost to case</option>
-                  <option value="TEMPORARY_TOOL">TEMPORARY/TOOL - Assign & return, no expense unless damaged</option>
-                  <option value="CASE_PURCHASE">CASE_PURCHASE - Bought for case, linked to case, cost to expense</option>
+                  <option value="CONSUMED">Cost to Case</option>
+                  <option value="TEMPORARY_TOOL">Temporary Used</option>
                 </select>
               </div>
+
+              {/* Charge to client — only for CONSUMED items with a cost */}
+              {form.usage_type === 'CONSUMED' && parseFloat(form.unit_cost || 0) > 0 && (
+                <div style={{
+                  padding: '12px 14px',
+                  background: form.charge_to_client ? 'rgba(251,191,36,0.07)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${form.charge_to_client ? 'rgba(251,191,36,0.3)' : 'var(--border-subtle)'}`,
+                  borderRadius: 6,
+                  marginBottom: 12,
+                  transition: 'all 0.15s',
+                }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.charge_to_client}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        const autoAmount = (parseFloat(form.unit_cost || 0) * parseInt(form.qty_allocated || 1)).toFixed(2);
+                        setForm({
+                          ...form,
+                          charge_to_client: checked,
+                          client_charge_amount: checked ? autoAmount : '',
+                        });
+                      }}
+                      style={{ width: 16, height: 16, accentColor: '#f59e0b', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#f59e0b' }}>
+                      Charge this inventory cost to client
+                    </span>
+                  </label>
+                  {form.charge_to_client && (
+                    <div style={{ marginTop: 10 }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+                        Amount to charge client (₹) — auto-filled, edit if needed
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={form.client_charge_amount}
+                        onChange={(e) => setForm({ ...form, client_charge_amount: e.target.value })}
+                        style={{ ...inputStyle, width: 180 }}
+                        placeholder={`₹${(parseFloat(form.unit_cost || 0) * parseInt(form.qty_allocated || 1)).toFixed(2)}`}
+                      />
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                        This amount will be added to the client's pending balance for this case.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Notes (optional)</label>
@@ -306,86 +420,241 @@ export default function CaseInventoryPanel({ caseId }) {
                 <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
                   <th style={{ padding: 8, textAlign: 'left' }}>Item</th>
                   <th style={{ padding: 8, textAlign: 'center' }}>Type</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Qty Allocated</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Qty Used</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Qty Returned</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Total Cost</th>
+                  <th style={{ padding: 8, textAlign: 'center' }}>Qty</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Unit Cost</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Discount</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Our Cost</th>
+                  <th style={{ padding: 8, textAlign: 'right' }}>Client Charge</th>
                   <th style={{ padding: 8, textAlign: 'center' }}>Status</th>
                   <th style={{ padding: 8, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
-                  <tr key={item.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                    <td style={{ padding: 8 }}>
-                      <div style={{ fontWeight: 600 }}>{item.name}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.sku}</div>
-                    </td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>
-                      <span style={{
-                        fontSize: '0.7rem',
-                        padding: '2px 6px',
-                        background: item.usage_type === 'CONSUMED' ? 'rgba(239, 68, 68, 0.1)' : 
-                                  item.usage_type === 'TEMPORARY_TOOL' ? 'rgba(59, 130, 246, 0.1)' :
-                                  'rgba(34, 197, 94, 0.1)',
-                        color: item.usage_type === 'CONSUMED' ? '#ef4444' :
-                               item.usage_type === 'TEMPORARY_TOOL' ? '#3b82f6' : '#22c55e',
-                        borderRadius: 3,
-                        fontWeight: 600
-                      }}>
-                        {item.usage_type}
-                      </span>
-                    </td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_allocated}</td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_used || 0}</td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_returned || 0}</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>
-                      ₹{parseFloat(item.total_allocated_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>
-                      <span style={{
-                        fontSize: '0.7rem',
-                        padding: '2px 6px',
-                        background: item.status === 'allocated' ? 'rgba(168, 85, 247, 0.1)' :
-                                  item.status === 'consumed' ? 'rgba(239, 68, 68, 0.1)' :
-                                  item.status === 'returned' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(107, 114, 128, 0.1)',
-                        color: item.status === 'allocated' ? '#a855f7' :
-                               item.status === 'consumed' ? '#ef4444' :
-                               item.status === 'returned' ? '#22c55e' : '#6b7280',
-                        borderRadius: 3,
-                        fontWeight: 600
-                      }}>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: 8, textAlign: 'center' }}>
-                      {item.usage_type === 'TEMPORARY_TOOL' ? (
-                        <button
-                          className="btn btn-sm btn-secondary"
-                          onClick={() => handleUpdateUsage(item.id, 'return')}
-                          style={{ fontSize: '0.65rem', padding: '2px 4px' }}
-                        >
-                          Return
-                        </button>
-                      ) : (
-                        <button
-                          className="btn btn-sm btn-secondary"
-                          onClick={() => handleUpdateUsage(item.id, 'consume')}
-                          style={{ fontSize: '0.65rem', padding: '2px 4px' }}
-                        >
-                          Consume
-                        </button>
+                {items.map((item) => {
+                  const isTemp = item.usage_type === 'TEMPORARY_TOOL';
+                  const isEditing = editingCost === item.id;
+                  const discountAmt = parseFloat(item.discount_amount || 0);
+                  // total_allocated_cost is generated (qty * unit_cost); effective = that minus discount
+                  const grossCost = parseFloat(item.total_allocated_cost || 0);
+                  const totalCost = isTemp ? 0 : Math.max(0, grossCost - discountAmt);
+                  return (
+                    <React.Fragment key={item.id}>
+                      <tr style={{ borderBottom: isEditing ? 'none' : '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: 8 }}>
+                          <div style={{ fontWeight: 600 }}>{item.name}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.sku}</div>
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'center' }}>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            padding: '2px 6px',
+                            background: isTemp ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: isTemp ? '#3b82f6' : '#ef4444',
+                            borderRadius: 3,
+                            fontWeight: 600
+                          }}>
+                            {isTemp ? 'Temp Tool' : 'Consumed'}
+                          </span>
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_allocated}</td>
+                        <td style={{ padding: 8, textAlign: 'right', color: isTemp ? 'var(--text-muted)' : 'inherit' }}>
+                          {isTemp ? '—' : `₹${parseFloat(item.unit_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'right', color: 'var(--text-muted)' }}>
+                          {isTemp || discountAmt === 0 ? '—' : `-₹${discountAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'right' }}>
+                          {isTemp ? (
+                            <span style={{ fontSize: '0.7rem', color: '#3b82f6', fontWeight: 600, padding: '2px 6px', background: 'rgba(59,130,246,0.08)', borderRadius: 3 }}>
+                              No charge
+                            </span>
+                          ) : (
+                            <span style={{ fontWeight: 600 }}>
+                              ₹{totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'right' }}>
+                          {item.charge_to_client ? (
+                            <span style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: '#f59e0b',
+                              background: 'rgba(251,191,36,0.1)',
+                              border: '1px solid rgba(251,191,36,0.25)',
+                              padding: '2px 7px',
+                              borderRadius: 4,
+                              display: 'inline-block',
+                            }}>
+                              ₹{parseFloat(item.client_charge_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'center' }}>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            padding: '2px 6px',
+                            background: item.status === 'allocated' ? 'rgba(168, 85, 247, 0.1)' :
+                                      item.status === 'consumed' ? 'rgba(239, 68, 68, 0.1)' :
+                                      item.status === 'returned' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                            color: item.status === 'allocated' ? '#a855f7' :
+                                   item.status === 'consumed' ? '#ef4444' :
+                                   item.status === 'returned' ? '#22c55e' : '#6b7280',
+                            borderRadius: 3,
+                            fontWeight: 600
+                          }}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: 8, textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                            {isTemp ? (
+                              <button
+                                className="btn btn-sm btn-secondary"
+                                onClick={() => handleUpdateUsage(item.id, 'return')}
+                                style={{ fontSize: '0.65rem', padding: '2px 6px' }}
+                              >
+                                Return
+                              </button>
+                            ) : (
+                              <button
+                                className="btn btn-sm btn-secondary"
+                                onClick={() => handleUpdateUsage(item.id, 'consume')}
+                                style={{ fontSize: '0.65rem', padding: '2px 6px' }}
+                              >
+                                Consume
+                              </button>
+                            )}
+                            {isAdmin && (
+                              <button
+                                className="btn btn-sm"
+                                onClick={() => isEditing ? setEditingCost(null) : handleOpenCostEdit(item)}
+                                style={{
+                                  fontSize: '0.65rem',
+                                  padding: '2px 6px',
+                                  background: isEditing ? 'rgba(239,68,68,0.15)' : 'rgba(251,191,36,0.12)',
+                                  color: isEditing ? '#ef4444' : '#f59e0b',
+                                  border: `1px solid ${isEditing ? 'rgba(239,68,68,0.3)' : 'rgba(251,191,36,0.3)'}`,
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {isEditing ? '✕ Cancel' : '✎ Edit Cost'}
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-sm btn-danger"
+                              onClick={() => handleRemoveItem(item.id)}
+                              style={{ fontSize: '0.65rem', padding: '2px 6px' }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {isEditing && (
+                        <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'rgba(251,191,36,0.04)' }}>
+                          <td colSpan={9} style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                              <div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Unit Cost (₹)</div>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={costForm.unit_cost}
+                                  onChange={(e) => {
+                                    const uc = e.target.value;
+                                    const newTotal = Math.max(0, parseFloat(uc || 0) * item.qty_allocated - parseFloat(costForm.discount || 0));
+                                    setCostForm(f => ({
+                                      ...f,
+                                      unit_cost: uc,
+                                      client_charge_amount: f.charge_to_client ? newTotal.toFixed(2) : f.client_charge_amount,
+                                    }));
+                                  }}
+                                  style={{ ...inputStyle, width: 120 }}
+                                  disabled={isTemp}
+                                  placeholder="0.00"
+                                />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Discount (₹)</div>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={costForm.discount}
+                                  onChange={(e) => {
+                                    const disc = e.target.value;
+                                    const newTotal = Math.max(0, parseFloat(costForm.unit_cost || 0) * item.qty_allocated - parseFloat(disc || 0));
+                                    setCostForm(f => ({
+                                      ...f,
+                                      discount: disc,
+                                      client_charge_amount: f.charge_to_client ? newTotal.toFixed(2) : f.client_charge_amount,
+                                    }));
+                                  }}
+                                  style={{ ...inputStyle, width: 120 }}
+                                  placeholder="0.00"
+                                />
+                              </div>
+                              {/* Charge to client toggle in edit form */}
+                              {!isTemp && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#f59e0b', userSelect: 'none' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={costForm.charge_to_client}
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        const effectiveTotal = Math.max(0, parseFloat(costForm.unit_cost || 0) * item.qty_allocated - parseFloat(costForm.discount || 0));
+                                        setCostForm(f => ({
+                                          ...f,
+                                          charge_to_client: checked,
+                                          client_charge_amount: checked ? effectiveTotal.toFixed(2) : '0',
+                                        }));
+                                      }}
+                                      style={{ width: 15, height: 15, accentColor: '#f59e0b' }}
+                                    />
+                                    Charge to client
+                                  </label>
+                                  {costForm.charge_to_client && (
+                                    <div>
+                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 3 }}>Client charge (₹)</div>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={costForm.client_charge_amount}
+                                        onChange={(e) => setCostForm(f => ({ ...f, client_charge_amount: e.target.value }))}
+                                        style={{ ...inputStyle, width: 120 }}
+                                        placeholder="0.00"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingBottom: 4 }}>
+                                New Total: <strong style={{ color: 'var(--accent-primary)' }}>
+                                  ₹{Math.max(0, (parseFloat(costForm.unit_cost || 0) * item.qty_allocated) - parseFloat(costForm.discount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </strong>
+                              </div>
+                              <button
+                                className="btn btn-primary btn-sm"
+                                onClick={() => handleSaveCost(item.id)}
+                                disabled={savingCost}
+                                style={{ fontSize: '0.72rem', padding: '4px 12px' }}
+                              >
+                                {savingCost ? 'Saving…' : 'Save'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => handleRemoveItem(item.id)}
-                        style={{ fontSize: '0.65rem', padding: '2px 4px', marginLeft: 4 }}
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -395,23 +664,49 @@ export default function CaseInventoryPanel({ caseId }) {
           </div>
         )}
 
-        {items.length > 0 && (
-          <div style={{
-            padding: 12,
-            background: 'var(--bg-secondary)',
-            borderRadius: 'var(--radius-sm)',
-            marginTop: 16,
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontWeight: 600,
-            fontSize: '0.9rem'
-          }}>
-            <span>Total Inventory Expense:</span>
-            <span style={{ color: 'var(--accent-primary)' }}>
-              ₹{items.reduce((sum, item) => sum + parseFloat(item.total_allocated_cost || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-        )}
+        {items.length > 0 && (() => {
+          const tempCount = items.filter(i => i.usage_type === 'TEMPORARY_TOOL').length;
+          const totalOurCost = items
+            .filter(i => i.usage_type !== 'TEMPORARY_TOOL')
+            .reduce((sum, i) => sum + Math.max(0, parseFloat(i.total_allocated_cost || 0) - parseFloat(i.discount_amount || 0)), 0);
+          const totalClientCharge = items
+            .filter(i => i.charge_to_client)
+            .reduce((sum, i) => sum + parseFloat(i.client_charge_amount || 0), 0);
+          return (
+            <div style={{
+              padding: '10px 14px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 'var(--radius-sm)',
+              marginTop: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              fontSize: '0.85rem',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 600 }}>
+                  Our Cost (inventory)
+                  {tempCount > 0 && (
+                    <span style={{ fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-muted)', marginLeft: 8 }}>
+                      {tempCount} temp tool{tempCount !== 1 ? 's' : ''} excluded
+                    </span>
+                  )}
+                </span>
+                <span style={{ fontWeight: 700, color: 'var(--accent-primary)' }}>
+                  ₹{totalOurCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              {totalClientCharge > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px solid var(--border-subtle)' }}>
+                  <span style={{ fontWeight: 600, color: '#f59e0b' }}>Added to Client Balance</span>
+                  <span style={{ fontWeight: 700, color: '#f59e0b' }}>
+                    +₹{totalClientCharge.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Expenses Section */}
@@ -645,49 +940,6 @@ export default function CaseInventoryPanel({ caseId }) {
           </div>
 
           <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
-            <div className="text-sm text-muted" style={{ marginBottom: 8 }}>Expense Breakdown</div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-              gap: 8
-            }}>
-              <div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Inventory</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  ₹{parseFloat(profit.inventory_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Direct Purchases</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  ₹{parseFloat(profit.direct_purchase_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Shipping</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  ₹{parseFloat(profit.shipping_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Vendor</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  ₹{parseFloat(profit.vendor_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Lab</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  ₹{parseFloat(profit.lab_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Miscellaneous</div>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  ₹{parseFloat(profit.misc_expense || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}

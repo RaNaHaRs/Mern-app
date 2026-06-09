@@ -496,8 +496,12 @@ function BackupRestorePanel() {
             <li>Create a project at <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>Google Cloud Console</a></li>
             <li>Enable <strong>Google Drive API</strong></li>
             <li>Create OAuth2 credentials → Download client_id and client_secret</li>
+            <li>You must add your backend callback URL : http://localhost:5174/security</li>
+           
             <li>Add <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> to backend <code>.env</code></li>
             <li>Click "Connect Google Drive" above to authorize</li>
+            
+            
           </ol>
         </div>
 

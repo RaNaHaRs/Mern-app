@@ -1250,7 +1250,7 @@ function PlanManagementPanel() {
 export default function SettingsPage() {
   const { user, setUser, canAccess, isSuperAdmin, isOwner } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
-  const [expandedGroups, setExpandedGroups] = useState(() => ({ 'profile_settings': true }));
+  const [expandedGroups, setExpandedGroups] = useState(() => ({ 'profile_group': true }));
   const [activeDropdown, setActiveDropdown] = useState(null);
 
   useEffect(() => {
@@ -1293,6 +1293,32 @@ export default function SettingsPage() {
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const [savingPw, setSavingPw] = useState(false);
+  // Profile form
+  const [profileForm, setProfileForm] = useState({ fullName: user?.fullName || '', phone: user?.phone || '', specializations: (user?.specializations || []).join(', '), notes: user?.notes || '' });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [profileError, setProfileError] = useState('');
+
+  useEffect(() => {
+    setProfileForm({ fullName: user?.fullName || '', phone: user?.phone || '', specializations: (user?.specializations || []).join(', '), notes: user?.notes || '' });
+  }, [user]);
+
+  const handleSaveProfile = async () => {
+    setProfileSaving(true); setProfileError(''); setProfileSaved(false);
+    try {
+      const { authApi } = await import('../services/api');
+      await authApi.updateProfile({
+        full_name: profileForm.fullName,
+        phone: profileForm.phone,
+        specializations: profileForm.specializations.split(',').map(s => s.trim()).filter(Boolean),
+        notes: profileForm.notes,
+      });
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2000);
+    } catch (err) { setProfileError(err.message); }
+    finally { setProfileSaving(false); }
+  };
+
   // Company settings
   const [company, setCompany] = useState(null);
   const [savingCompany, setSavingCompany] = useState(false);
@@ -1615,25 +1641,30 @@ export default function SettingsPage() {
   };
 
   const settingsGroups = isSuperAdmin ? [
-    { id: 'profile_settings', label: ' My Profile Settings', icon: '',
-      children: [
-        { key: 'profile',  label: 'My Profile' },
-        { key: 'security', label: 'Security' },
-      ]
+    { id: 'profile_group', label: 'My Profile', icon: '', standalone: true,
+      children: [{ key: 'profile', label: 'My Profile' }]
+    },
+    { id: 'security_group', label: 'Security', icon: '', standalone: true,
+      children: [{ key: 'security', label: 'Security' }]
     },
     { id: 'about_group', label: 'About', icon: '', standalone: true,
       children: [{ key: 'about', label: 'About' }]
     },
   ] : [
-    { id: 'profile_settings', label: ' My Profile Settings', icon: '',
-      children: [
-        { key: 'profile',  label: 'My Profile' },
-        { key: 'security', label: 'Security' },
-        ...(canAccess('admin') ? [{ key: 'company', label: 'Company Profile' }] : []),
-        ...(canAccess('admin') ? [{ key: 'numbers', label: 'Number Setups' }] : []),
-        ...(canAccess('admin') ? [{ key: 'gst',     label: 'GST & Tax' }] : []),
-      ]
+    { id: 'profile_group', label: 'My Profile', icon: '', standalone: true,
+      children: [{ key: 'profile', label: 'My Profile' }]
     },
+    { id: 'security_group', label: 'Security', icon: '', standalone: true,
+      children: [{ key: 'security', label: 'Security' }]
+    },
+    ...(canAccess('admin') ? [{
+      id: 'profile_settings', label: 'Company', icon: '',
+      children: [
+        { key: 'company', label: 'Company Profile' },
+        { key: 'numbers', label: 'Number Setups' },
+        { key: 'gst',     label: 'GST & Tax' },
+      ]
+    }] : []),
     ...(canAccess('admin') ? [{
       id: 'case_settings', label: ' Case Settings', icon: '',
       children: [
@@ -1657,6 +1688,7 @@ export default function SettingsPage() {
       id: 'config_settings', label: ' Config Settings', icon: '',
       children: [
         { key: 'whatsapp',   label: 'WhatsApp' },
+        { key: 'sms',        label: 'SMS (Fast2SMS)' },
         { key: 'smtp',       label: 'Email' },
         { key: 'razorpay',   label: 'Razor Pay' },
         { key: 'invoice',    label: 'Invoice Setup' },
@@ -1876,6 +1908,7 @@ export default function SettingsPage() {
                   </div>
                 )}
               </div>
+<<<<<<< HEAD
 
               {!isEditingProfile ? (
                 /* Display Mode */
@@ -2053,6 +2086,35 @@ export default function SettingsPage() {
                   </div>
                 </>
               )}
+=======
+              <div className="form-row form-row-2">
+                <div className="form-group"><label className="form-label">Full Name</label><input className="form-input" value={profileForm.fullName} onChange={e => setProfileForm(f => ({ ...f, fullName: e.target.value }))} /></div>
+                <div className="form-group"><label className="form-label">Phone</label><input className="form-input" value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} /></div>
+              </div>
+              <div className="form-group"><label className="form-label">Specializations (comma-separated)</label><input className="form-input" value={profileForm.specializations} onChange={e => setProfileForm(f => ({ ...f, specializations: e.target.value }))} placeholder="e.g. HDD, SSD, RAID" /></div>
+              <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" style={{ minHeight: 60 }} value={profileForm.notes} onChange={e => setProfileForm(f => ({ ...f, notes: e.target.value }))} /></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button className="btn btn-primary" onClick={handleSaveProfile} disabled={profileSaving}>{profileSaving ? 'Saving...' : 'Save Profile'}</button>
+                {profileSaved && <span style={{ fontSize: '0.82rem', color: 'var(--accent-success)' }}>Profile saved!</span>}
+                {profileError && <span style={{ fontSize: '0.82rem', color: '#ef4444' }}>{profileError}</span>}
+              </div>
+              <hr style={{ margin: '24px 0', border: 'none', borderTop: '1px solid var(--border-subtle)' }} />
+              <div className="tech-data-table">
+                {[
+                  ['Email', user?.email],
+                  ['Username', user?.username],
+                  ['Role', user?.role?.replace('_', ' ')],
+                  ['Account Status', user?.is_active ? ' Active' : ' Inactive'],
+                  ['Last Login', user?.last_login ? new Date(user.last_login).toLocaleString('en-IN') : 'N/A'],
+                  ['Member Since', user?.created_at ? new Date(user.created_at).toLocaleDateString('en-IN') : 'N/A'],
+                ].map(([l, v]) => (
+                  <div key={l} className="tech-data-cell">
+                    <div className="tech-data-label">{l}</div>
+                    <div className="tech-data-value">{v || '—'}</div>
+                  </div>
+                ))}
+              </div>
+>>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
             </div>
           )}
 
@@ -2527,6 +2589,56 @@ export default function SettingsPage() {
           {/* RAZORPAY */}
           {activeTab === 'razorpay' && company && (
             <RazorpaySettingsPanel company={company} setCompany={setCompany} companySaved={companySaved} savingCompany={savingCompany} handleSaveCompany={handleSaveCompany} />
+          )}
+
+          {/* SMS — Fast2SMS */}
+          {activeTab === 'sms' && company && (
+            <div>
+              <div className="card-title" style={{ marginBottom: 4 }}>SMS — Fast2SMS Integration</div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 20 }}>
+                Used for SMS marketing campaigns. Get your API key from{' '}
+                <a href="https://www.fast2sms.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>fast2sms.com</a>.
+              </p>
+              <div className="card" style={{ maxWidth: 540 }}>
+                <div className="form-group">
+                  <label className="form-label">Fast2SMS API Key</label>
+                  <input
+                    className="form-input font-mono"
+                    type="password"
+                    placeholder="Your Fast2SMS API key"
+                    value={company.fast2sms_api_key || ''}
+                    onChange={e => setCompany(c => ({ ...c, fast2sms_api_key: e.target.value }))}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Found in Fast2SMS dashboard → Dev API
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sender ID</label>
+                  <input
+                    className="form-input font-mono"
+                    placeholder="e.g. RCRLAB"
+                    value={company.fast2sms_sender_id || 'RCRLAB'}
+                    onChange={e => setCompany(c => ({ ...c, fast2sms_sender_id: e.target.value }))}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    6-character sender ID approved in your Fast2SMS account
+                  </div>
+                </div>
+                {company.fast2sms_api_key ? (
+                  <div style={{ padding: '8px 12px', background: 'rgba(22,163,74,0.1)', border: '1px solid rgba(22,163,74,0.3)', borderRadius: 6, fontSize: '0.82rem', color: 'var(--status-success)', marginBottom: 12 }}>
+                    ✓ API key configured — SMS campaigns are enabled
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 6, fontSize: '0.82rem', color: 'var(--status-warning)', marginBottom: 12 }}>
+                    ⚠ No API key — SMS campaigns will fail until configured
+                  </div>
+                )}
+                <button className="btn btn-primary" disabled={savingCompany} onClick={handleSaveCompany}>
+                  {savingCompany ? 'Saving...' : 'Save SMS Settings'}
+                </button>
+              </div>
+            </div>
           )}
 
           {/* ACTIVITY LOG */}

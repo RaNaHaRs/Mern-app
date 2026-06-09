@@ -4,6 +4,7 @@ import { casesApi } from '../services/api';
 import { fieldConfigApi } from '../services/fieldConfigApi';
 import { useAuth } from '../store/AuthContext';
 import NewCaseModal from '../components/NewCaseModal';
+import KanbanBoard from './KanbanBoard';
 
 const DEFAULT_STAGES = ['received','inspection','diagnosis','quotation','approved','rejected','recovery_in_progress','imaging','data_extraction','verification','completed','delivered','failed'];
 const PRIORITIES = { 1:'CRITICAL', 2:'HIGH', 3:'MEDIUM', 4:'LOW', 5:'MINIMAL' };
@@ -54,6 +55,7 @@ export default function CasesPage() {
   const navigate = useNavigate();
   const { canAccess, hasPermission, user } = useAuth();
   const [cases, setCases] = useState([]);
+  const [viewMode, setViewMode] = useState('list');
   const [pagination, setPagination] = useState({});
   const [loading, setLoading] = useState(true);
   const [showNewCase, setShowNewCase] = useState(false);
@@ -78,7 +80,7 @@ export default function CasesPage() {
   const loadCases = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit: 25, sort: sortField, order: sortOrder };
+      const params = { page, limit: viewMode === 'kanban' ? 1000 : 25, sort: sortField, order: sortOrder };
       if (filters.stage) params.stage = filters.stage;
       if (filters.search) params.search = filters.search;
       if (filters.priority) params.priority = filters.priority;
@@ -92,13 +94,22 @@ export default function CasesPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters, page, sortField, sortOrder]);
+  }, [filters, page, sortField, sortOrder, viewMode]);
 
   const load = useCallback(async () => {
     await loadCases();
   }, [loadCases]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleStageChange = async (caseId, newStage) => {
+    try {
+      await casesApi.transition(caseId, { stage: newStage });
+      loadCases(); // Refresh
+    } catch (e) {
+      alert('Failed to update stage');
+    }
+  };
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -200,6 +211,24 @@ export default function CasesPage() {
               <button className="btn btn-ghost" onClick={() => setSelectedIds(new Set())}>Clear</button>
             </>
           )}
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-elevated)', borderRadius: 6, padding: 3, border: '1px solid var(--border-subtle)' }}>
+            <button
+              className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 12px', fontSize: '0.78rem' }}
+              onClick={() => setViewMode('list')}
+              title="List view"
+            >
+              ☰ List
+            </button>
+            <button
+              className={`btn btn-sm ${viewMode === 'kanban' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 12px', fontSize: '0.78rem' }}
+              onClick={() => setViewMode('kanban')}
+              title="Kanban view"
+            >
+              ⊞ Kanban
+            </button>
+          </div>
           {canAccess('staff') && (
             <button className="btn btn-primary" onClick={() => setShowNewCase(true)}>
               + New Case
@@ -241,88 +270,91 @@ export default function CasesPage() {
         )}
       </div>
 
-      <div className="table-container">
-        <div style={{ overflowX: 'auto' }}>
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
-              <div className="spinner" style={{ width:28, height:28, borderWidth:3 }} />
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  {canDeleteCases && (
-                    <th style={{ width: '30px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.size === displayCases.length && displayCases.length > 0}
-                        onChange={toggleSelectAll}
-                        style={{ cursor: 'pointer' }}
-                      />
-                    </th>
-                  )}
-                  <th onClick={() => toggleSort('case_number')} style={{cursor:'pointer',userSelect:'none'}}>
-                    Case #{renderSortIcon('case_number')}
-                  </th>
-                  <th>Client</th>
-                  <th>Device</th>
-                  <th onClick={() => toggleSort('stage')} style={{cursor:'pointer',userSelect:'none'}}>
-                    Stage{renderSortIcon('stage')}
-                  </th>
-                  <th onClick={() => toggleSort('priority')} style={{cursor:'pointer',userSelect:'none'}}>
-                    Priority{renderSortIcon('priority')}
-                  </th>
-                  <th>Failure</th>
-                  <th>Risk</th>
-                  <th onClick={() => toggleSort('pending_amount')} style={{cursor:'pointer',userSelect:'none'}}>
-                    Pending{renderSortIcon('pending_amount')}
-                  </th>
-                  <th>Transfer</th>
-                  <th>Engineer</th>
-                  <th onClick={() => toggleSort('created_at')} style={{cursor:'pointer',userSelect:'none'}}>
-                    Received{renderSortIcon('created_at')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayCases.map(c => (
-                  <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)}>
+      {viewMode === 'kanban' ? (
+        <KanbanBoard cases={displayCases} onStageChange={handleStageChange} />
+      ) : (
+        <div className="table-container">
+          <div style={{ overflowX: 'auto' }}>
+            {loading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
+                <div className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
                     {canDeleteCases && (
-                      <td onClick={e => e.stopPropagation()}>
+                      <th style={{ width: '30px' }}>
                         <input
                           type="checkbox"
-                          checked={selectedIds.has(c.id)}
-                          onChange={() => toggleSelect(c.id)}
+                          checked={selectedIds.size === displayCases.length && displayCases.length > 0}
+                          onChange={toggleSelectAll}
                           style={{ cursor: 'pointer' }}
                         />
-                      </td>
+                      </th>
                     )}
-                    <td>
-                      <div style={{ display:'flex',flexDirection:'column',gap:4 }}>
-                        <span className="font-mono text-xs text-accent">{c.case_number}</span>
-                        {checkStale(c) && <span className={`stale-badge ${checkStale(c) > 7 ? 'critical' : ''}`}>⚠️ {checkStale(c)}d old</span>}
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{fontWeight:600,fontSize:'0.82rem'}}>{c.first_name} {c.last_name}</div>
-                      {c.company && <div className="text-xs text-muted">{c.company}</div>}
-                    </td>
-                    <td>
-                      <div style={{fontSize:'0.8rem'}}>{c.device_brand}</div>
-                      <div className="text-xs text-muted font-mono">{c.device_model}</div>
-                    </td>
-                    <td><span className={`badge badge-${c.stage}`}>{c.stage?.replace(/_/g,' ')}</span></td>
-                      <td><span className={`badge badge-p${c.priority||3}`}>{PRIORITIES[c.priority||3]}</span></td>
+                    <th onClick={() => toggleSort('case_number')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Case #{renderSortIcon('case_number')}
+                    </th>
+                    <th>Client</th>
+                    <th>Device</th>
+                    <th onClick={() => toggleSort('stage')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Stage{renderSortIcon('stage')}
+                    </th>
+                    <th onClick={() => toggleSort('priority')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Priority{renderSortIcon('priority')}
+                    </th>
+                    <th>Failure</th>
+                    <th>Risk</th>
+                    <th onClick={() => toggleSort('pending_amount')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Pending{renderSortIcon('pending_amount')}
+                    </th>
+                    <th>Transfer</th>
+                    <th>Engineer</th>
+                    <th onClick={() => toggleSort('created_at')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      Received{renderSortIcon('created_at')}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayCases.map(c => (
+                    <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)}>
+                      {canDeleteCases && (
+                        <td onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(c.id)}
+                            onChange={() => toggleSelect(c.id)}
+                            style={{ cursor: 'pointer' }}
+                          />
+                        </td>
+                      )}
                       <td>
-                        <div style={{display:'flex',gap:4,flexWrap:'wrap',maxWidth:150}}>
-                          {(c.failure_types || (c.failure_type?[c.failure_type]:[])).map(ft => (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span className="font-mono text-xs text-accent">{c.case_number}</span>
+                          {checkStale(c) && <span className={`stale-badge ${checkStale(c) > 7 ? 'critical' : ''}`}>⚠️ {checkStale(c)}d old</span>}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{c.first_name} {c.last_name}</div>
+                        {c.company && <div className="text-xs text-muted">{c.company}</div>}
+                      </td>
+                      <td>
+                        <div style={{ fontSize: '0.8rem' }}>{c.device_brand}</div>
+                        <div className="text-xs text-muted font-mono">{c.device_model}</div>
+                      </td>
+                      <td><span className={`badge badge-${c.stage}`}>{c.stage?.replace(/_/g, ' ')}</span></td>
+                      <td><span className={`badge badge-p${c.priority || 3}`}>{PRIORITIES[c.priority || 3]}</span></td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 150 }}>
+                          {(c.failure_types || (c.failure_type ? [c.failure_type] : [])).map(ft => (
                             <span key={ft} className={`badge badge-${ft}`}>{ft}</span>
                           ))}
                         </div>
                       </td>
                       <td>{c.ai_risk_level && <span className={`badge badge-risk-${c.ai_risk_level}`}>{c.ai_risk_level}</span>}</td>
-                      <td className="font-mono text-xs" style={{fontWeight:700,color:parseFloat(c.pending_amount||0)>0?'var(--danger)':'var(--status-success)'}}>
-                        ₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}
+                      <td className="font-mono text-xs" style={{ fontWeight: 700, color: parseFloat(c.pending_amount || 0) > 0 ? 'var(--danger)' : 'var(--status-success)' }}>
+                        ₹{parseFloat(c.pending_amount || 0).toLocaleString('en-IN')}
                       </td>
                       <td>
                         {c.transfer_to_client ? (
@@ -333,31 +365,32 @@ export default function CasesPage() {
                       </td>
                       <td className="text-xs text-muted">{c.engineer_name || '—'}</td>
                       <td className="text-xs text-muted font-mono" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <span>{new Date(c.received_at||c.created_at).toLocaleDateString('en-IN')}</span>
+                        <span>{new Date(c.received_at || c.created_at).toLocaleDateString('en-IN')}</span>
                       </td>
-                  </tr>
-                ))}
-                {!displayCases.length && (
+                    </tr>
+                  ))}
+                  {!displayCases.length && (
                     <tr><td colSpan={canDeleteCases ? 12 : 11}>
-                    <div className="empty-state">
-                      <div className="empty-icon">📂</div>
-                      <div className="empty-title">No cases found</div>
-                      <div className="empty-desc">Create a new case or adjust your filters.</div>
-                    </div>
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
+                      <div className="empty-state">
+                        <div className="empty-icon">📂</div>
+                        <div className="empty-title">No cases found</div>
+                        <div className="empty-desc">Create a new case or adjust your filters.</div>
+                      </div>
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+          {activePagination.pages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 16, borderTop: '1px solid var(--border-subtle)' }}>
+              <button className="btn btn-secondary btn-sm" disabled={activePage <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+              <span className="text-xs text-muted font-mono">Page {activePage} of {activePagination.pages}</span>
+              <button className="btn btn-secondary btn-sm" disabled={activePage >= activePagination.pages} onClick={() => setPage(p => p + 1)}>Next →</button>
+            </div>
           )}
         </div>
-        {activePagination.pages > 1 && (
-          <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:12,padding:16,borderTop:'1px solid var(--border-subtle)'}}>
-            <button className="btn btn-secondary btn-sm" disabled={activePage<=1} onClick={()=>setPage(p=>p-1)}>← Prev</button>
-            <span className="text-xs text-muted font-mono">Page {activePage} of {activePagination.pages}</span>
-            <button className="btn btn-secondary btn-sm" disabled={activePage>=activePagination.pages} onClick={()=>setPage(p=>p+1)}>Next →</button>
-          </div>
-        )}
-      </div>
+      )}
 
       {showNewCase && (
         <NewCaseModal onClose={() => setShowNewCase(false)} onCreated={(newCase) => {

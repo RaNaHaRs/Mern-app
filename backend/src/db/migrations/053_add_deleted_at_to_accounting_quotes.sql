@@ -1,0 +1,2 @@
+ALTER TABLE accounting_quotes
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;

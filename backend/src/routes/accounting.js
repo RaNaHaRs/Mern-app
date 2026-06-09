@@ -12,7 +12,7 @@ const router = express.Router();
 router.use(authenticate);
 
 // Ensure soft-delete column exists on accounting tables (non-blocking)
-['accounting_expenses', 'accounting_purchases', 'accounting_invoices'].forEach(table => {
+['accounting_expenses', 'accounting_purchases', 'accounting_invoices', 'accounting_quotes'].forEach(table => {
   query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`).catch(() => {});
 });
 
@@ -83,12 +83,13 @@ router.get('/summary', async (req, res) => {
 
     const purchaseScope = tenantScope(req);
 
-    const [qStats, invStats, expStats, casePaymentStats, purchStats] = await Promise.all([
+    const [qStats, invStats, expStats, casePaymentStats, purchStats, caseExpStats] = await Promise.all([
       query(`SELECT
         COUNT(*) as total_quotes,
         COUNT(*) FILTER (WHERE status IN ('accepted','invoiced')) as accepted_quotes,
         COALESCE(SUM(total) FILTER (WHERE status IN ('accepted','invoiced')), 0) as accepted_value
-        FROM accounting_quotes${quoteScope.clause ? ` WHERE ${quoteScope.clause}` : ''}`,
+        FROM accounting_quotes
+        WHERE deleted_at IS NULL${quoteScope.clause ? ` AND ${quoteScope.clause}` : ''}`,
         quoteScope.params),
       query(`SELECT
         COUNT(*) as total_invoices,
@@ -97,12 +98,14 @@ router.get('/summary', async (req, res) => {
         COALESCE(SUM(total - amount_paid) FILTER (WHERE status NOT IN ('cancelled','paid')), 0) as outstanding,
         COALESCE(SUM(total) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0) as revenue_month,
         COALESCE(SUM(amount_paid) FILTER (WHERE status = 'paid' AND updated_at >= NOW() - INTERVAL '30 days'), 0) as collected_month
-        FROM accounting_invoices${invoiceScope.clause ? ` WHERE ${invoiceScope.clause}` : ''}`,
+        FROM accounting_invoices
+        WHERE deleted_at IS NULL${invoiceScope.clause ? ` AND ${invoiceScope.clause}` : ''}`,
         invoiceScope.params),
       query(`SELECT
         COALESCE(SUM(total), 0) as total_expenses,
         COALESCE(SUM(total) FILTER (WHERE date >= NOW() - INTERVAL '30 days'), 0) as expenses_month
-        FROM accounting_expenses${expenseScope.clause ? ` WHERE ${expenseScope.clause}` : ''}`,
+        FROM accounting_expenses
+        WHERE deleted_at IS NULL${expenseScope.clause ? ` AND ${expenseScope.clause}` : ''}`,
         expenseScope.params),
       query(`SELECT
         COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) AS total_paid,
@@ -115,8 +118,21 @@ router.get('/summary', async (req, res) => {
       query(`SELECT
         COALESCE(SUM(total), 0) as total_purchases,
         COALESCE(SUM(total) FILTER (WHERE purchase_date >= NOW() - INTERVAL '30 days'), 0) as purchases_month
-        FROM accounting_purchases${purchaseScope.clause ? ` WHERE ${purchaseScope.clause}` : ''}`,
+        FROM accounting_purchases
+        WHERE deleted_at IS NULL${purchaseScope.clause ? ` AND ${purchaseScope.clause}` : ''}`,
         purchaseScope.params),
+      isSuperAdmin(req.user)
+        ? query(`SELECT COALESCE(SUM(amount), 0) as total_case_expenses,
+                        COALESCE(SUM(amount) FILTER (WHERE created_at >= DATE_TRUNC('month', NOW())), 0) as case_expenses_month
+                 FROM case_expenses`)
+        : query(
+            `SELECT COALESCE(SUM(ce.amount), 0) as total_case_expenses,
+                    COALESCE(SUM(ce.amount) FILTER (WHERE ce.created_at >= DATE_TRUNC('month', NOW())), 0) as case_expenses_month
+             FROM case_expenses ce
+             JOIN cases c ON ce.case_id = c.id
+             WHERE ${caseScope.clause.replace(/^WHERE\s*/i, '') || '1=1'}`,
+            caseScope.params
+          )
     ]);
 
     const pendingQuotes = await query(
@@ -140,38 +156,40 @@ router.get('/summary', async (req, res) => {
       caseScope.params
     );
 
-    const inv = invStats.rows[0];
-    const exp = expStats.rows[0];
-    const caseStats = casePaymentStats.rows[0];
-    const pendingStats = pendingQuotes.rows[0];
-    const purch = purchStats.rows[0];
-    const profit_month = parseFloat(caseStats.revenue_month) - parseFloat(exp.expenses_month);
+      const inv = invStats.rows[0];
+      const exp = expStats.rows[0];
+      const caseExp = caseExpStats.rows[0];
+      const caseStats = casePaymentStats.rows[0];
+      const pendingStats = pendingQuotes.rows[0];
+      const purch = purchStats.rows[0];
+      const totalExpenses = parseFloat(exp.total_expenses) + parseFloat(caseExp.total_case_expenses);
+      const profit_month = parseFloat(caseStats.revenue_month) - parseFloat(exp.expenses_month) - parseFloat(caseExp.case_expenses_month);
 
     // Get invoice counts by status
     const invoiceCountsQuery = await query(
       `SELECT status, COUNT(*)::int as count FROM accounting_invoices
-       ${invoiceScope.clause ? `WHERE ${invoiceScope.clause}` : ''}
+       WHERE deleted_at IS NULL${invoiceScope.clause ? ` AND ${invoiceScope.clause}` : ''}
        GROUP BY status`,
       invoiceScope.params
     );
     const invoiceCounts = {};
     invoiceCountsQuery.rows.forEach(r => { invoiceCounts[r.status] = r.count; });
 
-    // Get expense breakdown by category
+    // Get expense breakdown by category (accounting overhead only — case_expenses tracked separately)
     const expenseByCat = await query(
       `SELECT category, COALESCE(SUM(total), 0) as total FROM accounting_expenses
-       ${expenseScope.clause ? `WHERE ${expenseScope.clause}` : ''}
+       WHERE deleted_at IS NULL${expenseScope.clause ? ` AND ${expenseScope.clause}` : ''}
        GROUP BY category ORDER BY total DESC`,
       expenseScope.params
     );
     const expenseByCategory = {};
     expenseByCat.rows.forEach(r => { expenseByCategory[r.category] = parseFloat(r.total); });
 
-    // Monthly revenue vs expenses (last 6 months) — uses case payments for revenue
+    // Monthly revenue vs expenses (last 6 months) — revenue from case payments, expenses = accounting + case_expenses
     const monthlyData = await query(
       `SELECT TO_CHAR(d, 'YYYY-MM') as month,
               COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid'), 0) as revenue,
-              COALESCE(SUM(exp.total), 0) as expenses
+              COALESCE(SUM(exp.total), 0) + COALESCE(SUM(ce.amount), 0) as expenses
        FROM generate_series(
          DATE_TRUNC('month', NOW()) - INTERVAL '5 months',
          DATE_TRUNC('month', NOW()),
@@ -184,7 +202,14 @@ router.get('/summary', async (req, res) => {
          ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}
        ) p ON DATE_TRUNC('month', p.paid_at) = d
        LEFT JOIN accounting_expenses exp ON DATE_TRUNC('month', exp.date) = d
+         AND exp.deleted_at IS NULL
          ${expenseScope.clause ? `AND ${expenseScope.clause.replace(/tenant_id/, 'exp.tenant_id')}` : ''}
+       LEFT JOIN (
+         SELECT ce.amount, ce.created_at
+         FROM case_expenses ce
+         JOIN cases c ON ce.case_id = c.id
+         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}
+       ) ce ON DATE_TRUNC('month', ce.created_at) = d
        GROUP BY d ORDER BY d`,
       [...new Set([...caseScope.params, ...expenseScope.params])]
     );
@@ -194,12 +219,14 @@ router.get('/summary', async (req, res) => {
     const acceptedQuotes = parseInt(qStats.rows[0].accepted_quotes, 10) || 0;
     const conversionRate = totalQuotes ? Math.round((acceptedQuotes / totalQuotes) * 100) : 0;
 
-    res.json({
-      ...qStats.rows[0],
-      ...inv,
-      ...exp,
-      ...purch,
-      profit_month,
+      res.json({
+        ...qStats.rows[0],
+        ...inv,
+        ...exp,
+        ...purch,
+        case_total_expenses: parseFloat(caseExp.total_case_expenses),
+        total_expenses: totalExpenses,
+        profit_month,
       totalRevenue: parseFloat(caseStats.total_paid),
       pendingRevenue: parseFloat(pendingStats.pending_amount),
       overdueRevenue: parseFloat(pendingStats.overdue_amount),
@@ -345,6 +372,12 @@ router.post('/quotes/:id/invoice', requireMinRole('staff'), auditLog('convert_qu
 
     const companySettings = await loadCompanySettings();
     const dueDate = new Date(Date.now() + 15 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+
+    const invoiceSeq = await getNextInvoiceSequence(companySettings);
+    const invNum = formatNumberSequence(
+      getCompanyNumberFormat(companySettings, 'invoice_number_format', 'INV-{YYYY}-{NNNN}'),
+      invoiceSeq
+    );
 
     // Resolve case_id from case_number
     let caseId = null;

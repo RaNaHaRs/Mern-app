@@ -1275,7 +1275,7 @@ function StepClient({
         </div>
         <div className="form-group" style={{ margin: 0, gridColumn: "1/-1" }}>
           <label className="form-label">
-            Assigned Engineer <RequiredIndicator fieldKey="assigned_engineer" />
+            Assigned Engineer
           </label>
           <select
             className="form-select"
@@ -1738,7 +1738,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
         errs.reminder_days = "Reminder days required";
       }
       if (isCaseFieldRequired('assigned_engineer') && !form.assigned_engineer) {
-        errs.assigned_engineer = "Assigned Engineer is required";
+// removed validation for assigned_engineer
       }
     }
 
@@ -1914,8 +1914,11 @@ export default function NewCaseModal({ onClose, onCreated }) {
     }));
     usersApi
       .list()
-      .then((d) => setEngineers(d.users || []))
-      .catch(() => {});
+      .then((d) => {
+        console.log("DEBUG: Engineers API response:", d);
+        setEngineers(d.users || (Array.isArray(d) ? d : []));
+      })
+      .catch((e) => console.error("DEBUG: Engineers API error:", e));
   }, []);
 
   // Pre-fill next tenant-scoped case number on mount
