@@ -19,7 +19,7 @@ async function parseErrorMsg(res) {
 const inputStyle = {
   width: '100%',
   padding: '8px 12px',
-  background: 'var(--bg-tertiary, #1a2035)',
+  background: 'var(--bg-input, var(--bg-elevated))',
   color: 'var(--text-primary)',
   border: '1px solid var(--border-default)',
   borderRadius: 'var(--radius-sm)',
@@ -985,7 +985,7 @@ function InventorySelector({ value, onChange }) {
         style={{
           width: '100%',
           padding: '8px 12px',
-          background: 'var(--bg-tertiary, #1a2035)',
+          background: 'var(--bg-input, var(--bg-elevated))',
           color: 'var(--text-primary)',
           border: `1px solid ${open ? 'var(--accent-primary)' : 'var(--border-default)'}`,
           borderRadius: open ? 'var(--radius-sm) var(--radius-sm) 0 0' : 'var(--radius-sm)',
@@ -1000,14 +1000,14 @@ function InventorySelector({ value, onChange }) {
           top: '100%',
           left: 0,
           right: 0,
-          background: 'var(--bg-secondary, #151c2c)',
+          background: 'var(--bg-card)',
           border: '1px solid var(--accent-primary)',
           borderTop: 'none',
           borderRadius: '0 0 var(--radius-sm) var(--radius-sm)',
           maxHeight: 220,
           overflowY: 'auto',
           zIndex: 9999,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)'
         }}>
           {options.map((item) => (
             <div
@@ -1017,7 +1017,7 @@ function InventorySelector({ value, onChange }) {
                 setSearch(item.name);
                 setOpen(false);
               }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-tertiary, #1a2035)'}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-elevated)'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               style={{
                 padding: '10px 12px',
