@@ -2001,6 +2001,69 @@ function CommunicationLogPanel({ caseId, caseData }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ type:'call', direction:'outbound', summary:'', agent:'', duration:'', followUp:'' });
   const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+
+  // Fetch communications from backend on component mount
+  const loadComms = useCallback(async () => {
+    if (!caseData?.client_id) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(
+        `${BASE_URL}/clients/${caseData.client_id}/communications`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) throw new Error('Failed to load communications');
+      const data = await res.json();
+      
+      // Convert backend format to frontend format
+      const backendComms = (data || []).map(comm => ({
+        id: comm.id,
+        type: comm.type === 'portal_message' ? 'portal_message' : comm.type === 'portal_reply' ? 'portal_reply' : 'email',
+        direction: comm.direction || 'inbound',
+        summary: comm.summary || '',
+        agent: comm.user_name || 'Client Portal',
+        duration: '',
+        followUp: '',
+        createdAt: comm.created_at,
+        caseNumber: caseData?.case_number,
+        clientName: `${caseData?.first_name || ''} ${caseData?.last_name || ''}`.trim(),
+        isFromPortal: comm.type === 'portal_message' || comm.type === 'portal_reply',
+        isReply: comm.type === 'portal_reply',
+        // Include original message info for replies
+        replyToId: comm.reply_to_id,
+        replyToSummary: comm.reply_to_summary,
+        replyToCreatedAt: comm.reply_to_created_at,
+        replyToUserName: comm.reply_to_user_name,
+      }));
+      
+      // Merge with local storage (local takes precedence for new entries)
+      const combined = [...backendComms, ...comms.filter(c => c.isNew)];
+      // Remove duplicates by ID
+      const unique = [];
+      const seen = new Set();
+      combined.forEach(c => {
+        if (!seen.has(c.id)) {
+          unique.push(c);
+          seen.add(c.id);
+        }
+      });
+      setComms(unique.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+    } catch (err) {
+      console.error('Failed to load communications:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [caseData?.client_id, caseData?.case_number, comms]);
+
+  useEffect(() => {
+    loadComms();
+  }, [caseData?.client_id, caseData?.case_number]);
 
   const saveComms = (list) => { setComms(list); localStorage.setItem(storageKey, JSON.stringify(list)); };
 
@@ -2012,6 +2075,8 @@ function CommunicationLogPanel({ caseId, caseData }) {
       createdAt: new Date().toISOString(),
       caseNumber: caseData?.case_number,
       clientName: `${caseData?.first_name || ''} ${caseData?.last_name || ''}`.trim(),
+      isNew: true, // Mark as locally created (not from backend)
+      isFromPortal: false,
     };
     saveComms([entry, ...comms]);
     setForm({ type:'call', direction:'outbound', summary:'', agent:'', duration:'', followUp:'' });
@@ -2021,6 +2086,41 @@ function CommunicationLogPanel({ caseId, caseData }) {
   const handleDelete = (id) => {
     if (!confirm('Delete this communication log entry?')) return;
     saveComms(comms.filter(c => c.id !== id));
+  };
+
+  const handleReply = async () => {
+    if (!replyText.trim() || !replyingTo) return;
+    setSendingReply(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(`${BASE_URL}/client-portal/reply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          case_id: caseId,
+          client_id: caseData?.client_id,
+          message: replyText.trim(),
+          reply_to_id: replyingTo, // Pass the ID of the message being replied to
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed to send reply');
+      
+      // Reset reply form
+      setReplyingTo(null);
+      setReplyText('');
+      
+      // Reload communications from backend to get the latest data
+      await loadComms();
+    } catch (err) {
+      console.error('Reply error:', err.message);
+      alert('Error: ' + err.message);
+    } finally {
+      setSendingReply(false);
+    }
   };
 
   const filtered = filter === 'all' ? comms : comms.filter(c => c.type === filter);
@@ -2089,42 +2189,95 @@ function CommunicationLogPanel({ caseId, caseData }) {
 
       {/* Log Entries */}
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
-        {filtered.map(entry => {
-          const ti = typeInfo(entry.type);
+        {loading && (
+          <div style={{padding:40,textAlign:'center'}}>
+            <div style={{display:'inline-block',width:24,height:24,borderRadius:'50%',border:'2px solid rgba(0,212,255,0.2)',borderTop:'2px solid rgba(0,212,255,1)',animation:'spin 0.6s linear infinite'}} />
+            <div style={{marginTop:12,color:'var(--text-muted)',fontSize:'0.8rem'}}>Loading communications...</div>
+          </div>
+        )}
+        {!loading && filtered.map(entry => {
+          const ti = entry.isFromPortal ? { icon: '🌐', label: 'Portal Message', color: '#8b5cf6' } : typeInfo(entry.type);
           return (
-            <div key={entry.id} style={{display:'flex',gap:12,padding:'12px 14px',background:'var(--bg-card)',border:'1px solid var(--border-subtle)',borderRadius:'var(--radius-md)',transition:'border-color 0.15s'}}
-              onMouseEnter={e=>e.currentTarget.style.borderColor='var(--border-default)'}
-              onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border-subtle)'}>
-              <div style={{width:36,height:36,borderRadius:'50%',background:`${ti.color}18`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1rem',flexShrink:0,border:`1px solid ${ti.color}30`}}>
-                {ti.icon}
-              </div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
-                  <span style={{fontWeight:700,fontSize:'0.82rem',color:ti.color}}>{ti.label}</span>
-                  <span style={{fontSize:'0.68rem',padding:'1px 7px',borderRadius:999,background:entry.direction==='inbound'?'rgba(16,185,129,0.12)':'rgba(99,102,241,0.12)',color:entry.direction==='inbound'?'#10b981':'#6366f1',fontWeight:700}}>
-                    {entry.direction === 'inbound' ? '↙ Inbound' : '↗ Outbound'}
-                  </span>
-                  {entry.duration && <span style={{fontSize:'0.68rem',color:'var(--text-muted)'}}>⏱ {entry.duration}m</span>}
-                  <span style={{fontSize:'0.68rem',color:'var(--text-muted)',marginLeft:'auto',fontFamily:'var(--font-mono)'}}>
-                    {new Date(entry.createdAt).toLocaleString('en-IN')}
-                  </span>
+            <div key={entry.id}>
+              <div style={{display:'flex',gap:12,padding:'12px 14px',background:'var(--bg-card)',border:entry.isFromPortal?'1px solid rgba(139,92,246,0.3)':'1px solid var(--border-subtle)',borderRadius:'var(--radius-md)',transition:'border-color 0.15s'}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor='var(--border-default)'}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=entry.isFromPortal?'rgba(139,92,246,0.3)':'var(--border-subtle)'}>
+                <div style={{width:36,height:36,borderRadius:'50%',background:`${ti.color}18`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1rem',flexShrink:0,border:`1px solid ${ti.color}30`}}>
+                  {ti.icon}
                 </div>
-                <div style={{fontSize:'0.82rem',color:'var(--text-primary)',lineHeight:1.6,marginBottom:entry.followUp?6:0}}>
-                  {entry.summary}
-                </div>
-                {entry.followUp && (
-                  <div style={{fontSize:'0.72rem',padding:'4px 8px',background:'rgba(245,158,11,0.08)',borderRadius:4,border:'1px solid rgba(245,158,11,0.2)',color:'#f59e0b',marginTop:4}}>
-                    📌 Follow-up: {entry.followUp}
+                <div style={{flex:1,minWidth:0}}>
+                  {/* Show which message this reply is responding to */}
+                  {entry.isReply && entry.replyToSummary && (
+                    <div style={{fontSize:'0.75rem',padding:'6px 10px',background:'rgba(139,92,246,0.08)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:6,marginBottom:8}}>
+                      <div style={{color:'#8b5cf6',fontWeight:600,marginBottom:2}}>↩ Replying to:</div>
+                      <div style={{color:'var(--text-secondary)',lineHeight:1.4}}>{entry.replyToSummary}</div>
+                      <div style={{fontSize:'0.65rem',color:'var(--text-muted)',marginTop:2}}>
+                        {new Date(entry.replyToCreatedAt).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+                    <span style={{fontWeight:700,fontSize:'0.82rem',color:ti.color}}>{ti.label}</span>
+                    {entry.isFromPortal && <span style={{fontSize:'0.68rem',padding:'1px 7px',borderRadius:999,background:'rgba(139,92,246,0.12)',color:'#8b5cf6',fontWeight:700}}>✓ Client Submitted</span>}
+                    <span style={{fontSize:'0.68rem',padding:'1px 7px',borderRadius:999,background:entry.direction==='inbound'?'rgba(16,185,129,0.12)':'rgba(99,102,241,0.12)',color:entry.direction==='inbound'?'#10b981':'#6366f1',fontWeight:700}}>
+                      {entry.direction === 'inbound' ? '↙ Inbound' : '↗ Outbound'}
+                    </span>
+                    {entry.duration && <span style={{fontSize:'0.68rem',color:'var(--text-muted)'}}>⏱ {entry.duration}m</span>}
+                    <span style={{fontSize:'0.68rem',color:'var(--text-muted)',marginLeft:'auto',fontFamily:'var(--font-mono)'}}>
+                      {new Date(entry.createdAt).toLocaleString('en-IN')}
+                    </span>
                   </div>
+                  <div style={{fontSize:'0.82rem',color:'var(--text-primary)',lineHeight:1.6,marginBottom:entry.followUp?6:0}}>
+                    {entry.summary}
+                  </div>
+                  {entry.followUp && (
+                    <div style={{fontSize:'0.72rem',padding:'4px 8px',background:'rgba(245,158,11,0.08)',borderRadius:4,border:'1px solid rgba(245,158,11,0.2)',color:'#f59e0b',marginTop:4}}>
+                      📌 Follow-up: {entry.followUp}
+                    </div>
+                  )}
+                  {entry.agent && <div style={{fontSize:'0.68rem',color:'var(--text-muted)',marginTop:4}}>By: {entry.agent}</div>}
+                </div>
+                {!entry.isFromPortal && (
+                  <button style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'0.8rem',padding:4,alignSelf:'flex-start',opacity:0.6}}
+                    onClick={()=>handleDelete(entry.id)} title="Delete entry">✕</button>
                 )}
-                {entry.agent && <div style={{fontSize:'0.68rem',color:'var(--text-muted)',marginTop:4}}>By: {entry.agent}</div>}
+                {entry.isFromPortal && !entry.isReply && (
+                  <button style={{background:'none',border:'none',cursor:'pointer',color:'#6366f1',fontSize:'0.8rem',padding:4,alignSelf:'flex-start',fontWeight:600}}
+                    onClick={()=>setReplyingTo(entry.id)} title="Reply to client">💬 Reply</button>
+                )}
               </div>
-              <button style={{background:'none',border:'none',cursor:'pointer',color:'var(--text-muted)',fontSize:'0.8rem',padding:4,alignSelf:'flex-start',opacity:0.6}}
-                onClick={()=>handleDelete(entry.id)} title="Delete entry">✕</button>
+              
+              {/* Reply Form */}
+              {replyingTo === entry.id && (
+                <div style={{marginTop:8,marginLeft:48,padding:12,background:'rgba(99,102,241,0.08)',borderRadius:8,border:'1px solid rgba(99,102,241,0.2)'}}>
+                  <div style={{fontSize:'0.75rem',fontWeight:700,color:'#6366f1',marginBottom:8}}>📝 Send Reply to Client</div>
+                  <textarea
+                    value={replyText}
+                    onChange={e=>setReplyText(e.target.value)}
+                    placeholder="Type your reply here... (max 2000 characters)"
+                    style={{width:'100%',minHeight:70,padding:'8px 10px',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(99,102,241,0.2)',borderRadius:6,color:'var(--text-primary)',fontSize:'0.8rem',resize:'vertical',boxSizing:'border-box',outline:'none',fontFamily:'inherit'}}
+                  />
+                  <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}}>
+                    <button
+                      onClick={()=>{setReplyingTo(null);setReplyText('');}}
+                      style={{padding:'6px 14px',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:6,color:'var(--text-secondary)',fontSize:'0.75rem',fontWeight:600,cursor:'pointer'}}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleReply}
+                      disabled={sendingReply || !replyText.trim()}
+                      style={{padding:'6px 14px',background:replyText.trim()&&!sendingReply?'linear-gradient(135deg,#6366f1,#8b5cf6)':'rgba(99,102,241,0.2)',border:'none',borderRadius:6,color:replyText.trim()&&!sendingReply?'#fff':'#64748b',fontSize:'0.75rem',fontWeight:600,cursor:replyText.trim()&&!sendingReply?'pointer':'not-allowed'}}
+                    >
+                      {sendingReply?'⌛ Sending...':'📤 Send Reply'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
-        {!filtered.length && (
+        {!loading && !filtered.length && (
           <div className="empty-state" style={{padding:40}}>
             <div className="empty-icon"></div>
             <div className="empty-title">No communication logs yet</div>

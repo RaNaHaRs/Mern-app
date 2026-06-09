@@ -3,6 +3,97 @@ import { useNavigate } from 'react-router-dom';
 
 const BASE_URL = '/api';
 
+// Messages Timeline Component - displays portal messages and staff replies
+function MessagesTimeline({ caseId, clientId }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!caseId) {
+      console.log('No caseId provided to MessagesTimeline');
+      return;
+    }
+    
+    const loadMessages = async () => {
+      setLoading(true);
+      try {
+        // Use the public endpoint that doesn't require authentication
+        const res = await fetch(`${BASE_URL}/client-portal/messages/${caseId}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: Failed to load messages`);
+        }
+        const data = await res.json();
+        
+        // Data is already filtered for portal messages and replies
+        setMessages(data || []);
+      } catch (err) {
+        console.error('Failed to load messages:', err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMessages();
+  }, [caseId]);
+
+  if (loading) {
+    return <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Loading messages...</div>;
+  }
+
+  if (!messages.length) {
+    return <div style={{ fontSize: '0.75rem', color: '#64748b', padding: '8px 0' }}>No messages yet. Send one to get started!</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14, maxHeight: 300, overflowY: 'auto', paddingRight: 6 }}>
+      {messages.map(msg => {
+        const isClientMessage = msg.type === 'portal_message';
+        const isReply = msg.type === 'portal_reply';
+        
+        return (
+          <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Original message or reply */}
+            <div style={{
+              padding: '10px 12px',
+              background: isClientMessage ? 'rgba(99,102,241,0.1)' : 'rgba(139,92,246,0.1)',
+              border: `1px solid ${isClientMessage ? 'rgba(99,102,241,0.25)' : 'rgba(139,92,246,0.25)'}`,
+              borderRadius: 8,
+              color: isClientMessage ? '#c7d2fe' : '#d8b4fe'
+            }}>
+              <div style={{ fontSize: '0.7rem', fontWeight: 600, marginBottom: 4 }}>
+                {isClientMessage ? '👤 You' : '👨‍💼 Engineer Reply'}
+              </div>
+              <div style={{ fontSize: '0.78rem', lineHeight: 1.5 }}>
+                {msg.summary?.replace(/^\[.*?\]\s*/, '')}
+              </div>
+              <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: 4 }}>
+                {new Date(msg.created_at).toLocaleString('en-IN')}
+              </div>
+            </div>
+            
+            {/* Show which message the reply is for */}
+            {isReply && msg.reply_to_summary && (
+              <div style={{
+                marginLeft: 16,
+                padding: '8px 10px',
+                background: 'rgba(99,102,241,0.05)',
+                border: '1px solid rgba(99,102,241,0.15)',
+                borderRadius: 6,
+                borderLeft: '3px solid rgba(99,102,241,0.5)'
+              }}>
+                <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: 2 }}>↩ This was replying to:</div>
+                <div style={{ fontSize: '0.75rem', color: '#94a3b8', lineHeight: 1.4 }}>
+                  {msg.reply_to_summary?.replace(/^\[.*?\]\s*/, '')}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ClientPortalPage() {
   const navigate = useNavigate();
   const [caseNum, setCaseNum] = useState('');
@@ -19,6 +110,34 @@ export default function ClientPortalPage() {
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     setIsAdminLoggedIn(!!token);
+  }, []);
+
+  // Auto-load case if case_id is in URL (from email portal link)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const caseIdFromUrl = urlParams.get('case_id');
+    
+    if (caseIdFromUrl && !caseData) {
+      // Auto-load case from email link
+      const autoLoadCase = async () => {
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch(`${BASE_URL}/client-portal/case?case_id=${encodeURIComponent(caseIdFromUrl)}`);
+          const data = await res.json().catch(() => {
+            throw new Error('Server error. Please try again shortly.');
+          });
+          if (!res.ok || data.error) throw new Error(data.error || 'Case not found');
+          setCaseData(data);
+        } catch (err) {
+          setError(err.message || 'Case not found. Please check the link and try again.');
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      autoLoadCase();
+    }
   }, []);
 
   const STAGE_ICONS = {
@@ -89,7 +208,12 @@ export default function ClientPortalPage() {
       const res = await fetch(`${BASE_URL}/client-portal/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ case_id: caseData.id, case_number: caseData.case_number, message: message.trim(), phone }),
+        body: JSON.stringify({ 
+          case_id: caseData.id, 
+          case_number: caseData.case_number, 
+          message: message.trim(), 
+          phone 
+        }),
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Failed to send');
@@ -97,7 +221,7 @@ export default function ClientPortalPage() {
       setMessage('');
       setTimeout(() => setMessageSent(false), 5000);
     } catch (err) {
-      alert(err.message);
+      alert('Error: ' + err.message);
     } finally {
       setSendingMsg(false);
     }
@@ -106,28 +230,22 @@ export default function ClientPortalPage() {
   const company = (() => { try { return JSON.parse(localStorage.getItem('crm_company') || '{}'); } catch { return {}; } })();
 
   const stageInfo = caseData ? (STAGE_MESSAGES[caseData.stage] || { msg: 'Your case is being processed.', next: null }) : null;
-  const progress = caseData ? (caseData.recovery_progress_pct || getStageProgress(caseData.stage)) : 0;
+  
+  // Calculate progress: use recovery_progress_pct if available, otherwise calculate from stage
+  let progress = 0;
+  if (caseData) {
+    if (caseData.recovery_progress_pct && caseData.recovery_progress_pct > 0) {
+      progress = caseData.recovery_progress_pct;
+    } else {
+      progress = getStageProgress(caseData.stage);
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 16px', position: 'relative' }}>
 
-      {/* Admin back-to-CRM bar */}
-      {isAdminLoggedIn && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100, background: 'rgba(0,212,255,0.1)', borderBottom: '1px solid rgba(0,212,255,0.2)', backdropFilter: 'blur(12px)', padding: '8px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-            👁 You are viewing the <strong style={{ color: '#00d4ff' }}>Client Portal</strong> as a staff member
-          </span>
-          <button
-            onClick={() => navigate('/cases')}
-            style={{ background: 'rgba(0,212,255,0.15)', border: '1px solid rgba(0,212,255,0.35)', color: '#00d4ff', padding: '5px 14px', borderRadius: 6, fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
-          >
-            ← Back to CRM
-          </button>
-        </div>
-      )}
-
       {/* Logo / Header */}
-      <div style={{ textAlign: 'center', marginBottom: 40, marginTop: isAdminLoggedIn ? 48 : 0 }}>
+      <div style={{ textAlign: 'center', marginBottom: 40 }}>
         <div style={{ fontSize: '3rem', marginBottom: 8 }}>💾</div>
         <h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', margin: '0 0 4px' }}>
           {company.name || 'RecoverLab'}
@@ -135,55 +253,75 @@ export default function ClientPortalPage() {
         <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>Client Case Tracking Portal</p>
       </div>
 
-      {/* Search Card */}
-      <div style={{ width: '100%', maxWidth: 520, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 28, marginBottom: 24 }}>
-        <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#e2e8f0', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-          🔍 Track Your Case
-        </h2>
-        <form onSubmit={handleSearch}>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Case Number *
-            </label>
-            <input
-              style={{ width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', fontFamily: 'monospace', boxSizing: 'border-box', outline: 'none' }}
-              value={caseNum}
-              onChange={e => setCaseNum(e.target.value.toUpperCase())}
-              placeholder="e.g. DR-2026-00001"
-              autoFocus
-              required
-            />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Registered Phone / Last 4 digits
-            </label>
-            <input
-              style={{ width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none' }}
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              placeholder="e.g. 9876 or 9876543210"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading || !caseNum.trim()}
-            style={{ width: '100%', padding: '11px 0', background: loading ? '#1e3a5f' : 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-          >
-            {loading ? '⌛ Searching...' : '🔎 Track Case'}
-          </button>
-        </form>
+      {/* Search Card - hide if case already loaded from URL */}
+      {!caseData && (
+        <div style={{ width: '100%', maxWidth: 520, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 28, marginBottom: 24 }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#e2e8f0', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+            🔍 Track Your Case
+          </h2>
+          <form onSubmit={handleSearch}>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Case Number *
+              </label>
+              <input
+                style={{ width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', fontFamily: 'monospace', boxSizing: 'border-box', outline: 'none' }}
+                value={caseNum}
+                onChange={e => setCaseNum(e.target.value.toUpperCase())}
+                placeholder="e.g. DR-2026-00001"
+                autoFocus
+                required
+              />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Registered Phone / Last 4 digits
+              </label>
+              <input
+                style={{ width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none' }}
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="e.g. 9876 or 9876543210"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading || !caseNum.trim()}
+              style={{ width: '100%', padding: '11px 0', background: loading ? '#1e3a5f' : 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            >
+              {loading ? '⌛ Searching...' : '🔎 Track Case'}
+            </button>
+          </form>
 
-        {error && (
-          <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, color: '#fca5a5', fontSize: '0.8rem' }}>
-            ⚠ {error}
-          </div>
-        )}
-      </div>
+          {error && (
+            <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, color: '#fca5a5', fontSize: '0.8rem' }}>
+              ⚠ {error}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Case Result */}
       {caseData && (
         <div style={{ width: '100%', maxWidth: 640, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Search for Different Case Button */}
+          <div style={{ textAlign: 'center', marginBottom: 8 }}>
+            <button
+              onClick={() => {
+                setCaseData(null);
+                setCaseNum('');
+                setPhone('');
+                setError('');
+                setMessage('');
+                setMessageSent(false);
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }}
+              style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
+            >
+              🔍 Search for Different Case
+            </button>
+          </div>
 
           {/* Case Header */}
           <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 24, backdropFilter: 'blur(12px)' }}>
@@ -241,27 +379,39 @@ export default function ClientPortalPage() {
 
           {/* Send Message */}
           <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
-            <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: 14, fontSize: '0.88rem' }}>💬 Send a Message to Engineers</div>
-            {messageSent && (
-              <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 8, color: '#6ee7b7', fontSize: '0.8rem' }}>
-                ✅ Your message has been sent! Our team will respond soon.
-              </div>
+            <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: 14, fontSize: '0.88rem' }}>💬 Messages & Replies</div>
+            
+            {/* Messages History */}
+            {caseData?.id ? (
+              <MessagesTimeline caseId={caseData.id} />
+            ) : (
+              <div style={{ fontSize: '0.75rem', color: '#64748b', padding: '8px 0' }}>Unable to load messages</div>
             )}
-            <textarea
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              placeholder="Type your question or message… e.g. 'What is the estimated recovery time?' or 'Has the quote been sent?'"
-              style={{ width: '100%', minHeight: 90, padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
-            />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-              <span style={{ fontSize: '0.72rem', color: '#475569' }}>{message.length}/2000</span>
-              <button
-                onClick={handleSendMessage}
-                disabled={sendingMsg || !message.trim()}
-                style={{ padding: '9px 20px', background: message.trim() ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, color: message.trim() ? '#fff' : '#64748b', fontWeight: 700, fontSize: '0.82rem', cursor: message.trim() ? 'pointer' : 'not-allowed' }}
-              >
-                {sendingMsg ? '⌛ Sending...' : '📩 Send Message'}
-              </button>
+            
+            {/* Send Message Form */}
+            <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ fontWeight: 600, color: '#e2e8f0', marginBottom: 12, fontSize: '0.8rem' }}>Send a New Message</div>
+              {messageSent && (
+                <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 8, color: '#6ee7b7', fontSize: '0.8rem' }}>
+                  ✅ Your message has been sent! Our team will respond soon.
+                </div>
+              )}
+              <textarea
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                placeholder="Type your question or message… e.g. 'What is the estimated recovery time?' or 'Has the quote been sent?'"
+                style={{ width: '100%', minHeight: 90, padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                <span style={{ fontSize: '0.72rem', color: '#475569' }}>{message.length}/2000</span>
+                <button
+                  onClick={handleSendMessage}
+                  disabled={sendingMsg || !message.trim()}
+                  style={{ padding: '9px 20px', background: message.trim() ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, color: message.trim() ? '#fff' : '#64748b', fontWeight: 700, fontSize: '0.82rem', cursor: message.trim() ? 'pointer' : 'not-allowed' }}
+                >
+                  {sendingMsg ? '⌛ Sending...' : '📩 Send Message'}
+                </button>
+              </div>
             </div>
           </div>
 

@@ -14,14 +14,22 @@ export default function InventoryHddFields({ category, form, setForm, skipKeys =
 
   if (!category || !fields.length) return null;
 
-  const visibleFields = fields.filter(field => !field.hidden && !skipKeys.includes(field.key));
+  const visibleFields = fields.filter(field => {
+    const status = field.status || 'optional';
+    return status !== 'hidden' && !skipKeys.includes(field.key);
+  });
   if (!visibleFields.length) return null;
 
   const handleFieldChange = (fieldKey, value) => {
     setForm(prev => ({ ...prev, [fieldKey]: value }));
   };
 
-  const formatLabel = (field) => field.label || field.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const formatLabel = (field) => {
+    const label = field.label || field.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const status = field.status || 'optional';
+    const isMandatory = status === 'mandatory' || field.required;
+    return label;
+  };
 
   return (
     <div style={{ marginBottom: 12 }}>
@@ -31,7 +39,8 @@ export default function InventoryHddFields({ category, form, setForm, skipKeys =
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {visibleFields.map((field) => {
           const value = form[field.key] ?? '';
-          const required = field.required;
+          const status = field.status || 'optional';
+          const required = status === 'mandatory';
 
           if (field.type === 'select') {
             return (

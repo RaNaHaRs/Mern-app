@@ -113,16 +113,16 @@ function DonorPatientComparison({ donor, patientCaseId }) {
   const [patient, setPatient] = useState(null);
   const [patientImages, setPatientImages] = useState([]);
   const [donorImages, setDonorImages] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!patientCaseId) return;
+    setLoading(true);
     fetch(`${BASE_URL}/cases/${patientCaseId}`, { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(r => r.json()).then(d => setPatient(d)).catch(() => {});
+      .then(r => r.json()).then(d => setPatient(d)).catch(() => {}).finally(() => setLoading(false));
     fetch(`${BASE_URL}/inventory/${donor.id}/images`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => r.json()).then(d => setDonorImages(d.images || [])).catch(() => {});
   }, [patientCaseId, donor.id]);
-
-  if (!patient) return <div style={{ display:'flex',justifyContent:'center',padding:40 }}><div className="spinner" style={{ width:28,height:28 }} /></div>;
 
   const COMPARE_FIELDS = [
     { label: 'Brand / Company', pKey: 'device_brand', dKey: 'company', fallback: d => d.brand },
@@ -139,13 +139,13 @@ function DonorPatientComparison({ donor, patientCaseId }) {
     { label: 'Form Factor', pKey: 'form_factor', dKey: 'form_factor' },
   ];
 
-  const matchScore = COMPARE_FIELDS.filter(f => {
+  const matchScore = patient ? COMPARE_FIELDS.filter(f => {
     const pv = (patient[f.pKey] || '').toString().toLowerCase().trim();
     const dv = (donor[f.dKey] || donor[f.fallback?.(donor)] || '').toString().toLowerCase().trim();
     return pv && dv && pv === dv;
-  }).length;
+  }).length : 0;
 
-  const pct = Math.round((matchScore / COMPARE_FIELDS.filter(f => patient[f.pKey] && donor[f.dKey]).length) * 100) || 0;
+  const pct = patient ? Math.round((matchScore / COMPARE_FIELDS.filter(f => patient[f.pKey] && donor[f.dKey]).length) * 100) || 0 : 0;
 
   return (
     <div>
@@ -154,8 +154,16 @@ function DonorPatientComparison({ donor, patientCaseId }) {
           <div>
             <div style={{ fontSize:'1.1rem',fontWeight:800,marginBottom:4 }}>🔬 Donor ↔ Patient Comparison</div>
             <div style={{ fontSize:'0.82rem',color:'var(--text-muted)' }}>
-              Patient: <strong style={{ color:'var(--accent-primary)' }}>{patient.case_number}</strong> —
-              {patient.first_name} {patient.last_name} · {patient.device_brand} {patient.device_model}
+              {loading ? (
+                <span style={{ opacity: 0.5 }}>Loading patient data…</span>
+              ) : patient ? (
+                <>
+                  Patient: <strong style={{ color:'var(--accent-primary)' }}>{patient.case_number}</strong> —
+                  {patient.first_name} {patient.last_name} · {patient.device_brand} {patient.device_model}
+                </>
+              ) : (
+                <span style={{ color: '#ef4444' }}>Failed to load patient data</span>
+              )}
             </div>
           </div>
           <div style={{ textAlign:'center' }}>
@@ -168,25 +176,35 @@ function DonorPatientComparison({ donor, patientCaseId }) {
       {/* Side-by-side table */}
       <div className="card" style={{ overflow:'hidden',marginBottom:20 }}>
         <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',background:'var(--bg-elevated)',padding:'10px 16px',borderBottom:'1px solid var(--border-subtle)',fontWeight:700,fontSize:'0.8rem' }}>
-          <div style={{ textAlign:'center',color:'var(--status-warning)' }}>🔬 Patient Drive ({patient.case_number})</div>
+          <div style={{ textAlign:'center',color:'var(--status-warning)' }}>🔬 Patient Drive ({patient?.case_number || '—'})</div>
           <div style={{ textAlign:'center',color:'var(--text-muted)' }}>Field</div>
           <div style={{ textAlign:'center',color:'var(--accent-primary)' }}>💿 Donor Drive ({donor.stock_number || donor.sku})</div>
         </div>
-        {COMPARE_FIELDS.map(f => {
-          const pv = f.fmt ? f.fmt(patient[f.pKey]) : (patient[f.pKey] || '—');
-          const dv = f.dfmt ? f.dfmt(donor[f.dKey]) : (donor[f.dKey] || (f.fallback ? f.fallback(donor) : '—') || '—');
-          const match = pv !== '—' && dv !== '—' && pv.toString().toLowerCase() === dv.toString().toLowerCase();
-          const bg = match ? 'rgba(16,185,129,0.06)' : (pv==='—'||dv==='—') ? 'transparent' : 'rgba(239,68,68,0.04)';
-          return (
-            <div key={f.label} style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',padding:'8px 16px',borderBottom:'1px solid var(--border-subtle)',background:bg,alignItems:'center' }}>
-              <div className="font-mono" style={{ fontSize:'0.8rem',textAlign:'center',fontWeight:match?700:400,color:match?'var(--status-success)':'var(--text-primary)' }}>{pv}</div>
-              <div style={{ fontSize:'0.7rem',color:'var(--text-muted)',textAlign:'center',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em' }}>
-                {match ? <span style={{ color:'#10b981' }}>✓ {f.label}</span> : f.label}
+        {loading ? (
+          <div style={{ display:'flex',justifyContent:'center',alignItems:'center',padding:40,minHeight:200 }}>
+            <div className="spinner" style={{ width:24,height:24 }} />
+          </div>
+        ) : patient ? (
+          COMPARE_FIELDS.map(f => {
+            const pv = f.fmt ? f.fmt(patient[f.pKey]) : (patient[f.pKey] || '—');
+            const dv = f.dfmt ? f.dfmt(donor[f.dKey]) : (donor[f.dKey] || (f.fallback ? f.fallback(donor) : '—') || '—');
+            const match = pv !== '—' && dv !== '—' && pv.toString().toLowerCase() === dv.toString().toLowerCase();
+            const bg = match ? 'rgba(16,185,129,0.06)' : (pv==='—'||dv==='—') ? 'transparent' : 'rgba(239,68,68,0.04)';
+            return (
+              <div key={f.label} style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',padding:'8px 16px',borderBottom:'1px solid var(--border-subtle)',background:bg,alignItems:'center' }}>
+                <div className="font-mono" style={{ fontSize:'0.8rem',textAlign:'center',fontWeight:match?700:400,color:match?'var(--status-success)':'var(--text-primary)' }}>{pv}</div>
+                <div style={{ fontSize:'0.7rem',color:'var(--text-muted)',textAlign:'center',fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em' }}>
+                  {match ? <span style={{ color:'#10b981' }}>✓ {f.label}</span> : f.label}
+                </div>
+                <div className="font-mono" style={{ fontSize:'0.8rem',textAlign:'center',fontWeight:match?700:400,color:match?'var(--status-success)':'var(--text-primary)' }}>{dv}</div>
               </div>
-              <div className="font-mono" style={{ fontSize:'0.8rem',textAlign:'center',fontWeight:match?700:400,color:match?'var(--status-success)':'var(--text-primary)' }}>{dv}</div>
-            </div>
-          );
-        })}
+            );
+          })
+        ) : (
+          <div style={{ display:'flex',justifyContent:'center',alignItems:'center',padding:40,color:'#ef4444',fontSize:'0.85rem' }}>
+            Failed to load comparison data
+          </div>
+        )}
       </div>
 
       {/* Side-by-side images */}
@@ -228,7 +246,10 @@ export default function InventoryDetail() {
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
-  const [activeTab, setActiveTab] = useState('overview');
+
+  const compareWithCase = searchParams.get('compare');
+  const [activeTab, setActiveTab] = useState(() => compareWithCase ? 'compare' : 'overview');
+  
   const [savingEdit, setSavingEdit] = useState(false);
   const [noteEntries, setNoteEntries] = useState([]);
   const [newNoteText, setNewNoteText] = useState('');
@@ -236,7 +257,6 @@ export default function InventoryDetail() {
   const imgRef = useRef();
   const fileRef = useRef();
 
-  const compareWithCase = searchParams.get('compare');
   const { activeCategories, activeBrandNames } = useInventoryConfig();
 
   const load = useCallback(async () => {
@@ -256,7 +276,6 @@ export default function InventoryDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (compareWithCase) setActiveTab('compare'); }, [compareWithCase]);
 
   const uploadMedia = async (fileList, isFile = false) => {
     setUploading(true);

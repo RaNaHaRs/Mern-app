@@ -336,6 +336,35 @@ router.post('/:id/communications', requireMinRole('staff'), async (req, res) => 
   }
 });
 
+// ─── GET /api/clients/:id/communications ────────────────────────
+router.get('/:id/communications', authenticate, async (req, res) => {
+  try {
+    if (!isSuperAdmin(req.user) && !(await verifyClientAccess(req.params.id, req.user))) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const result = await query(
+      `SELECT 
+        cc.*,
+        u.full_name as user_name,
+        cc_reply_to.summary as reply_to_summary,
+        cc_reply_to.created_at as reply_to_created_at,
+        u_reply_to.full_name as reply_to_user_name
+       FROM client_communications cc
+       LEFT JOIN users u ON cc.user_id = u.id
+       LEFT JOIN client_communications cc_reply_to ON cc.reply_to_id = cc_reply_to.id
+       LEFT JOIN users u_reply_to ON cc_reply_to.user_id = u_reply_to.id
+       WHERE cc.client_id = $1 
+       ORDER BY cc.created_at DESC 
+       LIMIT 100`,
+      [req.params.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching communications:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/clients/:id/collect-pending ────────────────────────
 router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_client_pending', 'payment'), async (req, res) => {
   try {

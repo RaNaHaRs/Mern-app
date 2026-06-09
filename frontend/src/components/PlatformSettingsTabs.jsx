@@ -851,7 +851,7 @@ export function InvoiceSettingsTab() {
                 onChange={e => handleChange('subject_template', e.target.value)}
               />
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                Available variables: {'{{'}{`plan_label`}{'}}'}}, {'{{'}{`invoice_number`}{'}}'}}, {'{{'}{`amount`}{'}}'}}
+                Available variables: {'{{'}plan_label{'}}'}, {'{{'}invoice_number{'}}'}, {'{{'}amount{'}}'}
               </div>
             </div>
 

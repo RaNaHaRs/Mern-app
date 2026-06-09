@@ -490,12 +490,25 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
     const c = camp.rows[0];
     if (c.status === 'sent' || c.status === 'sending') return res.status(400).json({ error: 'Campaign already launched' });
 
+    // Check if campaign is scheduled for the future
+    if (c.scheduled_at && new Date(c.scheduled_at) > new Date()) {
+      return res.status(400).json({ 
+        error: 'Campaign is scheduled for a future time', 
+        scheduled_at: c.scheduled_at,
+        message: `This campaign is scheduled to send at ${new Date(c.scheduled_at).toLocaleString('en-IN')}. Scheduled campaigns will send automatically at the specified time.`
+      });
+    }
+
     await query(`UPDATE marketing_campaigns SET status='sending', sent_at=NOW() WHERE id=$1`, [c.id]);
 
     // Load SMTP config for email campaigns
     let transporter = null;
     let smtpFrom = {};
     let smsApiKey = null, smsSenderId = 'RCRLAB';
+    
+    // Load company settings once for use in personalization
+    const { loadCompanySettings } = require('./settings');
+    const companySettings = await loadCompanySettings();
 
     if (c.type === 'email') {
       const smtp = await loadAdminSmtpConfig();
@@ -517,8 +530,6 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
         return res.status(400).json({ error: `SMTP connection failed: ${smtpErr.message}. Check your email settings in Settings → Integrations → Email.` });
       }
     } else if (c.type === 'sms') {
-      const { loadCompanySettings } = require('./settings');
-      const companySettings = await loadCompanySettings();
       smsApiKey = companySettings.fast2sms_api_key;
       smsSenderId = companySettings.fast2sms_sender_id || 'RCRLAB';
       if (!smsApiKey) {
@@ -548,7 +559,9 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
     const audience = await query(audienceQuery, audienceParams);
 
     let sent = 0, failed = 0;
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
+    // Use frontend URL for portal links (where users actually navigate)
+    const frontendBaseUrl = process.env.FRONTEND_URL || apiBaseUrl;
 
     for (const client of audience.rows) {
       if (c.type === 'email' && !client.email) continue;
@@ -564,11 +577,38 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
 
       const personalization = { name: client.full_name, company: client.company_name, email: client.email };
 
+      // Fetch the latest case for this client to populate case-specific variables
+      const caseResult = await query(
+        `SELECT c.id, c.case_number, c.device_brand, c.device_model, c.stage, u.full_name as technician_name
+         FROM cases c
+         LEFT JOIN users u ON u.id = c.assigned_engineer
+         WHERE c.client_id=$1 AND c.deleted_at IS NULL
+         ORDER BY c.created_at DESC LIMIT 1`,
+        [client.id]
+      );
+      if (caseResult.rows.length > 0) {
+        const caseData = caseResult.rows[0];
+        personalization.case_id = caseData.case_number || '';
+        personalization.device = `${caseData.device_brand || ''} ${caseData.device_model || ''}`.trim() || '';
+        personalization.case_status = caseData.stage || '';
+        personalization.technician = caseData.technician_name || '';
+        // Generate portal link for the case (points to /client-portal frontend route)
+        personalization.portal_link = `${frontendBaseUrl}/client-portal?case_id=${caseData.id}`;
+      }
+      
+      // Add support info and company name from company settings
+      personalization.company_name = companySettings?.name || companySettings?.company_name || 'RecoverLab';
+      personalization.support_email = companySettings?.support_email || smtpFrom.email || '';
+      personalization.support_phone = companySettings?.phone || '';
+      
+      // Add unsubscribe link (uses API domain)
+      personalization.unsubscribe_link = `${apiBaseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(client.email)}&campaign_id=${c.id}`;
+
       try {
         if (c.type === 'email') {
           const subject = personalizeContent(c.subject_line || c.tpl_subject || '', personalization);
           const htmlBody = personalizeContent(c.html_body || '', personalization);
-          const unsubscribeLink = `${baseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(client.email)}&campaign_id=${c.id}`;
+          const unsubscribeLink = `${apiBaseUrl}/api/marketing/unsubscribe?email=${encodeURIComponent(client.email)}&campaign_id=${c.id}`;
           const email = buildInboxFriendlyEmail({
             subject, htmlBody,
             fromName: smtpFrom.name, fromEmail: smtpFrom.email,

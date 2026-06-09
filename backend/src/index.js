@@ -200,6 +200,10 @@ async function start() {
       logger.info('⏭️  Skipping migrations (RUN_MIGRATIONS=false)');
     }
 
+    // Start campaign scheduler service
+    const { startCampaignScheduler } = require('./services/campaignScheduler');
+    startCampaignScheduler();
+
     const http = require('http');
     const server = http.createServer(app);
     const { Server } = require('socket.io');
@@ -432,6 +436,8 @@ async function start() {
     // Graceful shutdown
     process.on('SIGTERM', () => {
       logger.info('SIGTERM received, closing server gracefully');
+      const { stopCampaignScheduler } = require('./services/campaignScheduler');
+      stopCampaignScheduler();
       server.close(() => {
         logger.info('Server closed');
         process.exit(0);

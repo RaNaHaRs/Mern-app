@@ -48,6 +48,7 @@ function normalizeField(field) {
     required: !!field.required,
     hidden: !!field.hidden,
     custom: !!field.custom,
+    status: field.status || (field.hidden ? 'hidden' : 'optional'),
   };
 }
 

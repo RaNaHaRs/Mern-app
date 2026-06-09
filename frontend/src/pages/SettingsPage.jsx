@@ -44,11 +44,37 @@ function InvCategorySettings({ deviceFamily }) {
   const [editingOpt, setEditingOpt] = useState(null);
   const [editOptVal, setEditOptVal] = useState('');
 
+  const STATUS_OPTIONS = [
+    { key: 'mandatory', label: 'Mandatory', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+    { key: 'optional', label: 'Optional', color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+    { key: 'hidden', label: 'Hidden', color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
+  ];
+
   const persist = (next) => {
     setFields(next);
     localStorage.setItem(storageKey, JSON.stringify(next));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const moveFieldUp = (idx) => {
+    if (idx <= 0) return;
+    const newFields = [...fields];
+    [newFields[idx - 1], newFields[idx]] = [newFields[idx], newFields[idx - 1]];
+    persist(newFields);
+  };
+
+  const moveFieldDown = (idx) => {
+    if (idx >= fields.length - 1) return;
+    const newFields = [...fields];
+    [newFields[idx + 1], newFields[idx]] = [newFields[idx], newFields[idx + 1]];
+    persist(newFields);
+  };
+
+  const setFieldStatus = (idx, status) => {
+    const newFields = [...fields];
+    newFields[idx] = { ...newFields[idx], status };
+    persist(newFields);
   };
 
   const handleExpand = (fieldKey) => {
@@ -58,12 +84,11 @@ function InvCategorySettings({ deviceFamily }) {
     setEditOptVal('');
   };
 
-  const addOption = (fieldKey) => {
+  const addOption = (fieldIdx) => {
     if (!newOptVal.trim()) return;
-    const next = fields.map(f =>
-      f.key === fieldKey ? { ...f, options: [...(f.options || []), newOptVal.trim()] } : f
-    );
-    persist(next);
+    const newFields = [...fields];
+    newFields[fieldIdx] = { ...newFields[fieldIdx], options: [...(newFields[fieldIdx].options || []), newOptVal.trim()] };
+    persist(newFields);
     setNewOptVal('');
   };
 
@@ -72,15 +97,16 @@ function InvCategorySettings({ deviceFamily }) {
     setEditOptVal(optVal);
   };
 
-  const saveEditOption = () => {
+  const saveEditOption = (fieldIdx) => {
     if (!editingOpt) return;
     if (!editOptVal.trim()) { setEditingOpt(null); return; }
-    const { fieldKey, optIdx } = editingOpt;
-    persist(fields.map(f =>
-      f.key === fieldKey
-        ? { ...f, options: f.options.map((o, i) => i === optIdx ? editOptVal.trim() : o) }
-        : f
-    ));
+    const { optIdx } = editingOpt;
+    const newFields = [...fields];
+    newFields[fieldIdx] = {
+      ...newFields[fieldIdx],
+      options: newFields[fieldIdx].options.map((o, i) => i === optIdx ? editOptVal.trim() : o)
+    };
+    persist(newFields);
     setEditingOpt(null);
     setEditOptVal('');
   };
@@ -90,11 +116,11 @@ function InvCategorySettings({ deviceFamily }) {
     setEditOptVal('');
   };
 
-  const removeOption = (fieldKey, optIdx) => {
-    const optionValue = fields.find(f => f.key === fieldKey)?.options?.[optIdx];
+  const removeOption = (fieldIdx, optIdx) => {
+    const optionValue = fields[fieldIdx]?.options?.[optIdx];
     setConfirmDelete({
       type: 'option',
-      fieldKey,
+      fieldIdx,
       optIdx,
       itemName: optionValue,
     });
@@ -104,16 +130,16 @@ function InvCategorySettings({ deviceFamily }) {
     if (!newFieldLabel.trim()) return;
     const key = newFieldLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     if (fields.find(f => f.key === key)) return;
-    persist([...fields, { key, label: newFieldLabel.trim(), type: 'text', options: [], custom: true }]);
+    persist([...fields, { key, label: newFieldLabel.trim(), type: 'text', options: [], custom: true, status: 'optional' }]);
     setNewFieldLabel('');
   };
 
-  const removeField = (fieldKey) => {
-    const field = fields.find(f => f.key === fieldKey);
+  const removeField = (fieldIdx) => {
+    const field = fields[fieldIdx];
     const isCustom = field && field.custom;
     setConfirmDelete({
       type: 'field',
-      fieldKey,
+      fieldIdx,
       isCustom,
       itemName: `${field.label} (${field.key})`,
     });
@@ -128,21 +154,25 @@ function InvCategorySettings({ deviceFamily }) {
 
   const handleConfirmDelete = () => {
     if (confirmDelete.type === 'option') {
-      const { fieldKey, optIdx } = confirmDelete;
-      persist(fields.map(f =>
-        f.key === fieldKey ? { ...f, options: f.options.filter((_, i) => i !== optIdx) } : f
-      ));
+      const { fieldIdx, optIdx } = confirmDelete;
+      const newFields = [...fields];
+      newFields[fieldIdx] = { ...newFields[fieldIdx], options: newFields[fieldIdx].options.filter((_, i) => i !== optIdx) };
+      persist(newFields);
     } else if (confirmDelete.type === 'field') {
       if (confirmDelete.isCustom) {
-        persist(fields.filter(f => f.key !== confirmDelete.fieldKey));
+        persist(fields.filter((_, i) => i !== confirmDelete.fieldIdx));
       } else {
-        persist(fields.map(f => f.key === confirmDelete.fieldKey ? { ...f, hidden: true } : f));
+        const newFields = [...fields];
+        newFields[confirmDelete.fieldIdx] = { ...newFields[confirmDelete.fieldIdx], status: 'hidden' };
+        persist(newFields);
       }
     } else if (confirmDelete.type === 'reset') {
       persist([...(INV_DEFAULTS[deviceFamily] || [])]);
     }
     setConfirmDelete(null);
   };
+
+  const getFieldStatus = (field) => field.status || 'optional';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -152,19 +182,66 @@ function InvCategorySettings({ deviceFamily }) {
         </div>
       )}
 
-      {fields.filter(f => !f.hidden).map(f => (
+      {fields.filter(f => getFieldStatus(f) !== 'hidden').map((f, idx) => (
         <div key={f.key} style={{ background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
           {/* Field header row */}
-          <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', gap: 10, cursor: 'pointer' }}
-            onClick={() => handleExpand(f.key)}>
-            <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', width: 120, flexShrink: 0 }}>{f.key}</span>
-            <span style={{ fontWeight: 600, fontSize: '0.85rem', flex: 1 }}>{f.label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', gap: 8 }}>
+            {/* Index */}
+            <span className="font-mono text-muted text-xs" style={{width:24}}>{fields.findIndex(x => x.key === f.key) + 1}.</span>
+            
+            {/* Label */}
+            <span style={{ fontWeight: 600, fontSize: '0.82rem', flex: 1, cursor: 'pointer' }} onClick={() => handleExpand(f.key)}>{f.label}</span>
+            
+            {/* Field type */}
             <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 20, background: f.type === 'select' ? 'rgba(0,212,255,0.1)' : 'rgba(99,102,241,0.1)', color: f.type === 'select' ? 'var(--accent-primary)' : '#a78bfa', fontWeight: 700 }}>
-              {f.type === 'select' ? ` ${(f.options || []).length} opts` : 'text'}
+              {f.type === 'select' ? `${(f.options || []).length} opts` : 'text'}
             </span>
-            <button type="button" onClick={e => { e.stopPropagation(); removeField(f.key); }}
-              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }}>×</button>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{expandedField === f.key ? '' : ''}</span>
+            
+            {/* Status buttons */}
+            <div style={{ display: 'flex', gap: 3 }}>
+              {STATUS_OPTIONS.map(s => (
+                <button key={s.key} type="button" onClick={() => setFieldStatus(idx, s.key)}
+                  style={{ padding: '3px 9px', borderRadius: 5, border: `1px solid ${getFieldStatus(f) === s.key ? s.color : 'var(--border-default)'}`,
+                    background: getFieldStatus(f) === s.key ? s.bg : 'transparent', color: getFieldStatus(f) === s.key ? s.color : 'var(--text-muted)',
+                    fontSize: '0.7rem', fontWeight: getFieldStatus(f) === s.key ? 700 : 400, cursor: 'pointer' }}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            
+            {/* Reorder buttons */}
+            <button type="button"
+              disabled={idx === 0}
+              onClick={() => moveFieldUp(idx)}
+              title="Move up"
+              style={{
+                background: idx === 0 ? 'transparent' : 'rgba(34,211,238,0.1)',
+                border: 'none',
+                color: idx === 0 ? 'var(--text-muted)' : 'var(--accent-primary)',
+                cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                padding: '4px 6px',
+                borderRadius: 4,
+                fontSize: '0.85rem',
+                opacity: idx === 0 ? 0.4 : 1
+              }} className="btn btn-secondary btn-sm">↑</button>
+            <button type="button"
+              disabled={idx >= fields.filter(x => getFieldStatus(x) !== 'hidden').length - 1}
+              onClick={() => moveFieldDown(idx)}
+              title="Move down"
+              style={{
+                background: idx >= fields.filter(x => getFieldStatus(x) !== 'hidden').length - 1 ? 'transparent' : 'rgba(34,211,238,0.1)',
+                border: 'none',
+                color: idx >= fields.filter(x => getFieldStatus(x) !== 'hidden').length - 1 ? 'var(--text-muted)' : 'var(--accent-primary)',
+                cursor: idx >= fields.filter(x => getFieldStatus(x) !== 'hidden').length - 1 ? 'not-allowed' : 'pointer',
+                padding: '4px 6px',
+                borderRadius: 4,
+                fontSize: '0.85rem',
+                opacity: idx >= fields.filter(x => getFieldStatus(x) !== 'hidden').length - 1 ? 0.4 : 1
+              }} className="btn btn-secondary btn-sm">↓</button>
+            
+            {/* Delete button */}
+            <button type="button" onClick={() => removeField(idx)}
+              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '1rem', padding: '0 4px' }} className="btn">✕</button>
           </div>
 
           {/* Expanded: option list */}
@@ -172,25 +249,25 @@ function InvCategorySettings({ deviceFamily }) {
             <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ fontWeight: 600, fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 4 }}>Dropdown Options</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {(f.options || []).map((opt, idx) => {
-                  const isEditing = editingOpt && editingOpt.fieldKey === f.key && editingOpt.optIdx === idx;
+                {(f.options || []).map((opt, optIdx) => {
+                  const isEditing = editingOpt && editingOpt.fieldKey === f.key && editingOpt.optIdx === optIdx;
                   return (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 20, padding: '3px 10px', fontSize: '0.78rem' }}>
+                    <div key={optIdx} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border-default)', borderRadius: 20, padding: '3px 10px', fontSize: '0.78rem' }}>
                       {isEditing ? (
                         <>
                           <input className="form-input" style={{ width: 120, fontSize: '0.78rem', padding: '1px 6px' }}
                             value={editOptVal} onChange={e => setEditOptVal(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') saveEditOption(); if (e.key === 'Escape') cancelEditOption(); }}
+                            onKeyDown={e => { if (e.key === 'Enter') saveEditOption(idx); if (e.key === 'Escape') cancelEditOption(); }}
                             autoFocus />
-                          <button type="button" onClick={saveEditOption}
+                          <button type="button" onClick={() => saveEditOption(idx)}
                             style={{ background: 'none', border: 'none', color: '#22c55e', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>✓</button>
                           <button type="button" onClick={cancelEditOption}
                             style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>
                         </>
                       ) : (
                         <>
-                          <span style={{ cursor: 'pointer' }} onClick={() => startEditOption(f.key, idx, opt)} title="Click to edit">{opt}</span>
-                          <button type="button" onClick={() => removeOption(f.key, idx)}
+                          <span style={{ cursor: 'pointer' }} onClick={() => startEditOption(f.key, optIdx, opt)} title="Click to edit">{opt}</span>
+                          <button type="button" onClick={() => removeOption(idx, optIdx)}
                             style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
                         </>
                       )}
@@ -202,8 +279,8 @@ function InvCategorySettings({ deviceFamily }) {
               <div style={{ display: 'flex', gap: 8 }}>
                 <input className="form-input" style={{ flex: 1 }} placeholder="Add option value…"
                   value={newOptVal} onChange={e => setNewOptVal(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addOption(f.key)} />
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => addOption(f.key)}>+ Add</button>
+                  onKeyDown={e => e.key === 'Enter' && addOption(idx)} />
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => addOption(idx)}>+ Add</button>
               </div>
             </div>
           )}

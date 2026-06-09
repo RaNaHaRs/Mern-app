@@ -700,7 +700,7 @@ export default function InventoryPage() {
   const TABS = [
     { key: 'all', label: ' All', icon: '' },
     ...INV_CATEGORIES.map(c => ({ key: c.key, label: `${c.icon} ${c.label}`, icon: c.icon, color: c.color })),
-    { key: 'low_stock', label: ` Donor Drive${lowStockAlerts > 0 ? ` (${lowStockAlerts})` : ''}` },
+    { key: 'low_stock', label: ` Low stock${lowStockAlerts > 0 ? ` (${lowStockAlerts})` : ''}` },
   ];
 
   const catForExport = activeTab !== 'all' && activeTab !== 'low_stock' ? INV_CATEGORIES.find(c => c.key === activeTab)?.label : '';
@@ -820,7 +820,7 @@ export default function InventoryPage() {
         {[
           { icon: '', value: totalItems, label: 'Total Items', color: 'var(--accent-primary)', bg: 'rgba(0,212,255,0.1)' },
           { icon: '', value: availableCount, label: 'Available', color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
-          { icon: '', value: lowStockAlerts, label: 'Donor Drive', color: lowStockAlerts > 0 ? 'var(--status-danger)' : 'var(--status-success)', bg: lowStockAlerts > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' },
+          { icon: '', value: lowStockAlerts, label: 'Low Stock ', color: lowStockAlerts > 0 ? 'var(--status-danger)' : 'var(--status-success)', bg: lowStockAlerts > 0 ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)' },
           { icon: '', value: `₹${totalValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, label: 'Stock Value', color: 'var(--status-success)', bg: 'rgba(16,185,129,0.1)' },
         ].map(s => (
             <div key={s.label} className="stat-card compact" style={{ '--stat-color': s.color, '--stat-bg': s.bg }}>

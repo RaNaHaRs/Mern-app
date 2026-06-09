@@ -774,22 +774,40 @@ function CampaignWizard({ onClose, onDone }) {
           from_name: selectedTpl.from_name || 'RecoverLab CRM',
           from_email: '',
           audience_filter: JSON.stringify({ filter: form.audience_filter, client_ids: form.audience_ids }),
+          scheduled_at: form.scheduled_at || null, // Pass scheduled time (null means send now)
         });
-        const result = await marketingApi.sendCampaign(campRes.id);
-        campaign.status = 'sent';
-        campaign.sent = result?.sent || 0;
-        campaign.failed = result?.failed || 0;
+        
+        // Only send immediately if no scheduled_at time is set
+        if (!form.scheduled_at) {
+          const result = await marketingApi.sendCampaign(campRes.id);
+          campaign.status = 'sent';
+          campaign.sent = result?.sent || 0;
+          campaign.failed = result?.failed || 0;
+        } else {
+          // Campaign is scheduled for later
+          campaign.status = 'scheduled';
+          campaign.scheduled_time = form.scheduled_at;
+        }
       } else if (form.channel === 'sms' && selectedTpl) {
         const campRes = await marketingApi.createCampaign({
           name: form.name,
           type: 'sms',
           sms_template: selectedTpl.message_body || selectedTpl.message || '',
           audience_filter: JSON.stringify({ filter: form.audience_filter, client_ids: form.audience_ids }),
+          scheduled_at: form.scheduled_at || null, // Pass scheduled time (null means send now)
         });
-        const result = await marketingApi.sendCampaign(campRes.id);
-        campaign.status = 'sent';
-        campaign.sent = result?.sent || 0;
-        campaign.failed = result?.failed || 0;
+        
+        // Only send immediately if no scheduled_at time is set
+        if (!form.scheduled_at) {
+          const result = await marketingApi.sendCampaign(campRes.id);
+          campaign.status = 'sent';
+          campaign.sent = result?.sent || 0;
+          campaign.failed = result?.failed || 0;
+        } else {
+          // Campaign is scheduled for later
+          campaign.status = 'scheduled';
+          campaign.scheduled_time = form.scheduled_at;
+        }
       } else if (form.channel === 'whatsapp') {
         throw new Error('WhatsApp Business API is not yet configured. Please contact support.');
       } else {
