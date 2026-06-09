@@ -17,6 +17,7 @@ function buildFilters(req) {
   const q = (req.query.q || '').trim();
   if (req.query.module) { params.push(req.query.module); filters.push(`a.module = $${params.length}`); }
   if (req.query.action) { params.push(req.query.action); filters.push(`a.action = $${params.length}`); }
+  if (req.query.user_id) { params.push(req.query.user_id); filters.push(`a.user_id = $${params.length}`); }
   if (q) {
     params.push('%' + q + '%');
     filters.push(`(a.description ILIKE $${params.length} OR a.action ILIKE $${params.length} OR a.title ILIKE $${params.length} OR a.resource_type ILIKE $${params.length})`);

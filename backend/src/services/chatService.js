@@ -166,7 +166,8 @@ async function getAllowedChatUsers(userId) {
   const meId = normalizeUserId(userId);
   if (me.role === 'super_admin') {
     const res = await query(
-      `SELECT id::text AS id, full_name, username, role, tenant_id::text AS tenant_id,
+      `SELECT id::text AS id, full_name, username, role, avatar_url,
+              tenant_id::text AS tenant_id,
               tenant_owner_id::text AS tenant_owner_id
        FROM users
        WHERE is_active = true
@@ -184,7 +185,8 @@ async function getAllowedChatUsers(userId) {
 
   if (isPlatformStaff(me)) {
     const res = await query(
-      `SELECT id::text AS id, full_name, username, role, tenant_id::text AS tenant_id,
+      `SELECT id::text AS id, full_name, username, role, avatar_url,
+              tenant_id::text AS tenant_id,
               tenant_owner_id::text AS tenant_owner_id
        FROM users
        WHERE is_active = true
@@ -203,7 +205,8 @@ async function getAllowedChatUsers(userId) {
 
   if (me.role === 'admin') {
     const res = await query(
-      `SELECT id::text AS id, full_name, username, role, tenant_id::text AS tenant_id,
+      `SELECT id::text AS id, full_name, username, role, avatar_url,
+              tenant_id::text AS tenant_id,
               tenant_owner_id::text AS tenant_owner_id
        FROM users
        WHERE is_active = true
@@ -219,7 +222,8 @@ async function getAllowedChatUsers(userId) {
   }
 
   const res = await query(
-    `SELECT id::text AS id, full_name, username, role, tenant_id::text AS tenant_id,
+    `SELECT id::text AS id, full_name, username, role, avatar_url,
+            tenant_id::text AS tenant_id,
             tenant_owner_id::text AS tenant_owner_id
      FROM users
      WHERE is_active = true

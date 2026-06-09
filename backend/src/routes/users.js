@@ -1,13 +1,66 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const { query } = require('../config/database');
 const { authenticate, requireRole, requireMinRole } = require('../middleware/auth');
 const { auditLog } = require('../middleware/audit');
 const automationService = require('../services/automationService');
 const { isSuperAdmin, tenantUserCondition, tenantAdminId, tenantUserExpression } = require('../utils/tenantAccess');
+const logger = require('../config/logger');
 
 const router = express.Router();
 router.use(authenticate);
+
+// Avatar upload configuration
+const avatarDir = path.join(__dirname, '../../uploads/avatars');
+if (!fs.existsSync(avatarDir)) fs.mkdirSync(avatarDir, { recursive: true });
+
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => { 
+    if (!fs.existsSync(avatarDir)) fs.mkdirSync(avatarDir, { recursive: true });
+    cb(null, avatarDir); 
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '';
+    cb(null, `avatar-${req.user.id}-${Date.now()}${ext}`);
+  },
+});
+
+const avatarUpload = multer({ 
+  storage: avatarStorage,
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files (JPG, PNG, GIF, WebP) are allowed'), false);
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB max
+  }
+});
+
+// POST /api/users/avatar/upload — Upload avatar for any authenticated user
+router.post('/avatar/upload', avatarUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    // Return full URL
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/avatars/${req.file.filename}`;
+    
+    res.json({ 
+      url: fileUrl,
+      filename: req.file.filename,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 const TEAM_USER_COUNT_CONDITION = `role NOT IN ('admin','super_admin')`;
 
@@ -47,7 +100,7 @@ router.get('/', requireMinRole('senior_engineer'), async (req, res) => {
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-    const result = await query(`SELECT id, username, email, full_name, role, is_active, specializations, phone, permissions, assigned_admin_id, tenant_id, tenant_owner_id, company_name, last_login, created_at FROM users u ${where} ORDER BY role, full_name`, params);
+    const result = await query(`SELECT id, username, email, full_name, role, is_active, specializations, phone, avatar_url, permissions, assigned_admin_id, tenant_id, tenant_owner_id, company_name, last_login, created_at FROM users u ${where} ORDER BY role, full_name`, params);
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -154,8 +207,67 @@ router.post('/', requireRole('admin', 'super_admin'), auditLog('create_user', 'u
   }
 });
 
+// PUT /api/users/profile — Update own profile (must be before /:id route)
+router.put('/profile', auditLog('update_own_profile', 'user'), async (req, res) => {
+  try {
+    // DEBUG: Log the request
+    logger.info('PUT /profile endpoint called', { userId: req.user?.id, body: req.body });
+    
+    // Validate user is authenticated
+    if (!req.user || !req.user.id) {
+      logger.warn('PUT /profile: User not authenticated', { user: req.user });
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+    
+    const { fullName, email, phone, bio, avatar } = req.body;
+    const userId = req.user.id;
+    
+    // Validate required fields
+    if (!fullName || !email) {
+      return res.status(400).json({ error: 'Full name and email are required' });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    
+    // Update profile - use avatar_url to match existing schema
+    const result = await query(
+      `UPDATE users 
+       SET full_name = $1, email = $2, phone = COALESCE($3, phone), bio = COALESCE($4, bio), avatar_url = COALESCE($5, avatar_url), updated_at = NOW() 
+       WHERE id = $6
+       RETURNING id, username, email, full_name, phone, bio, avatar_url, role, is_active, created_at, last_login`,
+      [fullName, email, phone || null, bio || null, avatar || null, userId]
+    );
+    
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const user = result.rows[0];
+    res.json({ 
+      message: 'Profile updated successfully',
+      user: {
+        ...user,
+        avatar: user.avatar_url  // Return as 'avatar' for consistency with frontend
+      }
+    });
+  } catch (err) {
+    logger.error('Profile update error', { error: err.message, stack: err.stack, body: req.body });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/:id', requireMinRole('senior_engineer'), auditLog('update_user', 'user'), async (req, res) => {
   try {
+    // Validate ID is a valid UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ error: `Invalid user ID format: ${req.params.id}. Expected valid UUID.` });
+    }
+    
     const { full_name, phone, specializations, notes, is_active, role, permissions, assigned_admin_id } = req.body;
     // Only admin can change roles
     if (role && req.user.role !== 'admin' && req.user.role !== 'super_admin') return res.status(403).json({ error: 'Only admin can change roles' });
@@ -174,6 +286,12 @@ router.put('/:id', requireMinRole('senior_engineer'), auditLog('update_user', 'u
 
 router.patch('/:id', requireMinRole('senior_engineer'), auditLog('update_user', 'user'), async (req, res) => {
   try {
+    // Validate ID is a valid UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      return res.status(400).json({ error: `Invalid user ID format: ${req.params.id}. Expected valid UUID.` });
+    }
+    
     const { full_name, phone, specializations, notes, is_active, role, permissions, assigned_admin_id } = req.body;
     if (role && req.user.role !== 'admin' && req.user.role !== 'super_admin') return res.status(403).json({ error: 'Only admin can change roles' });
     let updateSql = `UPDATE users SET full_name=COALESCE($1,full_name), phone=COALESCE($2,phone), specializations=COALESCE($3,specializations), notes=COALESCE($4,notes), is_active=COALESCE($5,is_active), role=COALESCE($6,role), permissions=COALESCE($7,permissions), assigned_admin_id=COALESCE($8,assigned_admin_id), updated_at=NOW() WHERE id=$9`;

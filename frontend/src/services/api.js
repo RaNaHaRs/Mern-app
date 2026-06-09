@@ -264,6 +264,7 @@ export const usersApi = {
   list: () => api.get('/users'),
   create: (data) => api.post('/users', data),
   update: (id, data) => api.put(`/users/${id}`, data),
+  updateProfile: (data) => api.put('/users/profile', data),
   deactivate: (id) => api.post(`/users/${id}/deactivate`, {}),
   auditLogs: (params) => api.get('/users/audit-logs', params),
 };

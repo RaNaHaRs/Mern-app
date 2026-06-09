@@ -54,7 +54,18 @@ const DEFAULT_COMPANY_SETTINGS = {
 async function loadCompanySettings() {
   const result = await query('SELECT value FROM platform_settings WHERE key = $1', ['company']);
   if (!result.rows.length) return { ...DEFAULT_COMPANY_SETTINGS };
-  return { ...DEFAULT_COMPANY_SETTINGS, ...(result.rows[0].value || {}) };
+  
+  let storedValue = result.rows[0].value;
+  // Handle case where value is JSON string vs object
+  if (typeof storedValue === 'string') {
+    try {
+      storedValue = JSON.parse(storedValue);
+    } catch (e) {
+      storedValue = {};
+    }
+  }
+  
+  return { ...DEFAULT_COMPANY_SETTINGS, ...(storedValue || {}) };
 }
 
 async function saveCompanySettings(company, userId) {
@@ -96,6 +107,26 @@ router.put('/company', authenticate, requireMinRole('admin'), auditLog('update_c
   } catch (err) {
     console.error('Failed to save company settings', err.message);
     res.status(500).json({ error: 'Failed to save company settings' });
+  }
+});
+
+// GET /api/settings/homepage — Public route for landing page content
+router.get('/homepage', async (req, res) => {
+  try {
+    const result = await query('SELECT value FROM platform_settings WHERE key = $1', ['homepage']);
+    res.json(result.rows.length ? result.rows[0].value : {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/settings/branding — Public route for platform branding
+router.get('/branding', async (req, res) => {
+  try {
+    const result = await query('SELECT value FROM platform_settings WHERE key = $1', ['branding']);
+    res.json(result.rows.length ? result.rows[0].value : {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -6,6 +6,7 @@ import { fieldConfigApi } from '../services/fieldConfigApi';
 import HddFieldConfigManager from '../components/settings/HddFieldConfigManager';
 import InventoryStockConfigManager from '../components/settings/InventoryStockConfigManager';
 import { INV_DEFAULTS, loadInventoryFields } from '../utils/inventoryFieldSettings';
+import UserAvatar from '../components/UserAvatar';
 
 // ── Confirmation Modal ────────────────────────────────────────────
 function ConfirmDeleteModal({ title, message, itemName, onConfirm, onCancel }) {
@@ -1247,7 +1248,7 @@ function PlanManagementPanel() {
 }
 
 export default function SettingsPage() {
-  const { user, canAccess, isSuperAdmin, isOwner } = useAuth();
+  const { user, setUser, canAccess, isSuperAdmin, isOwner } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
   const [expandedGroups, setExpandedGroups] = useState(() => ({ 'profile_group': true }));
   const [activeDropdown, setActiveDropdown] = useState(null);
@@ -1261,6 +1262,21 @@ export default function SettingsPage() {
   const [users, setUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  
+  // Profile editing state
+  const [profileForm, setProfileForm] = useState({
+    fullName: user?.fullName || '',
+    username: user?.username || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+    bio: user?.bio || '',
+    avatar: user?.avatar || ''
+  });
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  
   // Activity logs
   const [actPage, setActPage] = useState(1);
   const [actTotal, setActTotal] = useState(0);
@@ -1434,20 +1450,7 @@ export default function SettingsPage() {
     catch (e) { alert(e.message); }
   };
 
-  const handleAvatarUpload = async (file) => {
-    try {
-      // Simulate avatar upload by updating user object in context 
-      // In a real scenario, this hits an API and updates the DB
-      const r = new FileReader();
-      r.onload = () => {
-        const u = JSON.parse(localStorage.getItem('crm_user'));
-        u.avatar = r.result;
-        localStorage.setItem('crm_user', JSON.stringify(u));
-        window.location.reload();
-      };
-      r.readAsDataURL(file);
-    } catch (e) { alert(e.message); }
-  };
+
 
   const handleTestSmtp = async () => {
     setSmtpTesting(true); setSmtpResult(null);
@@ -1481,6 +1484,117 @@ export default function SettingsPage() {
     } catch (err) { setPwError(err.message); }
     finally { setSavingPw(false); }
   };
+
+  const handleAvatarUpload = async (file) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+    
+    setUploadingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/users/avatar/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        body: fd,
+      });
+      
+      if (!res.ok) throw new Error('Upload failed');
+      
+      const data = await res.json();
+      if (data.url) {
+        setProfileForm(f => ({ ...f, avatar: data.url }));
+      }
+    } catch (e) {
+      alert('Failed to upload avatar: ' + e.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileForm.fullName || !profileForm.email) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    
+    setSavingProfile(true);
+    try {
+      const { usersApi } = await import('../services/api');
+      const response = await usersApi.updateProfile({
+        fullName: profileForm.fullName,
+        email: profileForm.email,
+        phone: profileForm.phone || null,
+        bio: profileForm.bio || null,
+        avatar: profileForm.avatar || null
+      });
+      
+      // Update local user context with new data
+      if (response && response.user) {
+        const ru = response.user;
+        setUser(prevUser => ({
+          ...prevUser,
+          fullName: ru.full_name,
+          email: ru.email,
+          phone: ru.phone,
+          bio: ru.bio,
+          avatar: ru.avatar,
+          avatarUrl: ru.avatar
+        }));
+        
+        // Update profileForm to match saved data
+        setProfileForm({
+          fullName: ru.full_name || '',
+          username: ru.username || user?.username || '',
+          email: ru.email || '',
+          phone: ru.phone || '',
+          bio: ru.bio || '',
+          avatar: ru.avatar || ''
+        });
+      }
+      
+      setProfileSaved(true);
+      setIsEditingProfile(false);
+      setTimeout(() => setProfileSaved(false), 2000);
+    } catch (err) {
+      alert('Failed to save profile: ' + err.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleCancelEditProfile = () => {
+    // Reset form to user data
+    setProfileForm({
+      fullName: user?.fullName || '',
+      username: user?.username || '',
+      email: user?.email || '',
+      phone: user?.phone || '',
+      bio: user?.bio || '',
+      avatar: user?.avatar || ''
+    });
+    setIsEditingProfile(false);
+  };
+
+  // Initialize profile form when user data loads
+  useEffect(() => {
+    if (user) {
+      setProfileForm({
+        fullName: user.fullName || '',
+        username: user.username || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        bio: user.bio || '',
+        avatar: user.avatar || ''
+      });
+    }
+  }, [user]);
 
   const handleToggleUser = async (userId, currentState) => {
     const action = currentState ? 'Deactivate' : 'Activate';
@@ -1768,28 +1882,211 @@ export default function SettingsPage() {
             <div className="card">
               <div className="card-header">
                 <div className="card-title"> My Profile</div>
-              </div>
-              <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap:'wrap' }}>
-                <div className="avatar-upload-ring" onClick={() => avatarRef.current?.click()} style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem', fontWeight: 800, color: 'white', flexShrink: 0, overflow:'hidden', boxShadow:'var(--shadow-md)' }}>
-                  {user?.avatar ? <img src={user.avatar} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}}/> : user?.fullName?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                  <div className="avatar-overlay"> Ed</div>
-                </div>
-                <input ref={avatarRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleAvatarUpload(e.target.files[0]); }} />
-                <div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-primary)' }}>{user?.fullName}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>@{user?.username}</div>
-                  <div style={{ marginTop: 8 }}>
-                    {(()=>{
-                      const rd = getRoleDisplay(user?.role);
-                      return (
-                        <span style={{ padding: '3px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, background: rd.bg, color: rd.color }}>
-                          {rd.label}
-                        </span>
-                      );
-                    })()}
+                {!isEditingProfile ? (
+                  <button 
+                    className="btn btn-sm btn-primary" 
+                    onClick={() => setIsEditingProfile(true)}
+                  >
+                     Edit Profile
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button 
+                      className="btn btn-sm btn-secondary" 
+                      onClick={handleCancelEditProfile}
+                      disabled={savingProfile}
+                    >
+                       Cancel
+                    </button>
+                    <button 
+                      className={`btn btn-sm ${profileSaved ? 'btn-secondary' : 'btn-primary'}`} 
+                      disabled={savingProfile} 
+                      onClick={handleSaveProfile}
+                    >
+                      {savingProfile ? <><div className="spinner" style={{ width: 12, height: 12 }} /> Saving…</> : profileSaved ? ' Saved' : ' Save Changes'}
+                    </button>
                   </div>
-                </div>
+                )}
               </div>
+<<<<<<< HEAD
+
+              {!isEditingProfile ? (
+                /* Display Mode */
+                <>
+                  {/* Avatar Display */}
+                  <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap:'wrap' }}>
+                    <UserAvatar
+                      name={user?.fullName || user?.username}
+                      avatarUrl={user?.avatar || user?.avatarUrl}
+                      size={100}
+                      style={{ border: '3px solid var(--border-default)', boxShadow: 'var(--shadow-md)', flexShrink: 0 }}
+                    />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: 4 }}>{user?.fullName || 'User'}</div>
+                      <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 4 }}>@{user?.username}</div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{getRoleDisplay(user?.role).label}</div>
+                    </div>
+                  </div>
+
+                  {/* Profile Information Display */}
+                  <div style={{ padding: 16, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 16 }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.82rem', marginBottom: 12 }}>Contact Information</div>
+                    <div className="tech-data-table">
+                      {[
+                        ['Email', user?.email || '—'],
+                        ['Phone', user?.phone || '—'],
+                      ].map(([l, v]) => (
+                        <div key={l} className="tech-data-cell">
+                          <div className="tech-data-label">{l}</div>
+                          <div className="tech-data-value">{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {user?.bio && (
+                    <div style={{ padding: 16, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', marginBottom: 16 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem', marginBottom: 8 }}>Bio</div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{user.bio}</div>
+                    </div>
+                  )}
+
+                  {/* Account Info (Read-only) */}
+                  <div style={{ padding: 16, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.82rem', marginBottom: 12 }}>Account Information</div>
+                    <div className="tech-data-table">
+                      {[
+                        ['Role', getRoleDisplay(user?.role).label],
+                        ['Account Status', user?.is_active ? ' Active' : ' Inactive'],
+                        ['Last Login', user?.last_login ? new Date(user.last_login).toLocaleString('en-IN') : 'N/A'],
+                        ['Member Since', user?.created_at ? new Date(user.created_at).toLocaleDateString('en-IN') : 'N/A'],
+                      ].map(([l, v]) => (
+                        <div key={l} className="tech-data-cell">
+                          <div className="tech-data-label">{l}</div>
+                          <div className="tech-data-value">{v || '—'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Edit Mode */
+                <>
+                  {/* Avatar Upload */}
+                  <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap:'wrap' }}>
+                    <div 
+                      className="avatar-upload-ring" 
+                      onClick={() => avatarRef.current?.click()} 
+                      style={{ 
+                        position: 'relative',
+                        width: 100, 
+                        height: 100, 
+                        borderRadius: '50%',
+                        flexShrink: 0, 
+                        boxShadow: 'var(--shadow-md)',
+                        cursor: 'pointer',
+                        border: '3px solid var(--border-default)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <UserAvatar
+                        name={profileForm.fullName || user?.username}
+                        avatarUrl={profileForm.avatar || null}
+                        size={100}
+                        style={{ border: 'none', boxShadow: 'none' }}
+                      />
+                      {uploadingAvatar && (
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' }}>
+                          <div className="spinner" style={{ width: 24, height: 24 }} />
+                        </div>
+                      )}
+                      <div className="avatar-overlay" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s', fontSize: '0.75rem', color: '#fff', borderRadius: '50%' }}>
+                         Change
+                      </div>
+                    </div>
+                    <input ref={avatarRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleAvatarUpload(e.target.files[0]); }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>Profile Picture</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                        Click the avatar to upload a new profile picture. Recommended: Square image, at least 200×200px.
+                      </div>
+                      {profileForm.avatar && (
+                        <button 
+                          type="button" 
+                          className="btn btn-sm btn-danger" 
+                          onClick={() => setProfileForm(f => ({ ...f, avatar: '' }))}
+                          style={{ marginTop: 8 }}
+                        >
+                          Remove Picture
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Profile Form Fields */}
+                  <div className="form-row form-row-2">
+                    <div className="form-group">
+                      <label className="form-label required">Full Name</label>
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        value={profileForm.fullName} 
+                        onChange={e => setProfileForm(f => ({ ...f, fullName: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Username</label>
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        value={profileForm.username} 
+                        disabled
+                        style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                      />
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                        Username cannot be changed
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="form-row form-row-2">
+                    <div className="form-group">
+                      <label className="form-label required">Email</label>
+                      <input 
+                        type="email" 
+                        className="form-input" 
+                        value={profileForm.email} 
+                        onChange={e => setProfileForm(f => ({ ...f, email: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Phone Number</label>
+                      <input 
+                        type="tel" 
+                        className="form-input" 
+                        value={profileForm.phone || ''} 
+                        onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))}
+                        placeholder="+91 98765 43210"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Bio / About</label>
+                    <textarea 
+                      className="form-input" 
+                      rows="3"
+                      value={profileForm.bio || ''} 
+                      onChange={e => setProfileForm(f => ({ ...f, bio: e.target.value }))}
+                      placeholder="Tell us about yourself..."
+                      style={{ resize: 'vertical' }}
+                    />
+                  </div>
+                </>
+              )}
+=======
               <div className="form-row form-row-2">
                 <div className="form-group"><label className="form-label">Full Name</label><input className="form-input" value={profileForm.fullName} onChange={e => setProfileForm(f => ({ ...f, fullName: e.target.value }))} /></div>
                 <div className="form-group"><label className="form-label">Phone</label><input className="form-input" value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} /></div>
@@ -1817,6 +2114,7 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+>>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
             </div>
           )}
 
@@ -1878,9 +2176,11 @@ export default function SettingsPage() {
                         <tr key={u.id} style={{ opacity: u.is_active ? 1 : 0.5 }}>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div className="user-avatar" style={{ width: 30, height: 30, fontSize: '0.65rem' }}>
-                                {u.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                              </div>
+                              <UserAvatar
+                                name={u.full_name || u.username}
+                                avatarUrl={u.avatar_url || null}
+                                size={30}
+                              />
                               <div>{u.full_name}</div>
                             </div>
                           </td>

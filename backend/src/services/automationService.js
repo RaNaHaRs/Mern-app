@@ -136,9 +136,7 @@ async function handleEvent(event, context = {}) {
           await logTrigger({ trigger_id: t.id, trigger_name: t.name, event, recipient: t.recipient_type, recipient_email: context.email || null, status: 'failed', error_message: 'Super Admin SMTP not configured' });
           continue;
         }
-        const transport = invoiceService.createTransport ? invoiceService.createTransport(smtp) : null;
-        const nodemailer = require('nodemailer');
-        const tx = transport || nodemailer.createTransport({ host: smtp.host, port: smtp.port, secure: smtp.secure, auth: { user: smtp.user, pass: smtp.pass }, tls: { rejectUnauthorized: false } });
+        const tx = invoiceService.createTransport(smtp);
 
         let to = null;
         if (t.recipient_type === 'Custom Email') {

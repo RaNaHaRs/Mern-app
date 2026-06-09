@@ -75,10 +75,35 @@ function createTransport(cfg) {
 }
 
 /**
- * Generate a sequential invoice number string.
+ * Load invoice settings from platform_settings 'invoices' key,
+ * with defaults fallback
+ */
+async function loadInvoiceSettings() {
+  let settings = {};
+  try {
+    const result = await query("SELECT value FROM platform_settings WHERE key = 'invoices'");
+    settings = result.rows[0]?.value || {};
+  } catch { /* DB query failed; use defaults */ }
+  
+  return {
+    gst_percent: settings.gst_percent ?? 18,
+    invoice_prefix: settings.invoice_prefix || 'INV',
+    auto_send: settings.auto_send ?? true,
+    from_email: settings.from_email || 'billing@recoverlab.in',
+    from_name: settings.from_name || 'RecoverLab Billing',
+    subject_template: settings.subject_template || 'Your {{plan_label}} Invoice — {{invoice_number}}',
+    body_intro: settings.body_intro || 'Thank you for subscribing.',
+    include_pdf: settings.include_pdf ?? true,
+    company_gstin: settings.company_gstin || '',
+  };
+}
+
+/**
+ * Generate a sequential invoice number string using invoice settings.
  */
 async function generateInvoiceNumber(offset = 0) {
-  const prefix = process.env.INVOICE_PREFIX || 'RCL-INV';
+  const settings = await loadInvoiceSettings();
+  const prefix = settings.invoice_prefix;
   const result = await query(
     `SELECT COUNT(*) AS cnt FROM saas_purchases WHERE invoice_number IS NOT NULL`
   );
@@ -113,6 +138,7 @@ async function assignInvoiceNumber(purchaseId, maxAttempts = 5) {
  * @returns {Promise<string>} - Absolute file path of the generated PDF
  */
 async function generatePDF(purchase) {
+  const settings       = await loadInvoiceSettings();
   const invoiceNumber  = purchase.invoice_number;
   const fileName       = `${invoiceNumber}.pdf`;
   const filePath       = path.join(INVOICES_DIR, fileName);
@@ -159,7 +185,7 @@ async function generatePDF(purchase) {
 
     const baseAmount   = parseFloat(purchase.amount || 0);
     const discount     = parseFloat(purchase.discount_amount || 0);
-    const gstPct       = 18;
+    const gstPct       = settings.gst_percent;
     const taxable      = baseAmount - discount;
     const gstAmount    = Math.round(taxable * gstPct / 100);
     const totalAmount  = taxable + gstAmount;
@@ -461,4 +487,4 @@ async function sendAccountStatusEmail({ email, name, status, company, role }) {
   logger.info('Account status email sent', { to: email, status: statusLabel });
 }
 
-module.exports = { processInvoice, generatePDF, generateInvoiceNumber, ensurePdf, assignInvoiceNumber, sendOnboardingEmail, sendAccountStatusEmail, loadAdminSmtpConfig, loadSuperAdminSmtpConfig };
+module.exports = { processInvoice, generatePDF, generateInvoiceNumber, ensurePdf, assignInvoiceNumber, sendOnboardingEmail, sendAccountStatusEmail, loadAdminSmtpConfig, loadSuperAdminSmtpConfig, createTransport };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { io } from 'socket.io-client';
+import UserAvatar from './UserAvatar';
 
 const initials = (name) => (name || '?').split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase();
 
@@ -75,16 +76,12 @@ export default function SuperAdminFloatingChat() {
             .filter((conv) => conv.participant.role === 'admin' || conv.participant.role === 'super_admin')
             .map((conv) => {
               const role = conv.participant.role;
-              const avatarBg = role === 'super_admin'
-                ? 'linear-gradient(135deg, #d946ef, #8b5cf6)'
-                : 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
               return {
                 id: `conv-${conv.participant.id}`,
                 participantId: conv.participant.id,
                 name: conv.participant.full_name || conv.participant.username,
                 role,
-                avatar: initials(conv.participant.full_name || conv.participant.username),
-                avatarBg,
+                avatarUrl: conv.participant.avatar_url || null,
                 lastMessage: conv.lastMessage ? (conv.lastMessage.text || (conv.lastMessage.filePath ? 'Attachment' : '')) : '',
                 time: conv.lastMessage && conv.lastMessage.created_at ? new Date(conv.lastMessage.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '',
                 unread: Number(conv.unread_count || 0),
@@ -176,8 +173,7 @@ export default function SuperAdminFloatingChat() {
             participantId: contact.id,
             name: contact.full_name || contact.username,
             role: contact.role,
-            avatar: initials(contact.full_name || contact.username),
-            avatarBg: contact.role === 'admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+            avatarUrl: contact.avatar_url || null,
             lastMessage: msg.text || (msg.filePath ? 'Attachment' : ''),
             time: new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
             unread: isOwn ? 0 : 1,
@@ -342,8 +338,7 @@ export default function SuperAdminFloatingChat() {
         participantId: user.id,
         name: user.full_name || user.username,
         role: user.role,
-        avatar: initials(user.full_name || user.username),
-        avatarBg: user.role === 'admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+        avatarUrl: user.avatar_url || null,
         lastMessage: '',
         time: '',
         unread: 0,
@@ -428,12 +423,13 @@ export default function SuperAdminFloatingChat() {
                 ←
               </button>
               <div className="chat-active-user-info">
-                <div 
+                <UserAvatar
+                  name={activeChat.name}
+                  avatarUrl={activeChat.avatarUrl}
+                  size={32}
                   className="chat-user-avatar-sm"
-                  style={{ background: activeChat.avatarBg }}
-                >
-                  {activeChat.avatar}
-                </div>
+                  style={{ flexShrink: 0 }}
+                />
                 <div className="chat-user-name-meta">
                   <div className="chat-header-user-name" style={{ color: 'var(--text-primary)' }}>{activeChat.name}</div>
                   <div className="chat-header-user-role">{activeChat.role.replace(/_/g, ' ')}</div>
@@ -577,12 +573,12 @@ export default function SuperAdminFloatingChat() {
                       onClick={() => handleSelectContact(user)}
                     >
                       <div className="chat-user-avatar-wrapper" style={{ position: 'relative' }}>
-                        <div 
+                        <UserAvatar
+                          name={user.full_name || user.username}
+                          avatarUrl={user.avatar_url || null}
+                          size={38}
                           className="chat-user-avatar"
-                          style={{ background: user.role === 'admin' ? 'linear-gradient(135deg, #8b5cf6, #6d28d9)' : 'linear-gradient(135deg, #0ea5e9, #0369a1)' }}
-                        >
-                          {initials(user.full_name || user.username)}
-                        </div>
+                        />
                         {isOnline && (
                           <span style={{
                             position: 'absolute', bottom: -2, right: -2, width: 10, height: 10,

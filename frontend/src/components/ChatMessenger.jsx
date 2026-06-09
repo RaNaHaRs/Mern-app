@@ -5,6 +5,7 @@ import {
   statusLabel,
   messagePreview,
 } from '../hooks/useTeamChat';
+import UserAvatar from './UserAvatar';
 
 const isImageType = (mime, path) =>
   (mime && mime.startsWith('image/')) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(path || '');
@@ -121,16 +122,13 @@ export default function ChatMessenger({
         </button>
       )}
       <div className="chat-active-user-info">
-        <div
+        <UserAvatar
+          name={selectedContact.full_name || selectedContact.username}
+          avatarUrl={selectedContact.avatar_url || null}
+          size={32}
           className="chat-user-avatar-sm"
-          style={{
-            background: onlineIds.includes(String(selectedContact.id))
-              ? 'linear-gradient(135deg,#10b981,#059669)'
-              : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-          }}
-        >
-          {initials(selectedContact.full_name || selectedContact.username)}
-        </div>
+          style={{ flexShrink: 0 }}
+        />
         <div className="chat-user-name-meta">
           <div className="chat-header-user-name">
             {selectedContact.full_name || selectedContact.username}
@@ -191,16 +189,12 @@ export default function ChatMessenger({
                 className={`chat-item-row ${String(selectedUserId) === id ? 'active' : ''}`}
                 onClick={() => openContact(contact)}
               >
-                <div
+                <UserAvatar
+                  name={contact.full_name || contact.username}
+                  avatarUrl={contact.avatar_url || null}
+                  size={38}
                   className="chat-user-avatar"
-                  style={{
-                    background: isOnline
-                      ? 'linear-gradient(135deg,#10b981,#059669)'
-                      : 'linear-gradient(135deg,#64748b,#475569)',
-                  }}
-                >
-                  {initials(contact.full_name || contact.username)}
-                </div>
+                />
                 <div className="chat-item-mid">
                   <div className="chat-item-row-top">
                     <span className="chat-item-name">{contact.full_name || contact.username}</span>

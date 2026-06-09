@@ -46,6 +46,13 @@ export default function SignupPage() {
   const [result, setResult] = useState(null);
   const [captchaOk, setCaptchaOk] = useState(false);
   const [captchaReset, setCaptchaReset] = useState(0);
+  const [branding, setBranding] = useState(window.__branding || null);
+  useEffect(() => {
+    setBranding(window.__branding || null);
+    const handler = (ev) => setBranding(ev.detail);
+    window.addEventListener('sa_branding_update', handler);
+    return () => window.removeEventListener('sa_branding_update', handler);
+  }, []);
 
   useEffect(() => {
     fetch(API + '/auth/plans')
@@ -171,8 +178,10 @@ export default function SignupPage() {
         >
           {/* ── Logo ───────────────────────────────────────── */}
           <div className="login-logo" style={{ marginBottom: 24 }}>
-            <div className="login-logo-icon">💾</div>
-            <div className="login-app-name">RecoverLab CRM</div>
+            <div className="login-logo-icon" style={branding?.logo_url ? { background: `url(${branding.logo_url}) center/contain no-repeat`, boxShadow: 'none' } : {}}>
+              {branding?.logo_url ? '' : '💾'}
+            </div>
+            <div className="login-app-name">{branding?.platform_name || 'RecoverLab CRM'}</div>
             <div className="login-tagline">
               {step === 1 ? 'Choose your plan — 14-day free trial, no card needed'
                 : step === 2 ? 'Create your account'
@@ -453,6 +462,9 @@ export default function SignupPage() {
               <span>🔒</span> All data encrypted · SOC2 compliant · 99.9% uptime
             </div>
           )}
+          <footer style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>&copy; {new Date().getFullYear()} RecoverLab. All rights reserved.</span>
+          </footer>
         </div>
       </div>
     </>

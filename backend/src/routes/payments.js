@@ -60,7 +60,7 @@ router.post('/quotations', requireMinRole('staff'), auditLog('create_quotation',
 
 router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'), async (req, res) => {
   try {
-    const { case_id, quotation_id, amount, method, reference_number, notes } = req.body;
+    const { case_id, quotation_id, amount, method, reference_number, notes, status = 'paid' } = req.body;
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return res.status(400).json({ error: 'A valid payment amount is required' });
@@ -71,14 +71,16 @@ router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'),
     const result = await transaction(async (client) => {
       const pay = await client.query(
         `INSERT INTO payments (case_id, quotation_id, amount, method, reference_number, status, paid_at, notes, recorded_by)
-         VALUES ($1,$2,$3,$4,$5,'paid',NOW(),$6,$7) RETURNING *`,
-        [case_id, quotation_id||null, parsedAmount, method, reference_number||null, notes||null, req.user.id]
+         VALUES ($1,$2,$3,$4,$5,$6,${status === 'paid' ? 'NOW()' : 'NULL'},$7,$8) RETURNING *`,
+        [case_id, quotation_id||null, parsedAmount, method, reference_number||null, status, notes||null, req.user.id]
       );
-      await client.query(
-        'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)',
-        [parsedAmount, case_id]
-      );
-      await syncInvoiceFromCasePayment(client, case_id);
+      if (status === 'paid') {
+        await client.query(
+          'UPDATE clients SET total_paid = COALESCE(total_paid,0) + $1 WHERE id = (SELECT client_id FROM cases WHERE id = $2)',
+          [parsedAmount, case_id]
+        );
+        await syncInvoiceFromCasePayment(client, case_id);
+      }
       return pay.rows[0];
     });
     try {
@@ -90,16 +92,26 @@ router.post('/', requireMinRole('staff'), auditLog('record_payment', 'payment'),
         [case_id]
       );
       const caseRow = caseInfo.rows[0] || {};
-      await automationService.handleEvent('PAYMENT_RECEIVED', {
-        case_id,
-        case_number: caseRow.case_number || '',
-        name: caseRow.first_name || 'Client',
-        email: caseRow.email || '',
-        amount: parsedAmount,
-        payment_method: method || ''
-      });
+      
+      // Emit appropriate automation event based on payment status
+      const eventType = status === 'paid' ? 'PAYMENT_RECEIVED'
+                      : status === 'pending' ? 'PAYMENT_PENDING'
+                      : status === 'overdue' ? 'PAYMENT_OVERDUE'
+                      : null;
+      
+      if (eventType) {
+        await automationService.handleEvent(eventType, {
+          case_id,
+          case_number: caseRow.case_number || '',
+          name: caseRow.first_name || 'Client',
+          email: caseRow.email || '',
+          amount: parsedAmount,
+          payment_method: method || '',
+          payment_status: status
+        });
+      }
     } catch (eventErr) {
-      console.warn('PAYMENT_RECEIVED event emission failed:', eventErr.message);
+      console.warn('Payment event emission failed:', eventErr.message);
     }
     res.status(201).json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }

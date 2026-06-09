@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth, PERMISSION_MODULES, STAFF_PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions } from '../store/AuthContext';
+import UserAvatar from '../components/UserAvatar';
 
 const stripDecorativeIcon = (label = '') => String(label).replace(/^[\p{Extended_Pictographic}\uFE0F]+\s*/gu, '').trim();
 
@@ -620,9 +621,11 @@ export default function UserManagementPage() {
                 const role = getRoleMeta(u.role);
                 return (
                   <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', opacity: u.is_active === false ? 0.5 : 1 }}>
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${role?.color || '#6366f1'}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', fontWeight: 700, border: `2px solid ${role?.color || '#6366f1'}30`, color: role?.color || '#6366f1' }}>
-                      {u.full_name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </div>
+                    <UserAvatar
+                      name={u.full_name || u.username}
+                      avatarUrl={u.avatar_url || null}
+                      size={40}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
                         <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{u.full_name}</span>

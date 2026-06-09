@@ -214,6 +214,23 @@ export function AuthProvider({ children }) {
     setSessionWarning(false);
   }, []);
 
+  // ── Refresh User Data (used after subscription upgrades) ──────────────────
+  const refreshUser = useCallback(async () => {
+    try {
+      const u = await authApi.me();
+      setUser(u);
+      return u;
+    } catch (err) {
+      console.error('Failed to refresh user data:', err.message);
+    }
+  }, []);
+
+  // Make refreshUser available globally for payment modals
+  useEffect(() => {
+    window.__refreshUserData = refreshUser;
+    return () => { delete window.__refreshUserData; };
+  }, [refreshUser]);
+
   // ── Inactivity watcher ──────────────────────────────────────────
   useEffect(() => {
     if (!user) { clearInterval(intervalRef.current); return; }
@@ -298,12 +315,13 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{
-      user, loading, login, logout, setLoggedIn, refreshUser,
+      user, setUser, loading, login, logout, setLoggedIn, refreshUser,
       canAccess, hasPermission,
       isSuperAdmin, isOwner, isAdmin, tenantId,
       isPlatformStaff,
       sessionWarning, resetActivity,
       impersonating, exitImpersonation,
+      refreshUser,  // NEW: refresh user data after subscription changes
       PERMISSION_MODULES, STAFF_PERMISSION_MODULES, buildFullPermissions, buildEmptyPermissions,
     }}>
       {children}
