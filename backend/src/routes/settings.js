@@ -41,6 +41,8 @@ const DEFAULT_COMPANY_SETTINGS = {
   razorpay_key_secret: '',
   razorpay_plan_id: '',
   payment_methods: [],
+  fast2sms_api_key: '',
+  fast2sms_sender_id: 'RCRLAB',
   case_number_format: 'DR-{YYYY}-{NNNNN}',
   case_number_start: 1,
   invoice_number_format: 'INV-{YYYY}-{NNNN}',

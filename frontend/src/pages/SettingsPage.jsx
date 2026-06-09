@@ -1574,6 +1574,7 @@ export default function SettingsPage() {
       id: 'config_settings', label: ' Config Settings', icon: '',
       children: [
         { key: 'whatsapp',   label: 'WhatsApp' },
+        { key: 'sms',        label: 'SMS (Fast2SMS)' },
         { key: 'smtp',       label: 'Email' },
         { key: 'razorpay',   label: 'Razor Pay' },
         { key: 'invoice',    label: 'Invoice Setup' },
@@ -2288,6 +2289,56 @@ export default function SettingsPage() {
           {/* RAZORPAY */}
           {activeTab === 'razorpay' && company && (
             <RazorpaySettingsPanel company={company} setCompany={setCompany} companySaved={companySaved} savingCompany={savingCompany} handleSaveCompany={handleSaveCompany} />
+          )}
+
+          {/* SMS — Fast2SMS */}
+          {activeTab === 'sms' && company && (
+            <div>
+              <div className="card-title" style={{ marginBottom: 4 }}>SMS — Fast2SMS Integration</div>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 20 }}>
+                Used for SMS marketing campaigns. Get your API key from{' '}
+                <a href="https://www.fast2sms.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>fast2sms.com</a>.
+              </p>
+              <div className="card" style={{ maxWidth: 540 }}>
+                <div className="form-group">
+                  <label className="form-label">Fast2SMS API Key</label>
+                  <input
+                    className="form-input font-mono"
+                    type="password"
+                    placeholder="Your Fast2SMS API key"
+                    value={company.fast2sms_api_key || ''}
+                    onChange={e => setCompany(c => ({ ...c, fast2sms_api_key: e.target.value }))}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Found in Fast2SMS dashboard → Dev API
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sender ID</label>
+                  <input
+                    className="form-input font-mono"
+                    placeholder="e.g. RCRLAB"
+                    value={company.fast2sms_sender_id || 'RCRLAB'}
+                    onChange={e => setCompany(c => ({ ...c, fast2sms_sender_id: e.target.value }))}
+                  />
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    6-character sender ID approved in your Fast2SMS account
+                  </div>
+                </div>
+                {company.fast2sms_api_key ? (
+                  <div style={{ padding: '8px 12px', background: 'rgba(22,163,74,0.1)', border: '1px solid rgba(22,163,74,0.3)', borderRadius: 6, fontSize: '0.82rem', color: 'var(--status-success)', marginBottom: 12 }}>
+                    ✓ API key configured — SMS campaigns are enabled
+                  </div>
+                ) : (
+                  <div style={{ padding: '8px 12px', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 6, fontSize: '0.82rem', color: 'var(--status-warning)', marginBottom: 12 }}>
+                    ⚠ No API key — SMS campaigns will fail until configured
+                  </div>
+                )}
+                <button className="btn btn-primary" disabled={savingCompany} onClick={handleSaveCompany}>
+                  {savingCompany ? 'Saving...' : 'Save SMS Settings'}
+                </button>
+              </div>
+            </div>
           )}
 
           {/* ACTIVITY LOG */}
