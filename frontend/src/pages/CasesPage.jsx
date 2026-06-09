@@ -21,19 +21,14 @@ function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
   const [loading, setLoading] = useState(false);
   const handleConfirm = async () => {
     setLoading(true);
-    try {
-      await onConfirm();
-    } finally {
-      setLoading(false);
-    }
+    try { await onConfirm(); } finally { setLoading(false); }
   };
-
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Move {selectedCount} case{selectedCount > 1 ? 's' : ''} to Recycle Bin</h3>
-          <button className="btn btn-ghost btn-icon" onClick={onCancel}></button>
+          <button className="btn btn-ghost btn-icon" onClick={onCancel}>✕</button>
         </div>
         <div className="modal-body">
           <p style={{ marginBottom: 16, color: 'var(--text-primary)' }}>
@@ -42,8 +37,110 @@ function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onCancel} disabled={loading}>Cancel</button>
-          <button className="btn btn-secondary" onClick={handleConfirm} disabled={loading}>
-            {loading ? 'Moving...' : `Move ${selectedCount} case${selectedCount > 1 ? 's' : ''}`}
+          <button className="btn btn-danger" onClick={handleConfirm} disabled={loading}>
+            {loading ? 'Moving...' : `Move ${selectedCount} to Recycle Bin`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditCaseModal({ caseData, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    device_brand: caseData.device_brand || '',
+    device_model: caseData.device_model || '',
+    serial_number: caseData.serial_number || '',
+    failure_type: caseData.failure_type || '',
+    priority: caseData.priority || 3,
+    symptom_notes: caseData.symptom_notes || '',
+    initial_diagnosis: caseData.initial_diagnosis || '',
+    internal_notes: caseData.internal_notes || '',
+    deadline_at: caseData.deadline_at ? caseData.deadline_at.slice(0, 10) : '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payload = { ...form };
+      if (!payload.deadline_at) payload.deadline_at = null;
+      await casesApi.update(caseData.id, payload);
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const stages = getSettings('custom_stages', DEFAULT_STAGES);
+  const failureTypes = getSettings('custom_failure_types', DEFAULT_FAILURE_TYPES);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 620, width: '95vw' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3 className="modal-title">Edit Case — {caseData.case_number}</h3>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {error && (
+            <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: '0.82rem' }}>
+              {error}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Device Brand</label>
+              <input className="form-input" value={form.device_brand} onChange={e => set('device_brand', e.target.value)} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Device Model</label>
+              <input className="form-input" value={form.device_model} onChange={e => set('device_model', e.target.value)} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Serial Number</label>
+              <input className="form-input" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Failure Type</label>
+              <select className="form-select" value={form.failure_type} onChange={e => set('failure_type', e.target.value)}>
+                {failureTypes.map(f => <option key={f} value={f}>{f.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Priority</label>
+              <select className="form-select" value={form.priority} onChange={e => set('priority', parseInt(e.target.value))}>
+                {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Deadline</label>
+              <input className="form-input" type="date" value={form.deadline_at} onChange={e => set('deadline_at', e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Symptom Notes</label>
+            <textarea className="form-input" rows={2} value={form.symptom_notes} onChange={e => set('symptom_notes', e.target.value)} style={{ resize: 'vertical' }} />
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Initial Diagnosis</label>
+            <textarea className="form-input" rows={2} value={form.initial_diagnosis} onChange={e => set('initial_diagnosis', e.target.value)} style={{ resize: 'vertical' }} />
+          </div>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label className="form-label">Internal Notes</label>
+            <textarea className="form-input" rows={2} value={form.internal_notes} onChange={e => set('internal_notes', e.target.value)} style={{ resize: 'vertical' }} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -66,11 +163,14 @@ export default function CasesPage() {
   const [deletingIds, setDeletingIds] = useState(new Set());
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editingCase, setEditingCase] = useState(null);
+  const [singleDeleteId, setSingleDeleteId] = useState(null);
+
   const canDeleteCases = hasPermission('cases', 'delete');
-  const canPermanentDelete = user?.role === 'admin' || user?.role === 'super_admin';
+  const canEditCases = hasPermission('cases', 'edit') || canAccess('staff');
 
   const checkStale = (c) => {
-    if (c.stage === 'delivered' || c.stage === 'failed' || c.stage === 'completed' || c.stage === 'rejected') return false;
+    if (['delivered','failed','completed','rejected'].includes(c.stage)) return false;
     const thresh = c.reminder_days || 4;
     const lastUpdate = new Date(c.updated_at || c.created_at || Date.now());
     const diffDays = (Date.now() - lastUpdate.getTime()) / 86400000;
@@ -85,7 +185,6 @@ export default function CasesPage() {
       if (filters.search) params.search = filters.search;
       if (filters.priority) params.priority = filters.priority;
       if (filters.failure_type) params.failure_type = filters.failure_type;
-
       const data = await casesApi.list(params);
       setCases(data.cases || []);
       setPagination(data.pagination || {});
@@ -96,72 +195,56 @@ export default function CasesPage() {
     }
   }, [filters, page, sortField, sortOrder, viewMode]);
 
-  const load = useCallback(async () => {
-    await loadCases();
-  }, [loadCases]);
-
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadCases(); }, [loadCases]);
+  useEffect(() => { setSelectedIds(new Set()); }, [cases]);
+  useEffect(() => { fieldConfigApi.loadCaseSettingsToLocalStorage().catch(() => {}); }, []);
 
   const handleStageChange = async (caseId, newStage) => {
     try {
       await casesApi.transition(caseId, { stage: newStage });
-      loadCases(); // Refresh
-    } catch (e) {
-      alert('Failed to update stage');
-    }
+      loadCases();
+    } catch { alert('Failed to update stage'); }
   };
 
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [cases]);
-
-  const displayCases = cases;
-
   const toggleSelect = (caseId) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(caseId)) {
-      newSelected.delete(caseId);
-    } else {
-      newSelected.add(caseId);
-    }
-    setSelectedIds(newSelected);
+    const s = new Set(selectedIds);
+    s.has(caseId) ? s.delete(caseId) : s.add(caseId);
+    setSelectedIds(s);
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === displayCases.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(displayCases.map(c => c.id)));
-    }
+    setSelectedIds(selectedIds.size === cases.length ? new Set() : new Set(cases.map(c => c.id)));
   };
 
   const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
     try {
       await casesApi.bulkDelete(Array.from(selectedIds));
       setSelectedIds(new Set());
       setShowDeleteConfirm(false);
       await loadCases();
-      alert('Selected cases have been moved to the Recycle Bin.');
     } catch (err) {
-      console.error(err);
       alert(err.message || 'Unable to delete selected cases.');
     }
   };
 
-  const selectedCount = selectedIds.size;
-  const activePagination = pagination;
-  const activePage = page;
-  const resetActivePage = () => setPage(1);
+  const handleSingleDelete = async () => {
+    if (!singleDeleteId) return;
+    setDeletingIds(prev => new Set(prev).add(singleDeleteId));
+    try {
+      await casesApi.delete(singleDeleteId);
+      setSingleDeleteId(null);
+      await loadCases();
+    } catch (err) {
+      alert(err.message || 'Unable to delete case.');
+    } finally {
+      setDeletingIds(prev => { const n = new Set(prev); n.delete(singleDeleteId); return n; });
+    }
+  };
 
   const toggleSort = (field) => {
     setPage(1);
-    if (sortField === field) {
-      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('asc');
-    }
+    if (sortField === field) setSortOrder(o => o === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortOrder('asc'); }
   };
 
   const renderSortIcon = (field) => {
@@ -169,70 +252,30 @@ export default function CasesPage() {
     return sortOrder === 'asc' ? ' ↑' : ' ↓';
   };
 
-  useEffect(() => {
-    fieldConfigApi.loadCaseSettingsToLocalStorage().catch(() => {});
-  }, []);
-
-  const deleteCase = async (caseId) => {
-    if (!window.confirm('Send this case to the Recycle Bin?')) return;
-    setDeletingIds((prev) => new Set(prev).add(caseId));
-    try {
-      await casesApi.delete(caseId);
-      await loadCases();
-    } catch (err) {
-      console.error(err);
-      alert(err.message || 'Unable to delete case.');
-    } finally {
-      setDeletingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(caseId);
-        return next;
-      });
-    }
-  };
+  const colCount = 1 + (canDeleteCases ? 1 : 0) + 9 + 1; // checkbox + cols + actions
 
   return (
     <div>
       <div className="page-header" style={{ flexWrap: 'wrap', gap: 16 }}>
         <div className="page-header-left">
           <h2>Case Management</h2>
-          <p>
-            {`All recovery jobs — ${pagination.total || 0} total cases`}
-          </p>
+          <p>{`All recovery jobs — ${pagination.total || 0} total cases`}</p>
         </div>
-
-
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {selectedCount > 0 && canDeleteCases && (
+          {selectedIds.size > 0 && canDeleteCases && (
             <>
-              <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(true)}>
-                Delete selected ({selectedCount})
+              <button className="btn btn-danger btn-sm" onClick={() => setShowDeleteConfirm(true)}>
+                🗑 Delete ({selectedIds.size})
               </button>
-              <button className="btn btn-ghost" onClick={() => setSelectedIds(new Set())}>Clear</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear</button>
             </>
           )}
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg-elevated)', borderRadius: 6, padding: 3, border: '1px solid var(--border-subtle)' }}>
-            <button
-              className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ padding: '4px 12px', fontSize: '0.78rem' }}
-              onClick={() => setViewMode('list')}
-              title="List view"
-            >
-              ☰ List
-            </button>
-            <button
-              className={`btn btn-sm ${viewMode === 'kanban' ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ padding: '4px 12px', fontSize: '0.78rem' }}
-              onClick={() => setViewMode('kanban')}
-              title="Kanban view"
-            >
-              ⊞ Kanban
-            </button>
+            <button className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('list')}>☰ List</button>
+            <button className={`btn btn-sm ${viewMode === 'kanban' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('kanban')}>⊞ Kanban</button>
           </div>
           {canAccess('staff') && (
-            <button className="btn btn-primary" onClick={() => setShowNewCase(true)}>
-              + New Case
-            </button>
+            <button className="btn btn-primary" onClick={() => setShowNewCase(true)}>+ New Case</button>
           )}
         </div>
       </div>
@@ -242,36 +285,30 @@ export default function CasesPage() {
         <div className="search-bar">
           <span className="search-icon">🔍</span>
           <input className="search-input" placeholder="Search case#, client, serial..." value={filters.search}
-            onChange={e => { setFilters({...filters, search: e.target.value}); resetActivePage(); }} />
+            onChange={e => { setFilters({ ...filters, search: e.target.value }); setPage(1); }} />
         </div>
-
-        <select className="form-select" style={{width:'auto', fontSize:'0.8rem', padding:'7px 12px'}} value={filters.stage}
-          onChange={e => { setFilters({...filters, stage: e.target.value}); resetActivePage(); }}>
+        <select className="form-select" style={{ width: 'auto', fontSize: '0.8rem', padding: '7px 12px' }} value={filters.stage}
+          onChange={e => { setFilters({ ...filters, stage: e.target.value }); setPage(1); }}>
           <option value="">All Stages</option>
           {getSettings('custom_stages', DEFAULT_STAGES).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').toUpperCase()}</option>)}
         </select>
-
-        <select className="form-select" style={{width:'auto', fontSize:'0.8rem', padding:'7px 12px'}} value={filters.failure_type}
-          onChange={e => { setFilters({...filters, failure_type: e.target.value}); resetActivePage(); }}>
+        <select className="form-select" style={{ width: 'auto', fontSize: '0.8rem', padding: '7px 12px' }} value={filters.failure_type}
+          onChange={e => { setFilters({ ...filters, failure_type: e.target.value }); setPage(1); }}>
           <option value="">All Failures</option>
-          {getSettings('custom_failure_types', DEFAULT_FAILURE_TYPES).map(f => <option key={f} value={f}>{f.replace(/_/g,' ')}</option>)}
+          {getSettings('custom_failure_types', DEFAULT_FAILURE_TYPES).map(f => <option key={f} value={f}>{f.replace(/_/g, ' ')}</option>)}
         </select>
-
-        <select className="form-select" style={{width:'auto', fontSize:'0.8rem', padding:'7px 12px'}} value={filters.priority}
-          onChange={e => { setFilters({...filters, priority: e.target.value}); resetActivePage(); }}>
+        <select className="form-select" style={{ width: 'auto', fontSize: '0.8rem', padding: '7px 12px' }} value={filters.priority}
+          onChange={e => { setFilters({ ...filters, priority: e.target.value }); setPage(1); }}>
           <option value="">All Priorities</option>
-          {Object.entries(PRIORITIES).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+          {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-
-        {(filters.stage || filters.failure_type || filters.priority) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({stage:'',search:'',priority:'',failure_type:''}); resetActivePage(); }}>
-            ✕ Clear
-          </button>
+        {(filters.stage || filters.failure_type || filters.priority || filters.search) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({ stage: '', search: '', priority: '', failure_type: '' }); setPage(1); }}>✕ Clear</button>
         )}
       </div>
 
       {viewMode === 'kanban' ? (
-        <KanbanBoard cases={displayCases} onStageChange={handleStageChange} />
+        <KanbanBoard cases={cases} onStageChange={handleStageChange} />
       ) : (
         <div className="table-container">
           <div style={{ overflowX: 'auto' }}>
@@ -284,49 +321,32 @@ export default function CasesPage() {
                 <thead>
                   <tr>
                     {canDeleteCases && (
-                      <th style={{ width: '30px' }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.size === displayCases.length && displayCases.length > 0}
-                          onChange={toggleSelectAll}
-                          style={{ cursor: 'pointer' }}
-                        />
+                      <th style={{ width: 30 }}>
+                        <input type="checkbox"
+                          checked={selectedIds.size === cases.length && cases.length > 0}
+                          onChange={toggleSelectAll} style={{ cursor: 'pointer' }} />
                       </th>
                     )}
-                    <th onClick={() => toggleSort('case_number')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Case #{renderSortIcon('case_number')}
-                    </th>
+                    <th onClick={() => toggleSort('case_number')} style={{ cursor: 'pointer', userSelect: 'none' }}>Case #{renderSortIcon('case_number')}</th>
                     <th>Client</th>
                     <th>Device</th>
-                    <th onClick={() => toggleSort('stage')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Stage{renderSortIcon('stage')}
-                    </th>
-                    <th onClick={() => toggleSort('priority')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Priority{renderSortIcon('priority')}
-                    </th>
+                    <th onClick={() => toggleSort('stage')} style={{ cursor: 'pointer', userSelect: 'none' }}>Stage{renderSortIcon('stage')}</th>
+                    <th onClick={() => toggleSort('priority')} style={{ cursor: 'pointer', userSelect: 'none' }}>Priority{renderSortIcon('priority')}</th>
                     <th>Failure</th>
                     <th>Risk</th>
-                    <th onClick={() => toggleSort('pending_amount')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Pending{renderSortIcon('pending_amount')}
-                    </th>
+                    <th onClick={() => toggleSort('pending_amount')} style={{ cursor: 'pointer', userSelect: 'none' }}>Pending{renderSortIcon('pending_amount')}</th>
                     <th>Transfer</th>
                     <th>Engineer</th>
-                    <th onClick={() => toggleSort('created_at')} style={{ cursor: 'pointer', userSelect: 'none' }}>
-                      Received{renderSortIcon('created_at')}
-                    </th>
+                    <th onClick={() => toggleSort('created_at')} style={{ cursor: 'pointer', userSelect: 'none' }}>Received{renderSortIcon('created_at')}</th>
+                    <th style={{ textAlign: 'center', minWidth: 120 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayCases.map(c => (
-                    <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)}>
+                  {cases.map(c => (
+                    <tr key={c.id}>
                       {canDeleteCases && (
-                        <td onClick={e => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(c.id)}
-                            onChange={() => toggleSelect(c.id)}
-                            style={{ cursor: 'pointer' }}
-                          />
+                        <td>
+                          <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} style={{ cursor: 'pointer' }} />
                         </td>
                       )}
                       <td>
@@ -357,20 +377,56 @@ export default function CasesPage() {
                         ₹{parseFloat(c.pending_amount || 0).toLocaleString('en-IN')}
                       </td>
                       <td>
-                        {c.transfer_to_client ? (
-                          <span className="badge badge-completed" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>Yes</span>
-                        ) : (
-                          <span className="badge badge-received" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>No</span>
-                        )}
+                        {c.transfer_to_client
+                          ? <span className="badge badge-completed" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>Yes</span>
+                          : <span className="badge badge-received" style={{ minWidth: 50, textAlign: 'center', justifyContent: 'center' }}>No</span>
+                        }
                       </td>
                       <td className="text-xs text-muted">{c.engineer_name || '—'}</td>
-                      <td className="text-xs text-muted font-mono" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <span>{new Date(c.received_at || c.created_at).toLocaleDateString('en-IN')}</span>
+                      <td className="text-xs text-muted font-mono">
+                        {new Date(c.received_at || c.created_at).toLocaleDateString('en-IN')}
+                      </td>
+                      {/* ── Actions ── */}
+                      <td onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center', alignItems: 'center' }}>
+                          {/* View */}
+                          <button
+                            title="View case"
+                            className="btn btn-ghost btn-icon"
+                            style={{ width: 30, height: 30, fontSize: '0.85rem', padding: 0 }}
+                            onClick={() => navigate(`/cases/${c.id}`)}
+                          >
+                            👁
+                          </button>
+                          {/* Edit */}
+                          {canEditCases && (
+                            <button
+                              title="Edit case"
+                              className="btn btn-ghost btn-icon"
+                              style={{ width: 30, height: 30, fontSize: '0.85rem', padding: 0 }}
+                              onClick={() => setEditingCase(c)}
+                            >
+                              ✏️
+                            </button>
+                          )}
+                          {/* Delete → Recycle Bin */}
+                          {canDeleteCases && (
+                            <button
+                              title="Move to Recycle Bin"
+                              className="btn btn-ghost btn-icon"
+                              style={{ width: 30, height: 30, fontSize: '0.85rem', padding: 0, color: 'var(--danger)' }}
+                              disabled={deletingIds.has(c.id)}
+                              onClick={() => setSingleDeleteId(c.id)}
+                            >
+                              {deletingIds.has(c.id) ? '…' : '🗑'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {!displayCases.length && (
-                    <tr><td colSpan={canDeleteCases ? 12 : 11}>
+                  {!cases.length && (
+                    <tr><td colSpan={colCount}>
                       <div className="empty-state">
                         <div className="empty-icon">📂</div>
                         <div className="empty-title">No cases found</div>
@@ -382,27 +438,55 @@ export default function CasesPage() {
               </table>
             )}
           </div>
-          {activePagination.pages > 1 && (
+          {pagination.pages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 16, borderTop: '1px solid var(--border-subtle)' }}>
-              <button className="btn btn-secondary btn-sm" disabled={activePage <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
-              <span className="text-xs text-muted font-mono">Page {activePage} of {activePagination.pages}</span>
-              <button className="btn btn-secondary btn-sm" disabled={activePage >= activePagination.pages} onClick={() => setPage(p => p + 1)}>Next →</button>
+              <button className="btn btn-secondary btn-sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+              <span className="text-xs text-muted font-mono">Page {page} of {pagination.pages}</span>
+              <button className="btn btn-secondary btn-sm" disabled={page >= pagination.pages} onClick={() => setPage(p => p + 1)}>Next →</button>
             </div>
           )}
         </div>
       )}
 
+      {/* Modals */}
       {showNewCase && (
         <NewCaseModal onClose={() => setShowNewCase(false)} onCreated={(newCase) => {
           loadCases();
-          if(newCase && newCase.id) navigate(`/cases/${newCase.id}`);
+          if (newCase?.id) navigate(`/cases/${newCase.id}`);
         }} />
       )}
       {showDeleteConfirm && (
         <DeleteConfirmModal
-          selectedCount={selectedCount}
+          selectedCount={selectedIds.size}
           onConfirm={handleBulkDelete}
           onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
+      {/* Single-row delete confirm */}
+      {singleDeleteId && (
+        <div className="modal-overlay" onClick={() => setSingleDeleteId(null)}>
+          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Move to Recycle Bin</h3>
+              <button className="btn btn-ghost btn-icon" onClick={() => setSingleDeleteId(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-primary)' }}>
+                This case will be soft-deleted and moved to the Recycle Bin. You can restore it later.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setSingleDeleteId(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleSingleDelete}>Move to Recycle Bin</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editingCase && (
+        <EditCaseModal
+          caseData={editingCase}
+          onClose={() => setEditingCase(null)}
+          onSaved={() => { setEditingCase(null); loadCases(); }}
         />
       )}
     </div>

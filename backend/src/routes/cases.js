@@ -311,20 +311,35 @@ router.post('/',
         req.user.id
       ];
 
-      // Retry insert on case_number unique-violation to reduce race-condition failures
+      // Retry insert on case_number unique-violation — regenerate a new sequence each attempt
       let result;
       const maxAttempts = 5;
+      let currentCaseNumber = caseNumber;
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
+          insertParams[0] = currentCaseNumber;
           result = await query(insertSql, insertParams);
           break;
         } catch (err) {
-          // Postgres unique violation code
           if (err && err.code === '23505' && String(err.detail || '').includes('case_number')) {
             console.warn(`Case insert conflict on case_number (attempt ${attempt}): ${err.message}`);
             if (attempt === maxAttempts) throw err;
-            // small backoff
+            // Advance the sequence and get a fresh case number for next attempt
             await new Promise(r => setTimeout(r, 50 * attempt));
+            if (tenantId) {
+              const seqRes = await query(
+                `INSERT INTO tenant_case_sequences (tenant_id, last_sequence)
+                 VALUES ($1, $2)
+                 ON CONFLICT (tenant_id)
+                 DO UPDATE SET last_sequence = tenant_case_sequences.last_sequence + 1
+                 RETURNING last_sequence`,
+                [tenantId, startValue]
+              );
+              currentCaseNumber = formatNumberSequence(formatString, parseInt(seqRes.rows[0].last_sequence, 10));
+            } else {
+              const seqRes = await query(`SELECT nextval('case_number_seq') AS seq`);
+              currentCaseNumber = formatNumberSequence(formatString, parseInt(seqRes.rows[0].seq, 10));
+            }
             continue;
           }
           throw err;
