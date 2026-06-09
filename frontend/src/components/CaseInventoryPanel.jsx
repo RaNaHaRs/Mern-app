@@ -895,68 +895,68 @@ export default function CaseInventoryPanel({ caseId }) {
 
       {/* Profit Summary */}
       {profit && (
-        <div className="card" style={{
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-default)'
-        }}>
+        <div className="card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-default)' }}>
           <div className="card-title">Case Profitability</div>
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 16,
-            marginTop: 16
-          }}>
-            <div style={{
-              padding: 12,
-              background: 'var(--bg-elevated)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                Revenue
+          {/* Top row: 3 headline numbers */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 16 }}>
+            {[
+              { label: 'Revenue', value: profit.revenue, color: '#22c55e' },
+              { label: 'Total Expenses', value: profit.total_expenses, color: '#ef4444' },
+              { label: 'Gross Profit', value: profit.gross_profit, color: parseFloat(profit.gross_profit || 0) >= 0 ? '#22c55e' : '#ef4444' },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ padding: 12, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>{label}</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color, marginTop: 4 }}>
+                  ₹{parseFloat(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
               </div>
-              <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#22c55e', marginTop: 4 }}>
-                ₹{parseFloat(profit.revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
-
-            <div style={{
-              padding: 12,
-              background: 'var(--bg-elevated)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                Total Expenses
-              </div>
-              <div style={{ fontSize: '1.3rem', fontWeight: 700, color: '#ef4444', marginTop: 4 }}>
-                ₹{parseFloat(profit.total_expenses || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
-
-            <div style={{
-              padding: 12,
-              background: 'var(--bg-elevated)',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)'
-            }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                Gross Profit
-              </div>
-              <div style={{
-                fontSize: '1.3rem',
-                fontWeight: 700,
-                color: parseFloat(profit.gross_profit || 0) >= 0 ? '#22c55e' : '#ef4444',
-                marginTop: 4
-              }}>
-                ₹{parseFloat(profit.gross_profit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
+            ))}
           </div>
 
-          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-default)' }}>
-          </div>
+          {/* Breakdown: revenue sources and cost sources */}
+          {(parseFloat(profit.inventory_client_revenue || 0) > 0 || parseFloat(profit.inventory_our_cost || 0) > 0) && (
+            <div style={{ marginTop: 14, padding: '12px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', fontSize: '0.82rem' }}>
+              <div style={{ fontWeight: 700, marginBottom: 10, color: 'var(--text-secondary)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Inventory Contribution
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+
+                {/* Our cost for the item */}
+                {parseFloat(profit.inventory_our_cost || 0) > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Our cost (items consumed)</span>
+                    <span style={{ fontWeight: 600, color: '#ef4444' }}>
+                      -₹{parseFloat(profit.inventory_our_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                {/* What we billed the client */}
+                {parseFloat(profit.inventory_client_revenue || 0) > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Billed to client (inventory charge)</span>
+                    <span style={{ fontWeight: 600, color: '#22c55e' }}>
+                      +₹{parseFloat(profit.inventory_client_revenue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                {/* Net margin from inventory */}
+                {parseFloat(profit.inventory_our_cost || 0) > 0 && parseFloat(profit.inventory_client_revenue || 0) > 0 && (() => {
+                  const margin = parseFloat(profit.inventory_client_revenue || 0) - parseFloat(profit.inventory_our_cost || 0);
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 7, borderTop: '1px solid var(--border-subtle)' }}>
+                      <span style={{ fontWeight: 600 }}>Inventory margin</span>
+                      <span style={{ fontWeight: 700, color: margin >= 0 ? '#22c55e' : '#ef4444' }}>
+                        {margin >= 0 ? '+' : ''}₹{margin.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
