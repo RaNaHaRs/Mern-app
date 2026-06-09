@@ -227,7 +227,7 @@ router.get('/recycle-bin', async (req, res) => {
 // GET /api/inventory
 router.get('/', async (req, res) => {
   try {
-    const { page = 1, limit = 40, category, search, is_available, storage_model_id } = req.query;
+    const { page = 1, limit = 40, category, search, is_available, storage_model_id, min_quantity } = req.query;
     const offset = (parseInt(page, 10) - 1) * parseInt(limit, 10);
     const conditions = ['ii.deleted_at IS NULL'];
     const params = [];
@@ -270,6 +270,10 @@ router.get('/', async (req, res) => {
       )`);
       params.push(`%${search}%`);
       pi++;
+    }
+    if (min_quantity !== undefined) {
+      conditions.push(`ii.quantity >= $${pi++}`);
+      params.push(parseInt(min_quantity, 10) || 1);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';

@@ -797,20 +797,31 @@ CREATE OR REPLACE VIEW case_financials AS
 SELECT
   c.id,
   c.case_number,
-  COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) as revenue,
-  COALESCE(SUM(CASE WHEN ce.expense_type = 'inventory' THEN ce.amount ELSE 0 END), 0) as inventory_expense,
-  COALESCE(SUM(CASE WHEN ce.expense_type = 'direct_purchase' THEN ce.amount ELSE 0 END), 0) as direct_purchase_expense,
-  COALESCE(SUM(CASE WHEN ce.expense_type = 'shipping' THEN ce.amount ELSE 0 END), 0) as shipping_expense,
-  COALESCE(SUM(CASE WHEN ce.expense_type = 'vendor' THEN ce.amount ELSE 0 END), 0) as vendor_expense,
-  COALESCE(SUM(CASE WHEN ce.expense_type = 'lab' THEN ce.amount ELSE 0 END), 0) as lab_expense,
-  COALESCE(SUM(CASE WHEN ce.expense_type = 'misc' THEN ce.amount ELSE 0 END), 0) as misc_expense,
-  COALESCE(SUM(ce.amount), 0) as total_expenses,
-  COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) -
-  COALESCE(SUM(ce.amount), 0) as gross_profit
+  -- Revenue: paid payments + client inventory charges
+  COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0)
+    + COALESCE(inv.total_client_charged, 0) AS revenue,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'inventory'       THEN ce.amount ELSE 0 END), 0) AS inventory_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'direct_purchase' THEN ce.amount ELSE 0 END), 0) AS direct_purchase_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'shipping'        THEN ce.amount ELSE 0 END), 0) AS shipping_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'vendor'          THEN ce.amount ELSE 0 END), 0) AS vendor_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'lab'             THEN ce.amount ELSE 0 END), 0) AS lab_expense,
+  COALESCE(SUM(CASE WHEN ce.expense_type = 'misc'            THEN ce.amount ELSE 0 END), 0) AS misc_expense,
+  -- Inventory cost is already written to case_expenses on allocation, no double-add
+  COALESCE(SUM(ce.amount), 0) AS total_expenses,
+  (COALESCE(SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END), 0) + COALESCE(inv.total_client_charged, 0))
+    - COALESCE(SUM(ce.amount), 0) AS gross_profit,
+  COALESCE(inv.total_client_charged, 0) AS inventory_client_revenue,
+  COALESCE(inv.total_our_cost, 0)       AS inventory_our_cost
 FROM cases c
 LEFT JOIN payments p ON c.id = p.case_id
 LEFT JOIN case_expenses ce ON c.id = ce.case_id
-GROUP BY c.id, c.case_number;
+LEFT JOIN (
+  SELECT case_id,
+    SUM(CASE WHEN usage_type = 'CONSUMED' THEN GREATEST(0, qty_allocated * COALESCE(unit_cost,0) - COALESCE(discount_amount,0)) ELSE 0 END) AS total_our_cost,
+    SUM(CASE WHEN charge_to_client = TRUE THEN COALESCE(client_charge_amount,0) ELSE 0 END) AS total_client_charged
+  FROM case_inventory_items WHERE status != 'returned' GROUP BY case_id
+) inv ON inv.case_id = c.id
+GROUP BY c.id, c.case_number, inv.total_client_charged, inv.total_our_cost;
 
 -- ============================================================
 -- INDEXES FOR INVENTORY-CASE INTEGRATION

@@ -486,9 +486,9 @@ export default function CasesPage() {
                 </thead>
                 <tbody>
                   {cases.map(c => (
-                    <tr key={c.id}>
+                    <tr key={c.id} onClick={() => navigate(`/cases/${c.id}`)} style={{ cursor: 'pointer' }}>
                       {canDeleteCases && (
-                        <td>
+                        <td onClick={e => e.stopPropagation()}>
                           <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} style={{ cursor: 'pointer' }} />
                         </td>
                       )}

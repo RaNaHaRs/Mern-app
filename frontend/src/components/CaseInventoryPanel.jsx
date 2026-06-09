@@ -974,7 +974,7 @@ function InventorySelector({ value, onChange }) {
 
     const loadOptions = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/inventory?search=${encodeURIComponent(search)}&limit=20`, {
+        const res = await fetch(`${BASE_URL}/inventory?search=${encodeURIComponent(search)}&limit=20&min_quantity=1`, {
           headers: { 'Authorization': `Bearer ${getToken()}` }
         });
         if (res.ok) {
