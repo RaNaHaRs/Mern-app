@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from '../store/AuthContext';
+import UserAvatar from '../components/UserAvatar';
 
 const API = '/api';
 const SOCKET_URL = window.location.origin.replace(/:\d+$/, ':5000');
@@ -231,7 +232,12 @@ export default function TeamChatPage() {
                 className={`chat-room-item ${String(selectedUserId) === String(contact.id) ? 'active' : ''}`}
                 onClick={() => setSelectedUserId(String(contact.id))}
               >
-                <span>{online ? '' : ''}</span>
+                <UserAvatar
+                  name={contact.full_name || contact.username}
+                  avatarUrl={contact.avatar_url || null}
+                  size={28}
+                  style={{ flexShrink: 0 }}
+                />
                 <span style={{ fontWeight: contact.unread > 0 ? 600 : 400 }}>{contact.full_name || contact.username}</span>
                 {contact.unread > 0 && (
                   <span style={{ marginLeft: 8, minWidth: 22, height: 22, lineHeight: '22px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: 12, padding: '0 8px' }}>
@@ -254,7 +260,13 @@ export default function TeamChatPage() {
               const own = String(msg.sender_id) === String(user?.id);
               return (
                 <div key={msg.id} className={`chat-msg ${own ? 'own' : ''}`}>
-                  <div className="chat-msg-avatar">{initials(msg.sender_name || selectedContact?.full_name || 'U')}</div>
+                  <UserAvatar
+                    name={own ? (user?.fullName || user?.username) : (msg.sender_name || selectedContact?.full_name || selectedContact?.username)}
+                    avatarUrl={own ? (user?.avatar || user?.avatarUrl) : (selectedContact?.avatar_url || null)}
+                    size={28}
+                    className="chat-msg-avatar"
+                    style={{ flexShrink: 0 }}
+                  />
                   <div style={{ maxWidth: '70%' }}>
                     {msg.text ? <div className="chat-msg-bubble">{msg.text}</div> : null}
                     {msg.filePath ? (
@@ -283,7 +295,13 @@ export default function TeamChatPage() {
             })}
             {typingByUser[selectedUserId] ? (
               <div className="chat-msg">
-                <div className="chat-msg-avatar">...</div>
+                <UserAvatar
+                  name={selectedContact?.full_name || selectedContact?.username || '?'}
+                  avatarUrl={selectedContact?.avatar_url || null}
+                  size={28}
+                  className="chat-msg-avatar"
+                  style={{ flexShrink: 0 }}
+                />
                 <div className="chat-msg-bubble" style={{ fontStyle: 'italic' }}>
                   {typingByUser[selectedUserId]} is typing...
                 </div>

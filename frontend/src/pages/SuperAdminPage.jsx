@@ -2,7 +2,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../store/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { useTheme, useFontSize } from '../store/ThemeContext';
+import UserAvatar from '../components/UserAvatar';
 import './SuperAdminPage.css';
+import {
+  RazorpaySettingsTab,
+  InvoiceSettingsTab,
+  SeoSettingsTab,
+  HomepageSettingsTab,
+  TwoFASettingsTab,
+} from '../components/PlatformSettingsTabs';
 const SuperAdminAutomation = React.lazy(() => import('./SuperAdminAutomation'));
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -52,7 +60,21 @@ function PlanBadge({ plan }) {
 
 // ── Add Tenant Modal ───────────────────────────────────────────────────────
 function AddTenantModal({ onClose, onDone }) {
-  const dynamicPlans = getPlans();
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [dynamicPlans, setDynamicPlans] = useState(DEFAULT_PLANS);
+  
+  // Load plans from backend on mount
+  useEffect(() => {
+    saApi.get('/plans')
+      .then(res => {
+        if (res.plans && res.plans.length > 0) {
+          setDynamicPlans(res.plans);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPlansLoading(false));
+  }, []);
+  
   const [form, setForm] = useState({
     company_name: '', admin_name: '', admin_email: '', admin_password: '',
     plan: dynamicPlans[1]?.key || 'professional', max_team_users: dynamicPlans[1]?.maxUsers || 5, subscription_months: 12,
@@ -60,6 +82,7 @@ function AddTenantModal({ onClose, onDone }) {
   });
   const [loading, setLoading] = useState(false);
   const [razorpayOrder, setRazorpayOrder] = useState(null);
+  const [paymentLink, setPaymentLink] = useState(null);  // NEW: Store generated payment link
   const [fieldErrors, setFieldErrors] = useState({});
   const selPlan = dynamicPlans.find(p => p.key === form.plan) || dynamicPlans[1] || dynamicPlans[0];
 
@@ -99,11 +122,176 @@ function AddTenantModal({ onClose, onDone }) {
     } catch (e) { setFieldErrors({ _general: e.message }); } finally { setLoading(false); }
   };
 
-  const handleRazorpay = () => {
-    // In demo mode — simulate payment
-    const orderId = `order_demo_${Date.now()}`;
-    setRazorpayOrder(orderId);
-    alert(`\uD83D\uDCB3 Razorpay Order Created (Demo):\nOrder ID: ${orderId}\nAmount: \u20B9${selPlan.price * form.subscription_months}\n\nIn production this would open Razorpay checkout.`);
+  const handleGeneratePaymentLink = async () => {
+    // STEP 1: Generate shareable payment link (NOT checkout)
+    setLoading(true);
+    try {
+      console.log('🔗 Generating payment link...', {
+        amount: selPlan.price * form.subscription_months,
+        plan_key: form.plan,
+        months: form.subscription_months,
+      });
+
+      // Call /api/payment-link/generate to create shareable link
+      const linkRes = await saApi.post('/payment-link/generate', {
+        amount: selPlan.price * form.subscription_months,
+        plan_key: form.plan,
+        plan_label: selPlan.label,
+        months: form.subscription_months,
+        customer_email: form.admin_email,
+        customer_name: form.admin_name,
+        description: `${selPlan.label} Plan for ${form.company_name}`,
+        tenant_user_id: undefined,  // New subscriber, no user ID yet
+      });
+
+      if (linkRes.error) {
+        throw new Error(linkRes.error);
+      }
+
+      if (!linkRes.payment_link) {
+        throw new Error('No payment link generated');
+      }
+
+      console.log('✅ Payment link generated:', linkRes.payment_link);
+      
+      // Store the link for display
+      setPaymentLink({
+        link: linkRes.payment_link,
+        linkId: linkRes.link_id,
+        amount: linkRes.amount,
+        planLabel: linkRes.plan_label,
+        months: linkRes.months,
+      });
+
+      // Show success
+      alert(`✅ Payment Link Generated!\n\nLink: ${linkRes.payment_link}\n\nYou can now copy and share this link with the subscriber.`);
+    } catch (err) {
+      console.error('Payment link generation error:', err);
+      alert(`❌ Failed to generate link:\n\n${err.message}\n\nPlease try again or contact support.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProceedToCheckout = async () => {
+    // STEP 2: When user clicks "Proceed to Payment", open Razorpay checkout for the payment link
+    if (!paymentLink) {
+      alert('Please generate a payment link first');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      console.log('🚀 Opening Razorpay checkout for link:', paymentLink.linkId);
+
+      // Call /api/payment-link/:link_id/checkout to get Razorpay order
+      const checkoutRes = await saApi.post(`/payment-link/${paymentLink.linkId}/checkout`, {
+        customer_email: form.admin_email,
+        customer_name: form.admin_name,
+      });
+
+      if (checkoutRes.error) {
+        throw new Error(checkoutRes.error);
+      }
+
+      const { order_id, purchase_id, key_id } = checkoutRes;
+
+      if (!order_id) {
+        throw new Error('No order ID returned from server');
+      }
+
+      // Load Razorpay script if not already loaded
+      if (!window.Razorpay) {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.async = true;
+        script.onerror = () => {
+          throw new Error('Failed to load Razorpay script. Check your internet connection.');
+        };
+        document.head.appendChild(script);
+        await new Promise((resolve, reject) => {
+          script.onload = resolve;
+          setTimeout(() => {
+            if (!window.Razorpay) {
+              reject(new Error('Razorpay script failed to load'));
+            } else {
+              resolve();
+            }
+          }, 3000);
+        });
+      }
+
+      // Open Razorpay checkout
+      const options = {
+        key: key_id,
+        amount: paymentLink.amount * 100, // In paise
+        currency: 'INR',
+        name: 'RecoverLab',
+        description: `${paymentLink.planLabel} Plan × ${paymentLink.months} month(s)`,
+        order_id: order_id,
+        handler: async (response) => {
+          // Step 5: Verify payment signature
+          try {
+            const verifyRes = await saApi.post('/razorpay/verify-payment', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              purchase_id: purchase_id,
+            });
+
+            if (verifyRes.success) {
+              alert(`✅ Payment successful!\n\nOrder ID: ${response.razorpay_order_id}\n\nYour subscription is now active.\n\nPlan features: ${verifyRes.subscription?.planDetails?.features?.join(', ') || 'Standard features'}`);
+              
+              // Create subscriber account after payment
+              try {
+                const createRes = await saApi.post('/tenants', {
+                  ...form,
+                  amount: selPlan.price * form.subscription_months,
+                  expiry_date: new Date(Date.now() + form.subscription_months * 30 * 86400000).toISOString().slice(0, 10),
+                });
+                if (createRes.error) throw new Error(createRes.error);
+              } catch (err) {
+                console.warn('Account creation after payment:', err.message);
+                // Still close even if account creation has issues
+              }
+              
+              // Refresh user data if available
+              if (window.__refreshUserData) {
+                window.__refreshUserData();
+              }
+              
+              onDone();
+              onClose();
+            } else {
+              throw new Error(verifyRes.error || 'Payment verification failed');
+            }
+          } catch (err) {
+            alert(`❌ Payment verification failed: ${err.message}`);
+          }
+        },
+        prefill: {
+          name: form.admin_name,
+          email: form.admin_email,
+          contact: form.phone,
+        },
+        theme: {
+          color: '#00d4ff',
+        },
+        modal: {
+          ondismiss: () => {
+            setLoading(false);
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error('Razorpay error:', err);
+      alert(`❌ Failed to open payment:\n\n${err.message}\n\nPlease try again or contact support.`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -209,10 +397,69 @@ function AddTenantModal({ onClose, onDone }) {
               <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Expires: {new Date(Date.now() + form.subscription_months * 30 * 86400000).toLocaleDateString('en-IN')}</div>
             </div>
 
-            <button className="btn btn-secondary" style={{ width: '100%', marginBottom: 8, gap: 8 }} onClick={handleRazorpay}>
-              Generate Razorpay Payment Link
-              {razorpayOrder && <span style={{ fontSize: '0.7rem', color: '#10b981' }}>Created</span>}
-            </button>
+            {/* PAYMENT LINK SECTION — Show generated link with copy/share buttons */}
+            {paymentLink ? (
+              <div style={{ padding: '12px 14px', background: 'rgba(59,130,246,0.06)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 'var(--radius-md)', marginBottom: 14 }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: 8, color: '#3b82f6' }}>✅ Payment Link Generated</div>
+                
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Shareable Link:</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 10, alignItems: 'center' }}>
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={paymentLink.link} 
+                    style={{ 
+                      flex: 1, 
+                      padding: '6px 8px', 
+                      borderRadius: 4, 
+                      border: '1px solid var(--border-subtle)', 
+                      background: 'var(--bg-secondary)',
+                      fontSize: '0.7rem',
+                      fontFamily: 'monospace',
+                      cursor: 'pointer'
+                    }} 
+                    onClick={e => e.target.select()}
+                  />
+                  <button 
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => {
+                      navigator.clipboard.writeText(paymentLink.link);
+                      alert('Link copied to clipboard!');
+                    }}
+                    style={{ padding: '6px 10px', fontSize: '0.7rem' }}
+                  >
+                    📋 Copy
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button 
+                    className="btn btn-sm btn-secondary"
+                    onClick={handleProceedToCheckout}
+                    disabled={loading}
+                    style={{ flex: 1 }}
+                  >
+                    💳 Proceed to Payment
+                  </button>
+                  <button 
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => setPaymentLink(null)}
+                    disabled={loading}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button 
+                className="btn btn-secondary" 
+                style={{ width: '100%', marginBottom: 8 }} 
+                onClick={handleGeneratePaymentLink}
+                disabled={loading}
+              >
+                {loading ? '⏳ Generating Link...' : '🔗 Generate Payment Link'}
+              </button>
+            )}
           </div>
         </div>
         <div className="modal-footer">
@@ -324,7 +571,7 @@ function TenantUsersModal({ tenant, onClose }) {
       if (res?.error) {
         throw new Error(res.error);
       }
-      if (res.id) {
+      if (res.ok) {
         setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: res.is_active } : x));
       } else {
         throw new Error('Invalid response from server');
@@ -354,9 +601,11 @@ function TenantUsersModal({ tenant, onClose }) {
             <div style={{ display: 'grid', gap: 8 }}>
               {users.map(u => (
                 <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, opacity: u.is_active ? 1 : 0.55 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: `${ROLE_COLORS[u.role] || '#64748b'}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', border: `2px solid ${ROLE_COLORS[u.role] || '#64748b'}30` }}>
-                    {u.role ? u.role[0].toUpperCase() : ''}
-                  </div>
+                  <UserAvatar
+                    name={u.full_name || u.username || u.email}
+                    avatarUrl={u.avatar_url || null}
+                    size={36}
+                  />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 700, fontSize: '0.83rem' }}>{u.full_name || u.username || u.email}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 1 }}>{u.email}</div>
@@ -393,8 +642,12 @@ function TenantRow({ tenant, onEdit, onImpersonate, onToggle, onViewUsers }) {
     <tr>
       <td>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(0,212,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', border: '1px solid rgba(0,212,255,0.2)' }}>
-          </div>
+          <UserAvatar
+            name={tenant.admin_name || tenant.company_name || tenant.admin_email}
+            avatarUrl={tenant.avatar_url || null}
+            size={32}
+            style={{ borderRadius: 8 }}
+          />
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.85rem' }}>{tenant.company_name}</div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{tenant.admin_email}</div>
@@ -717,7 +970,7 @@ function PlansManager({ tenants }) {
                           <div style={{ fontSize:'0.65rem', color:'var(--text-muted)' }}>subscribers</div>
                         </div>
                       </div>
-                      <div style={{ marginBottom:12 }}>{plan.features.map(f => <div key={f} style={{ fontSize:'0.72rem', color:'var(--text-secondary)', marginBottom:3 }}>{f}</div>)}</div>
+                      <div style={{ marginBottom:12 }}>{plan.features.map((f, fi) => <div key={`${f}_${fi}`} style={{ fontSize:'0.72rem', color:'var(--text-secondary)', marginBottom:3 }}>{f}</div>)}</div>
                       <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', borderTop:'1px solid var(--border-subtle)', paddingTop:8, marginBottom:10 }}>
                         MRR: <strong style={{ color:plan.color }}>₹{(plan.price * tenantCount).toLocaleString('en-IN')}</strong>
                       </div>
@@ -867,7 +1120,6 @@ function RazorpayTab({ tenants, simulateWebhook, filtered }) {
     localStorage.setItem('sa_rzp_webhook_secret', rzpWebhook);
     localStorage.setItem('sa_rzp_mode', rzpMode);
     localStorage.setItem('sa_rzp_verified', 'true');
-    localStorage.setItem('sa_rzp_merchant_name', 'RecoverLab Solutions');
     setSaved(true); setTimeout(() => setSaved(false), 2500);
   };
 
@@ -888,7 +1140,7 @@ function RazorpayTab({ tenants, simulateWebhook, filtered }) {
               {isVerified ? 'Razorpay — Connected & Verified' : 'Razorpay — Not Configured'}
             </div>
             <div style={{ fontSize:'0.72rem', color:'var(--text-muted)', marginTop:2 }}>
-              {isVerified ? `Merchant: ${localStorage.getItem('sa_rzp_merchant_name')} · Mode: ${rzpMode.toUpperCase()}` : 'Enter your credentials below to enable payment collection'}
+              {isVerified ? `Mode: ${rzpMode.toUpperCase()}` : 'Enter your credentials below to enable payment collection'}
             </div>
           </div>
         </div>
@@ -1126,8 +1378,22 @@ function BrandingTab() {
   const load = () => { try { return JSON.parse(localStorage.getItem('sa_branding') || 'null') || {}; } catch { return {}; } };
   const [form, setForm] = useState(() => ({ platform_name: 'RecoverLab', tagline: 'Professional Data Recovery CRM', support_email: 'support@recoverlab.in', support_phone: '', logo_url: '', favicon_url: '', primary_color: '#00d4ff', accent_color: '#8b5cf6', terms_url: '', privacy_url: '', twitter_url: '', linkedin_url: '', ...load() }));
   const [saved, setSaved] = useState(false);
+  const [uploading, setUploading] = useState({ logo: false, favicon: false });
+  const [imageErrors, setImageErrors] = useState({ logo: false, favicon: false });
 
-  // Apply branding to the document: update title, favicon, sidebar text and CSS variables
+  // Load branding from backend on mount
+  useEffect(() => {
+    fetch('/api/settings/branding').then(r => r.ok ? r.json() : null).then(d => {
+      if (d && d.platform_name) {
+        setForm(f => ({ ...f, ...d }));
+        localStorage.setItem('sa_branding', JSON.stringify(d));
+        window.__branding = d;
+        window.dispatchEvent(new CustomEvent('sa_branding_update', { detail: d }));
+        applyBranding(d);
+      }
+    }).catch(() => {});
+  }, []);
+
   const hexToRgba = (hex, a = 1) => {
     try {
       const h = hex.replace('#', '');
@@ -1141,22 +1407,17 @@ function BrandingTab() {
 
   const applyBranding = (b) => {
     if (!b) return;
-    // document title
     try { document.title = b.platform_name || document.title; } catch (e) {}
-    // favicon
     try {
       if (b.favicon_url) {
-        let link = document.querySelector("link[rel~='icon']");
-        if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.getElementsByTagName('head')[0].appendChild(link); }
-        link.href = b.favicon_url;
+        const ts = Date.now();
+        const old = document.querySelector("link[rel~='icon']");
+        if (old) old.remove();
+        let link = document.createElement('link');
+        link.rel = 'icon'; link.type = 'image/x-icon'; link.href = `${b.favicon_url}?v=${ts}`;
+        document.getElementsByTagName('head')[0].appendChild(link);
       }
     } catch (e) {}
-    // sidebar logo text if present
-    try {
-      const t = document.querySelector('.sidebar .logo-title'); if (t && b.platform_name) t.textContent = b.platform_name;
-      const s = document.querySelector('.sidebar .logo-subtitle'); if (s && b.tagline) s.textContent = b.tagline;
-    } catch (e) {}
-    // CSS vars: accent colors
     try {
       const root = document.documentElement;
       if (b.accent_color) {
@@ -1171,9 +1432,74 @@ function BrandingTab() {
     } catch (e) {}
   };
 
-  const save = () => { localStorage.setItem('sa_branding', JSON.stringify(form)); applyBranding(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const handleFileUpload = async (field, file) => {
+    console.log(`Uploading ${field}:`, file.name);
+    
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp', 'image/x-icon', 'image/vnd.microsoft.icon'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please upload a valid image file (JPG, PNG, GIF, SVG, WebP, or ICO)');
+      return;
+    }
+    
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
 
-  // Apply branding once on mount using stored values so page reflects saved branding immediately
+    const fieldKey = field === 'logo' ? 'logo_url' : 'favicon_url';
+    
+    // Reset error state and start uploading
+    setImageErrors(e => ({ ...e, [field]: false }));
+    setUploading(u => ({ ...u, [field]: true }));
+    
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/super-admin/branding/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
+        body: fd,
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+      
+      const data = await res.json();
+      console.log(`Upload response for ${field}:`, data);
+      
+      if (data.url) {
+        // Update form with server URL
+        setForm(f => {
+          const newForm = { ...f, [fieldKey]: data.url };
+          console.log(`Updated form after ${field} upload:`, newForm);
+          return newForm;
+        });
+      }
+    } catch (e) { 
+      console.error(`Upload failed for ${field}:`, e);
+      alert('Upload failed: ' + e.message); 
+    } finally { 
+      setUploading(u => ({ ...u, [field]: false })); 
+    }
+  };
+
+  const save = () => {
+    console.log('Saving branding with form data:', form);
+    localStorage.setItem('sa_branding', JSON.stringify(form));
+    applyBranding(form);
+    window.__branding = form;
+    window.dispatchEvent(new CustomEvent('sa_branding_update', { detail: form }));
+    saApi.put('/settings', { branding: form })
+      .then(() => console.log('Branding saved successfully'))
+      .catch(err => console.error('Failed to save branding:', err));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   useEffect(() => { try { const stored = load(); if (stored) applyBranding(stored); } catch (e) {} }, []);
 
   return (
@@ -1185,8 +1511,117 @@ function BrandingTab() {
           <div className="form-group"><label className="form-label">Tagline</label><input className="form-input" value={form.tagline} onChange={e => setForm(f => ({ ...f, tagline: e.target.value }))} /></div>
         </div>
         <div className="form-row form-row-2">
-          <div className="form-group"><label className="form-label">Logo URL</label><input className="form-input" placeholder="https://yoursite.com/logo.png" value={form.logo_url} onChange={e => setForm(f => ({ ...f, logo_url: e.target.value }))} /></div>
-          <div className="form-group"><label className="form-label">Favicon URL</label><input className="form-input" placeholder="https://yoursite.com/favicon.ico" value={form.favicon_url} onChange={e => setForm(f => ({ ...f, favicon_url: e.target.value }))} /></div>
+          <div className="form-group">
+            <label className="form-label">Logo</label>
+            {form.logo_url && (
+              <div style={{ 
+                width: '100%', 
+                height: 120, 
+                marginBottom: 12,
+                border: '2px dashed var(--border-default)', 
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-subtle)',
+                padding: 12,
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+                {imageErrors.logo ? (
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>⚠️ Failed to load image</span>
+                ) : (
+                  <img 
+                    src={form.logo_url} 
+                    alt="Logo Preview" 
+                    style={{ 
+                      maxWidth: '100%', 
+                      maxHeight: '100%', 
+                      objectFit: 'contain',
+                      display: 'block'
+                    }} 
+                    onError={() => setImageErrors(e => ({ ...e, logo: true }))}
+                  />
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+                {uploading.logo ? 'Uploading...' : (form.logo_url ? 'Change Logo' : 'Upload Logo')}
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload('logo', f); e.target.value = ''; }} />
+              </label>
+              {form.logo_url && (
+                <button 
+                  type="button"
+                  className="btn btn-sm btn-danger" 
+                  onClick={() => { setForm(f => ({ ...f, logo_url: '' })); setImageErrors(e => ({ ...e, logo: false })); }}
+                  style={{ padding: '4px 10px' }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <input className="form-input" style={{ marginTop: 8, fontSize: '0.72rem' }} placeholder="Or paste logo URL" value={form.logo_url} onChange={e => { setForm(f => ({ ...f, logo_url: e.target.value })); setImageErrors(er => ({ ...er, logo: false })); }} />
+            <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              Recommended: PNG or SVG, transparent background, 200×60px
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Favicon</label>
+            {form.favicon_url && (
+              <div style={{ 
+                width: '100%', 
+                height: 120, 
+                marginBottom: 12,
+                border: '2px dashed var(--border-default)', 
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'var(--bg-subtle)',
+                padding: 20,
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+                {imageErrors.favicon ? (
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>⚠️ Failed to load image</span>
+                ) : (
+                  <img 
+                    src={form.favicon_url} 
+                    alt="Favicon Preview" 
+                    style={{ 
+                      maxWidth: '80px',
+                      maxHeight: '80px',
+                      objectFit: 'contain',
+                      display: 'block',
+                      imageRendering: 'crisp-edges'
+                    }} 
+                    onError={() => setImageErrors(e => ({ ...e, favicon: true }))}
+                  />
+                )}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+                {uploading.favicon ? 'Uploading...' : (form.favicon_url ? 'Change Favicon' : 'Upload Favicon')}
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload('favicon', f); e.target.value = ''; }} />
+              </label>
+              {form.favicon_url && (
+                <button 
+                  type="button"
+                  className="btn btn-sm btn-danger" 
+                  onClick={() => { setForm(f => ({ ...f, favicon_url: '' })); setImageErrors(e => ({ ...e, favicon: false })); }}
+                  style={{ padding: '4px 10px' }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <input className="form-input" style={{ marginTop: 8, fontSize: '0.72rem' }} placeholder="Or paste favicon URL" value={form.favicon_url} onChange={e => { setForm(f => ({ ...f, favicon_url: e.target.value })); setImageErrors(er => ({ ...er, favicon: false })); }} />
+            <div style={{ marginTop: 6, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+              Recommended: ICO, PNG or SVG, 32×32px or 64×64px
+            </div>
+          </div>
         </div>
         <div className="form-row form-row-2">
           <div className="form-group"><label className="form-label">Primary Color</label><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="color" value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} style={{ width: 44, height: 36, padding: 2, border: '1px solid var(--border-default)', borderRadius: 6, cursor: 'pointer' }} /><input className="form-input font-mono" value={form.primary_color} onChange={e => setForm(f => ({ ...f, primary_color: e.target.value }))} /></div></div>
@@ -1340,17 +1775,37 @@ function HomepageTab() {
       { icon: '', title: 'Billing & Invoicing', desc: 'Auto-generate invoices, quotations and receipts' },
       { icon: '', title: 'Inventory & Donors', desc: 'Smart matching of donor drives to active cases' },
     ],
-    footer_copyright: `© ${new Date().getFullYear()} RecoverLab. All rights reserved.`,
+    footer_text: `© ${new Date().getFullYear()} RecoverLab. All rights reserved.`,
     ...load(),
   }));
   const [saved, setSaved] = useState(false);
+
+  // Load homepage from backend on mount
+  useEffect(() => {
+    fetch('/api/settings/homepage').then(r => r.ok ? r.json() : null).then(d => {
+      if (d) {
+        // Handle both pre-parsed (object) and JSON string responses
+        const parsed = typeof d === 'string' ? JSON.parse(d) : d;
+        if (parsed && parsed.hero_title) {
+          setForm(f => ({ ...f, ...parsed }));
+          localStorage.setItem('sa_homepage', JSON.stringify(parsed));
+        }
+      }
+    }).catch(() => {});
+  }, []);
+
   const applyHomepage = (h) => {
     try { window.dispatchEvent(new CustomEvent('sa_homepage_update', { detail: h })); } catch (e) {}
-    // also update localStorage so other code can read
     try { localStorage.setItem('sa_homepage', JSON.stringify(h)); } catch (e) {}
   };
 
-  const save = () => { applyHomepage(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const save = () => {
+    applyHomepage(form);
+    // Persist to backend
+    saApi.put('/settings', { homepage: form }).catch(() => {});
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -1411,7 +1866,7 @@ function HomepageTab() {
         <button className="btn btn-secondary btn-sm" onClick={() => setForm(f => ({ ...f, features: [...f.features, { icon: '⭐', title: 'New Feature', desc: 'Describe this feature' }] }))}>Add Feature Card</button>
       </div>
 
-      <div className="form-group"><label className="form-label">Footer Copyright Text</label><input className="form-input" value={form.footer_copyright} onChange={e => setForm(f => ({ ...f, footer_copyright: e.target.value }))} /></div>
+      <div className="form-group"><label className="form-label">Footer Copyright Text</label><input className="form-input" value={form.footer_text} onChange={e => setForm(f => ({ ...f, footer_text: e.target.value }))} /></div>
       <div><button className="btn btn-primary" onClick={save}>{saved ? 'Saved!' : 'Save Homepage Settings'}</button></div>
     </div>
   );
@@ -1628,9 +2083,11 @@ function AccountsTab() {
         <div style={{ display: 'grid', gap: 10 }}>
           {accounts.map(acc => (
             <div key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', opacity: acc.is_active ? 1 : 0.5 }}>
-              <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'rgba(0,212,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', border: '2px solid rgba(0,212,255,0.2)' }}>
-                {acc.role ? acc.role[0].toUpperCase() : ''}
-              </div>
+              <UserAvatar
+                name={acc.name || acc.email}
+                avatarUrl={acc.avatar_url || null}
+                size={42}
+              />
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>{acc.name}</span>
@@ -1964,15 +2421,33 @@ function PlatformTab() {
   const load = () => { try { return JSON.parse(localStorage.getItem('sa_platform') || 'null') || {}; } catch { return {}; } };
   const [form, setForm] = useState(() => ({ trial_days: 14, auto_suspend_days: 7, maintenance_mode: false, maintenance_message: 'We are performing scheduled maintenance. Back soon!', max_file_upload_mb: 100, smtp_host: '', smtp_port: '587', smtp_user: '', smtp_pass: '', smtp_from: 'noreply@recoverlab.in', ...load() }));
   const [saved, setSaved] = useState(false);
-  const save = () => { localStorage.setItem('sa_platform', JSON.stringify(form)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
-
-  const health = [
+  const [health, setHealth] = useState([
     { label: 'API Server', status: 'operational', uptime: '99.97%' },
     { label: 'Database', status: 'operational', uptime: '99.99%' },
     { label: 'File Storage', status: 'operational', uptime: '99.95%' },
     { label: 'Email (SMTP)', status: form.smtp_host ? 'configured' : 'not_configured', uptime: form.smtp_host ? '—' : '—' },
     { label: 'Razorpay Webhook', status: localStorage.getItem('sa_rzp_verified') === 'true' ? 'verified' : 'not_verified', uptime: '—' },
-  ];
+  ]);
+  
+  const save = () => { localStorage.setItem('sa_platform', JSON.stringify(form)); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+
+  // Load uptime stats from API on mount
+  useEffect(() => {
+    saApi.get('/platform-uptime')
+      .then(data => {
+        if (data && typeof data === 'object') {
+          const healthData = [
+            { label: data.api?.label || 'API Server', status: data.api?.status || 'operational', uptime: data.api?.uptime || '99.97%' },
+            { label: data.database?.label || 'Database', status: data.database?.status || 'operational', uptime: data.database?.uptime || '99.99%' },
+            { label: data.storage?.label || 'File Storage', status: data.storage?.status || 'operational', uptime: data.storage?.uptime || '99.95%' },
+            { label: data.email?.label || 'Email (SMTP)', status: form.smtp_host ? 'configured' : 'not_configured', uptime: form.smtp_host ? data.email?.uptime || '99.90%' : '—' },
+            { label: 'Razorpay Webhook', status: localStorage.getItem('sa_rzp_verified') === 'true' ? 'verified' : 'not_verified', uptime: '—' },
+          ];
+          setHealth(healthData);
+        }
+      })
+      .catch(() => {});
+  }, [form.smtp_host]);
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
@@ -2771,7 +3246,7 @@ export default function SuperAdminPage() {
 
       {/* Razorpay Tab */}
       {activeTab === 'razorpay' && (
-        <RazorpayTab tenants={tenants} simulateWebhook={simulateWebhook} filtered={filtered} />
+        <RazorpaySettingsTab />
       )}
 
       {/* Coupons Tab */}
@@ -2911,13 +3386,16 @@ export default function SuperAdminPage() {
       {activeTab === 'branding' && <BrandingTab />}
 
       {/* ── SEO Tab ────────────────────────────────────────────────────────── */}
-      {activeTab === 'seo' && <SeoTab />}
+      {activeTab === 'seo' && <SeoSettingsTab />}
 
       {/* ── Homepage Tab ───────────────────────────────────────────────────── */}
-      {activeTab === 'homepage' && <HomepageTab />}
+      {activeTab === 'homepage' && <HomepageSettingsTab />}
 
       {/* ── Invoices Tab ───────────────────────────────────────────────────── */}
-      {activeTab === 'invoices' && <InvoicesTab purchases={allPurchases} tenants={tenants} />}
+      {activeTab === 'invoices' && <InvoiceSettingsTab />}
+
+      {/* ── 2FA Tab ────────────────────────────────────────────────────────── */}
+      {activeTab === '2fa' && <TwoFASettingsTab />}
 
       {/* ── SA Accounts Tab ────────────────────────────────────────────────── */}
       {activeTab === 'accounts' && <AccountsTab />}

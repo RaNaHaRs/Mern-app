@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../store/AuthContext';
 import MathCaptcha from '../components/MathCaptcha';
@@ -52,6 +52,14 @@ export default function LoginPage() {
 
   // Forgot password
   const [resetEmail, setResetEmail] = useState('');
+
+  const [branding, setBranding] = useState(window.__branding || null);
+  useEffect(() => {
+    setBranding(window.__branding || null);
+    const handler = (ev) => setBranding(ev.detail);
+    window.addEventListener('sa_branding_update', handler);
+    return () => window.removeEventListener('sa_branding_update', handler);
+  }, []);
 
   const goStep = (s) => { setPrevStep(step); setError(''); setStep(s); };
 
@@ -245,11 +253,11 @@ export default function LoginPage() {
 
           {/* ── Header ─────────────────────────────────────── */}
           <div className="login-logo" style={{ marginBottom: 28 }}>
-            <div className="login-logo-icon auth-icon-enter" key={step}>
-              {meta.icon}
+            <div className="login-logo-icon auth-icon-enter" key={step} style={branding?.logo_url ? { background: `url(${branding.logo_url}) center/contain no-repeat`, boxShadow: 'none' } : {}}>
+              {branding?.logo_url ? '' : meta.icon}
             </div>
-            <div className="login-app-name">{meta.title}</div>
-            <div className="login-tagline">{meta.sub}</div>
+            <div className="login-app-name">{branding?.platform_name || meta.title}</div>
+            <div className="login-tagline">{branding?.tagline || meta.sub}</div>
           </div>
 
           {/* ── Banners ─────────────────────────────────────── */}
@@ -422,6 +430,9 @@ export default function LoginPage() {
           <div style={{ textAlign: 'center', marginTop: 20, fontSize: '0.63rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <span>🔒</span> Encrypted · Rate-limited · 2FA available
           </div>
+          <footer style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>&copy; {new Date().getFullYear()} RecoverLab. All rights reserved.</span>
+          </footer>
         </div>
       </div>
     </>

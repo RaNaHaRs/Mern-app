@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './store/AuthContext';
 import { ThemeProvider, FontSizeProvider, useTheme, useFontSize } from './store/ThemeContext';
 import FloatingChat from './components/FloatingChat';
 import SuperAdminFloatingChat from './components/SuperAdminFloatingChat';
+import UserAvatar from './components/UserAvatar';
 
 export { useTheme, useFontSize };
 
@@ -72,7 +73,7 @@ function LoadingScreen() {
 }
 
 // ── Sidebar ────────────────────────────────────────────────────
-function Sidebar({ open, onClose }) {
+function Sidebar({ open, onClose, branding }) {
   const { user, logout, isSuperAdmin, isPlatformStaff, isOwner, isAdmin, hasPermission } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -147,12 +148,16 @@ function Sidebar({ open, onClose }) {
     <>
       <div className={`sidebar-overlay${open ? ' visible' : ''}`} onClick={onClose} />
       <nav className={`sidebar${open ? ' open' : ''}`}>
-        <div className="sidebar-logo">
+          <div className="sidebar-logo">
           <div className="logo-mark">
-            <div className="logo-icon">RL</div>
+            <div className="logo-icon" style={{ overflow: 'hidden', position: 'relative', background: branding?.logo_url ? 'none' : undefined, boxShadow: branding?.logo_url ? 'none' : undefined }}>
+              {branding?.logo_url
+                ? <img key={`${branding.logo_url}-${Date.now()}`} src={branding.logo_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', position: 'absolute', inset: 0 }} onError={(e) => { console.error('Logo failed to load:', branding.logo_url); e.target.style.display = 'none'; }} />
+                : 'RL'}
+            </div>
             <div className="logo-text">
-              <span className="logo-title">RecoverLab</span>
-              <span className="logo-subtitle">CRM Platform</span>
+              <span className="logo-title">{branding?.platform_name || 'RecoverLab'}</span>
+              <span className="logo-subtitle">{branding?.tagline || 'CRM Platform'}</span>
             </div>
           </div>
         </div>
@@ -183,9 +188,12 @@ function Sidebar({ open, onClose }) {
         <div className="sidebar-footer">
           <div className="user-card" onClick={() => { navigate('/settings'); onClose(); }}>
             <div className="user-avatar" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {user?.avatar
-                ? <img src={user.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                : user?.fullName?.split(' ')?.map(n => n?.[0]).filter(Boolean).join('').slice(0, 2).toUpperCase() || 'U'}
+              <UserAvatar
+                name={user?.fullName || user?.username}
+                avatarUrl={user?.avatar || user?.avatarUrl}
+                size={36}
+                style={{ borderRadius: '50%' }}
+              />
             </div>
             <div className="user-info">
               <div className="user-name">{user?.fullName || 'User'}</div>
@@ -295,10 +303,21 @@ function ProtectedRoute({ children }) {
 // ── Main App Layout ────────────────────────────────────────────
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [branding, setBranding] = useState(window.__branding || null);
   const { isSuperAdmin, impersonating, exitImpersonation } = useAuth();
   const hasOverride = !!sessionStorage.getItem('accessTokenOverride');
   const showImpersonationBanner = impersonating || hasOverride;
   const isSuperAdminUser = isSuperAdmin && !showImpersonationBanner;
+
+  useEffect(() => {
+    setBranding(window.__branding || null);
+    const handler = (ev) => {
+      console.log('Sidebar received branding update:', ev.detail);
+      setBranding(ev.detail);
+    };
+    window.addEventListener('sa_branding_update', handler);
+    return () => window.removeEventListener('sa_branding_update', handler);
+  }, []);
 
   return (
     <div className="app-layout" style={showImpersonationBanner ? { paddingTop: 36 } : {}}>
@@ -312,7 +331,7 @@ function AppLayout() {
       <button className="hamburger-btn" onClick={() => setSidebarOpen(o => !o)}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} branding={branding} />
       <div className="main-content">
         <Header />
         <div className="page-content">
@@ -344,6 +363,9 @@ function AppLayout() {
             </Routes>
           </React.Suspense>
         </div>
+        <footer style={{ padding: '16px clamp(16px,5vw,72px)', borderTop: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>&copy; {new Date().getFullYear()} RecoverLab. All rights reserved.</span>
+        </footer>
       </div>
       {!isSuperAdminUser && <FloatingChat />}
       {isSuperAdminUser && <SuperAdminFloatingChat />}
@@ -353,6 +375,20 @@ function AppLayout() {
 
 // ── Root App ───────────────────────────────────────────────────
 export default function App() {
+  useEffect(() => {
+    fetch('/api/settings/branding').then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return;
+      window.__branding = d;
+      window.dispatchEvent(new CustomEvent('sa_branding_update', { detail: d }));
+      if (d.favicon_url) {
+        const old = document.querySelector("link[rel~='icon']");
+        if (old) old.remove();
+        let link = document.createElement('link');
+        link.rel = 'icon'; link.type = 'image/x-icon'; link.href = `${d.favicon_url}?v=${Date.now()}`;
+        document.getElementsByTagName('head')[0].appendChild(link);
+      }
+    }).catch(() => {});
+  }, []);
   return (
     <ThemeProvider>
       <FontSizeProvider>

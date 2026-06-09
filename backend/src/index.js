@@ -5,6 +5,7 @@ const cors = require('cors');
 const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 
 const logger = require('./config/logger');
 const { testConnection } = require('./config/database');
@@ -41,6 +42,7 @@ const activityLogsRoutes = require('./routes/activityLogs');
 const encryptionRoutes = require('./routes/encryption');
 const securityRoutes = require('./routes/security');
 const twoFactorRoutes = require('./routes/twoFactor');
+const paymentLinkRoutes = require('./routes/payments-link');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -51,7 +53,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', 'blob:'],
+      imgSrc: ["'self'", 'data:', 'blob:', `${process.env.FRONTEND_URL || 'http://localhost:5174'}`],
+      mediaSrc: ["'self'", 'data:', 'blob:'],
     }
   }
 }));
@@ -134,6 +137,10 @@ app.use('/api/settings',    settingsRoutes);
 app.use('/api/chat',        chatRoutes);
 app.use('/api/client-portal', clientPortalRoutes);
 app.use('/api/activity-logs', activityLogsRoutes);
+app.use('/api/payment-link', paymentLinkRoutes);
+
+// Serve uploaded branding files
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Health check
 app.get('/api/health', (req, res) => {

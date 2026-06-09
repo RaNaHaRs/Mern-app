@@ -177,6 +177,13 @@ router.post('/login',
       // Update last_login
       await query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
+      // Log login activity
+      await query(
+        `INSERT INTO activity_logs (user_id, tenant_id, action, module, resource_type, title, description, ip_address, user_agent)
+         VALUES ($1, $2, 'user_login', 'auth', 'session', 'User Login', $3, $4, $5)`,
+        [user.id, user.tenant_id || user.tenant_owner_id || null, `${user.full_name || user.username} logged in`, req.ip, req.get('user-agent')]
+      );
+
       logger.info('User logged in', { userId: user.id, username: user.username });
 
       // Resolve effective permissions: custom > role-based > default presets > empty
@@ -209,7 +216,9 @@ router.post('/login',
           role: user.role,
           tenantId: normalizedTenantId,
           specializations: user.specializations,
+          avatar: user.avatar_url,
           avatarUrl: user.avatar_url,
+          phone: user.phone,
           permissions: effectivePermissions
         }
       });
@@ -264,7 +273,7 @@ router.post('/2fa/verify', [body('temp_token').notEmpty(), body('totp_code').not
       req,
     });
 
-    res.json({ accessToken, refreshToken, user: { id: user.id, username: user.username, email: user.email, fullName: user.full_name, role: user.role, tenantId: normalizedTenantId, specializations: user.specializations, avatarUrl: user.avatar_url, permissions: effectivePermissions } });
+    res.json({ accessToken, refreshToken, user: { id: user.id, username: user.username, email: user.email, fullName: user.full_name, role: user.role, tenantId: normalizedTenantId, specializations: user.specializations, avatar: user.avatar_url, avatarUrl: user.avatar_url, permissions: effectivePermissions } });
   } catch (err) {
     logger.error('2FA verify error', { error: err.message });
     res.status(500).json({ error: '2FA verification failed' });
@@ -321,6 +330,13 @@ router.post('/logout', authenticate, async (req, res) => {
     await query('DELETE FROM refresh_tokens WHERE token = $1 AND user_id = $2', [refreshToken, req.user.id]);
   }
 
+  // Log logout activity
+  await query(
+    `INSERT INTO activity_logs (user_id, tenant_id, action, module, resource_type, title, description, ip_address, user_agent)
+     VALUES ($1, $2, 'user_logout', 'auth', 'session', 'User Logout', $3, $4, $5)`,
+    [req.user.id, req.user.tenant_id || req.user.tenant_owner_id || null, `${req.user.full_name || req.user.username} logged out`, req.ip, req.get('user-agent')]
+  ).catch(err => logger.error('Failed to log logout activity', { error: err.message }));
+
   await recordLoginActivity({
     tenantId: req.user.tenant_id || req.user.tenant_owner_id || null,
     userId: req.user.id,
@@ -339,14 +355,16 @@ router.get('/me', authenticate, async (req, res) => {
   try {
     result = await query(
       `SELECT id, username, email, full_name, role, tenant_id, is_active, specializations,
-              avatar_url, phone, notes, permissions, last_login, created_at
+              avatar_url, phone, bio, notes, permissions, last_login, created_at,
+              subscription_plan, subscription_status, subscription_expiry, company_name
        FROM users WHERE id = $1`,
       [req.user.id]
     );
   } catch (err) {
     result = await query(
       `SELECT id, username, email, full_name, role, tenant_owner_id AS tenant_id, is_active, specializations,
-              avatar_url, phone, notes, permissions, last_login, created_at
+              avatar_url, phone, bio, notes, permissions, last_login, created_at,
+              subscription_plan, subscription_status, subscription_expiry, company_name
        FROM users WHERE id = $1`,
       [req.user.id]
     );
@@ -356,6 +374,26 @@ router.get('/me', authenticate, async (req, res) => {
 
   // Resolve effective permissions: custom > role-based > default presets > empty
   const effectivePermissions = await resolveUserPermissions(u.id, u.role, u.permissions);
+
+  // Fetch plan details if user has active subscription
+  let planDetails = null;
+  if (u.subscription_plan) {
+    try {
+      const plansResult = await query(`SELECT value FROM platform_settings WHERE key = 'custom_plans'`);
+      let plans = [];
+      if (plansResult.rows.length) {
+        try {
+          const stored = plansResult.rows[0].value;
+          plans = typeof stored === 'string' ? JSON.parse(stored) : (stored || []);
+        } catch (e) {
+          logger.warn('Failed to parse custom plans', { error: e.message });
+        }
+      }
+      planDetails = plans.find(p => p.key === u.subscription_plan) || null;
+    } catch (err) {
+      logger.warn('Failed to fetch plan details', { error: err.message });
+    }
+  }
 
   // Return normalized camelCase response (matches login response format)
   res.json({
@@ -370,10 +408,17 @@ router.get('/me', authenticate, async (req, res) => {
     avatar: u.avatar_url,
     avatarUrl: u.avatar_url,
     phone: u.phone,
+    bio: u.bio,
     notes: u.notes,
     permissions: effectivePermissions,
     lastLogin: u.last_login,
     createdAt: u.created_at,
+    // SUBSCRIPTION DATA — now returned to frontend for feature activation
+    subscriptionPlan: u.subscription_plan,
+    subscriptionStatus: u.subscription_status,
+    subscriptionExpiry: u.subscription_expiry,
+    planDetails: planDetails,
+    companyName: u.company_name,
   });
 });
 

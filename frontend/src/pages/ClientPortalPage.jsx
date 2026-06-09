@@ -281,6 +281,9 @@ export default function ClientPortalPage() {
       <div style={{ marginTop: 'auto', paddingTop: 40, textAlign: 'center', color: '#374151', fontSize: '0.7rem' }}>
         <div>Powered by <strong style={{ color: '#64748b' }}>RecoverLab CRM</strong></div>
         <div style={{ marginTop: 4 }}>Your data privacy is our top priority — we never share your information.</div>
+        <footer style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid #e5e7eb' }}>
+          <span style={{ fontSize: '0.68rem', color: '#6b7280' }}>&copy; {new Date().getFullYear()} RecoverLab. All rights reserved.</span>
+        </footer>
       </div>
     </div>
   );

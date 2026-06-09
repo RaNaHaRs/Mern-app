@@ -44,16 +44,44 @@ function getRazorpay(keyId, keySecret) {
  */
 async function createOrder({ amount, currency = 'INR', receipt, notes = {}, keyId, keySecret }) {
   try {
-    const order = await getRazorpay(keyId, keySecret).orders.create({
+    if (!keyId || !keySecret) {
+      throw new Error('Razorpay API credentials (keyId and keySecret) are required');
+    }
+
+    if (!amount || amount < 1) {
+      throw new Error('Amount must be at least 1 rupee');
+    }
+
+    const razorpayInstance = getRazorpay(keyId, keySecret);
+    const orderData = {
       amount:   Math.round(amount * 100), // convert ₹ → paise
       currency,
       receipt,
       notes,
+    };
+
+    logger.info('Creating Razorpay order', { 
+      receipt, 
+      amount, 
+      amountInPaise: orderData.amount,
+      keyIdPrefix: keyId.substring(0, 10) + '...'
     });
-    logger.info('Razorpay order created', { orderId: order.id, amount });
+
+    const order = await razorpayInstance.orders.create(orderData);
+    
+    if (!order || !order.id) {
+      throw new Error('Razorpay API did not return a valid order ID');
+    }
+
+    logger.info('Razorpay order created successfully', { orderId: order.id, amount, receipt });
     return order;
   } catch (err) {
-    logger.error('Razorpay createOrder error', { error: err.message });
+    logger.error('Razorpay createOrder error', { 
+      error: err.message,
+      receipt,
+      keyIdProvided: !!keyId,
+      keySecretProvided: !!keySecret
+    });
     throw err;
   }
 }
@@ -115,10 +143,42 @@ async function fetchPayment(paymentId, keyId, keySecret) {
   return getRazorpay(keyId, keySecret).payments.fetch(paymentId);
 }
 
+/**
+ * Create a refund for a payment.
+ * @param {object} opts
+ * @param {string}  opts.paymentId   - Razorpay payment ID
+ * @param {number}  opts.amount      - Amount in paise (optional, full refund if not provided)
+ * @param {object}  opts.notes       - Arbitrary key-value metadata
+ * @param {string}  opts.keyId       - Optional API key id
+ * @param {string}  opts.keySecret   - Optional API key secret
+ * @returns {Promise<object>}         - Razorpay refund object
+ */
+async function createRefund({ paymentId, amount, notes = {}, keyId, keySecret }) {
+  try {
+    const refundData = {
+      payment_id: paymentId,
+      notes,
+    };
+    
+    // If amount is specified, add it (in paise)
+    if (amount) {
+      refundData.amount = amount;
+    }
+    
+    const refund = await getRazorpay(keyId, keySecret).payments.refund(paymentId, refundData);
+    logger.info('Razorpay refund created', { refundId: refund.id, paymentId, amount });
+    return refund;
+  } catch (err) {
+    logger.error('Razorpay createRefund error', { error: err.message, paymentId });
+    throw err;
+  }
+}
+
 module.exports = {
   createOrder,
   verifyPaymentSignature,
   verifyWebhookSignature,
   fetchOrder,
   fetchPayment,
+  createRefund,
 };
