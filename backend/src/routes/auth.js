@@ -10,6 +10,17 @@ const logger = require('../config/logger');
 
 const router = express.Router();
 
+// Platform staff (billing_admin, support_admin, content_admin, etc.) have no tenant — only
+// real tenant users (admin + their team) get a tenantId derived from their own id.
+const PLATFORM_STAFF_ROLES = new Set(['super_admin','support_admin','billing_admin','content_admin']);
+function normalizeTenantId(user) {
+  if (!user) return null;
+  if (user.tenant_id) return user.tenant_id;
+  if (user.tenant_owner_id) return user.tenant_owner_id;
+  if (PLATFORM_STAFF_ROLES.has(user.role)) return null;
+  return user.id || null;
+}
+
 async function recordLoginActivity({ tenantId = null, userId = null, action, title, description, req }) {
   try {
     const ipAddress = (req.headers['x-forwarded-for'] || req.ip || req.connection?.remoteAddress || '').split(',')[0].trim() || null;
@@ -181,7 +192,7 @@ router.post('/login',
 
       // Resolve effective permissions: custom > role-based > default presets > empty
       const effectivePermissions = await resolveUserPermissions(user.id, user.role, user.permissions);
-      const normalizedTenantId = user.tenant_id || user.tenant_owner_id || (user.role === 'super_admin' ? null : user.id) || null;
+      const normalizedTenantId = normalizeTenantId(user);
       const accessToken = generateAccessToken({
         id: user.id,
         role: user.role,
@@ -252,7 +263,7 @@ router.post('/2fa/verify', [body('temp_token').notEmpty(), body('totp_code').not
     await query(`INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '30 days')`, [user.id, refreshToken]);
     await query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
     const effectivePermissions = await resolveUserPermissions(user.id, user.role, user.permissions);
-    const normalizedTenantId = user.tenant_id || user.tenant_owner_id || (user.role === 'super_admin' ? null : user.id) || null;
+    const normalizedTenantId = normalizeTenantId(user);
     const accessToken = generateAccessToken({ id: user.id, role: user.role, tenant_id: normalizedTenantId, permissions: effectivePermissions });
 
     await recordLoginActivity({
@@ -305,7 +316,7 @@ router.post('/refresh', async (req, res) => {
     const newAccessToken = generateAccessToken({
       id: decoded.userId,
       role: result.rows[0].role,
-      tenant_id: result.rows[0].tenant_id || result.rows[0].tenant_owner_id || (result.rows[0].role === 'super_admin' ? null : decoded.userId),
+      tenant_id: normalizeTenantId(result.rows[0]),
       permissions: effectivePermissions,
     });
     res.json({ accessToken: newAccessToken });
@@ -364,7 +375,7 @@ router.get('/me', authenticate, async (req, res) => {
     email: u.email,
     fullName: u.full_name,
     role: u.role,
-    tenantId: u.tenant_id || u.tenant_owner_id || (u.role === 'super_admin' ? null : u.id) || null,
+    tenantId: normalizeTenantId(u),
     isActive: u.is_active,
     specializations: u.specializations,
     avatar: u.avatar_url,
@@ -523,7 +534,7 @@ router.post('/forgot-password',
         const count = attemptResult.rows[0].attempt_count;
         if (count >= MAX_DAILY_ATTEMPTS) {
           await recordResetActivity({
-            tenantId: user.tenant_id || user.tenant_owner_id || (user.role === 'super_admin' ? null : user.id) || null,
+            tenantId: normalizeTenantId(user),
             userId: user.id,
             action: 'password_reset_limit_reached',
             title: 'Reset limit reached',
@@ -589,36 +600,28 @@ router.post('/forgot-password',
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
       const resetLink = `${frontendUrl}/reset-password?token=${token}`;
 
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <body style="font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; padding: 30px; margin: 0;">
-          <div style="max-width: 560px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 40px; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
-            <div style="text-align: center; margin-bottom: 30px;">
-              <h1 style="color: #1a1a2e; margin: 0; font-size: 24px;">💾 RecoverLab CRM</h1>
-              <p style="color: #666; margin-top: 6px; font-size: 14px;">Password Recovery Request</p>
-            </div>
-            <p style="color: #333; font-size: 15px;">Hi <strong>${user.full_name || user.username}</strong>,</p>
-            <p style="color: #555; font-size: 14px; line-height: 1.6;">
-              We received a request to reset your password. Click the secure link below to set a new password.
-              This link expires in <strong>60 minutes</strong> and can only be used once.
-            </p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetLink}" style="display: inline-block; background: #3b82f6; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 15px; box-shadow: 0 4px 6px rgba(59,130,246,0.2);">
-                Reset My Password
-              </a>
-            </div>
-            <p style="color: #666; font-size: 13px; line-height: 1.6; text-align: center;">
-              If you did not request a password reset, you can safely ignore this email.<br>
-              Your password will not change unless you click the link above.
-            </p>
-            <p style="color: #888; font-size: 12px; text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 20px;">
-              Need help? Email us at <a href="mailto:support@recoverlab.in" style="color:#3b82f6;">support@recoverlab.in</a>
-            </p>
+      const { emailTemplate } = require('../services/emailTemplate');
+      const html = emailTemplate({
+        title: 'Password Recovery Request',
+        preheader: 'Reset your RecoverLab CRM password — link expires in 60 minutes',
+        body: `
+          <p>Hi <strong>${user.full_name || user.username}</strong>,</p>
+          <p>We received a request to reset your password. Click the button below to set a new password.
+          This link expires in <strong>60 minutes</strong> and can only be used once.</p>
+          <div class="btn-wrap">
+            <a href="${resetLink}" class="btn">Reset My Password</a>
           </div>
-        </body>
-        </html>
-      `;
+          <p style="font-size:13px;color:#6b7280;text-align:center;">
+            If you did not request a password reset, you can safely ignore this email.<br>
+            Your password will not change unless you click the link above.
+          </p>
+          <hr class="divider">
+          <p style="font-size:12px;color:#9ca3af;text-align:center;word-break:break-all;">
+            If the button doesn't work, copy this link:<br>
+            <a href="${resetLink}" style="color:#3b82f6;">${resetLink}</a>
+          </p>
+        `,
+      });
 
       const text = `Hi ${user.full_name || user.username},\n\nClick the link below to reset your password:\n\n${resetLink}\n\nThis link expires in 60 minutes and can only be used once.\n\nIf you did not request a password reset, ignore this email.`;
 
@@ -632,7 +635,7 @@ router.post('/forgot-password',
       });
 
       // Log activity
-      const userTenantId = user.tenant_id || user.tenant_owner_id || (user.role === 'super_admin' ? null : user.id) || null;
+      const userTenantId = normalizeTenantId(user);
       await recordResetActivity({
         tenantId: userTenantId,
         userId: user.id,
@@ -767,7 +770,7 @@ router.post('/reset-password',
       await query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
 
       // Log activity
-      const userTenantId = user.tenant_id || user.tenant_owner_id || (user.role === 'super_admin' ? null : user.id) || null;
+      const userTenantId = normalizeTenantId(user);
       await recordResetActivity({
         tenantId: userTenantId,
         userId: user.id,

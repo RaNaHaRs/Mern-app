@@ -19,6 +19,7 @@ const bcrypt        = require('bcryptjs');
 const crypto        = require('crypto');
 const fs            = require('fs');
 const path          = require('path');
+const multer        = require('multer');
 const jwt           = require('jsonwebtoken');
 const { ZipArchive } = require('archiver');
 const { body, query: qv, validationResult } = require('express-validator');
@@ -35,6 +36,33 @@ const tfaService      = require('../services/twoFactorService');
 const automationService = require('../services/automationService');
 
 const router = express.Router();
+
+// ── Logo upload storage ────────────────────────────────────────────────────
+const LOGOS_DIR = path.join(process.cwd(), 'uploads', 'logos');
+if (!fs.existsSync(LOGOS_DIR)) fs.mkdirSync(LOGOS_DIR, { recursive: true });
+
+const logoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, LOGOS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.png';
+    cb(null, `logo_${Date.now()}${ext}`);
+  },
+});
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+  fileFilter: (req, file, cb) => {
+    if (/^image\/(png|jpeg|jpg|gif|svg\+xml|webp)$/.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed (PNG, JPG, GIF, SVG, WebP)'));
+  },
+});
+
+// POST /api/super-admin/upload-logo
+router.post('/upload-logo', authenticate, requireSuperAdmin, logoUpload.single('logo'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const url = `/uploads/logos/${req.file.filename}`;
+  res.json({ ok: true, url });
+});
 
 // POST /api/super-admin/coupons/validate  (used by checkout — no super_admin guard below)
 router.post('/coupons/validate', async (req, res) => {
@@ -791,7 +819,30 @@ router.patch('/plans/:id', auditLog('update_plan', 'plan'), async (req, res) => 
   }
 });
 
-// DELETE /api/super-admin/plans/:id
+// DELETE /api/super-admin/plans/:id/permanent — Hard delete (must be before /:id to avoid route conflict)
+router.delete('/plans/:id/permanent', auditLog('permanent_delete_plan', 'plan'), async (req, res) => {
+  try {
+    const planResult = await query('SELECT key, is_active FROM subscription_plans WHERE id=$1', [req.params.id]);
+    if (!planResult.rows.length) return res.status(404).json({ error: 'Plan not found' });
+    if (planResult.rows[0].is_active) return res.status(400).json({ error: 'Cannot permanently delete an active plan. Deactivate it first.' });
+
+    const planKey = planResult.rows[0].key;
+    const subscriberCheck = await query(
+      `SELECT COUNT(*) AS cnt FROM users WHERE subscription_plan = $1 AND is_active = true`,
+      [planKey]
+    );
+    if (parseInt(subscriberCheck.rows[0].cnt) > 0) {
+      return res.status(400).json({ error: 'Cannot permanently delete a plan with active subscribers.' });
+    }
+
+    await query('DELETE FROM subscription_plans WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Plan permanently deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/super-admin/plans/:id — Soft delete (deactivate)
 router.delete('/plans/:id', auditLog('delete_plan', 'plan'), async (req, res) => {
   try {
     const planResult = await query('SELECT key FROM subscription_plans WHERE id=$1', [req.params.id]);
@@ -832,7 +883,8 @@ router.put('/plans', auditLog('bulk_sync_plans', 'plan'), async (req, res) => {
         `INSERT INTO subscription_plans (key, label, price_monthly, max_users, color, features, sort_order, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (key) DO UPDATE SET
-           label=$2, price_monthly=$3, max_users=$4, color=$5, features=$6, sort_order=$7, updated_at=NOW()`,
+           label=$2, price_monthly=$3, max_users=$4, color=$5, features=$6, sort_order=$7, updated_at=NOW()
+         WHERE subscription_plans.is_active = true`,
         [p.key, p.label, p.price || 0, p.maxUsers || 5, p.color || '#3b82f6', JSON.stringify(p.features || []), idx, req.user.id]
       );
     }
@@ -1382,6 +1434,43 @@ router.post('/purchases/:id/resend-invoice', auditLog('resend_invoice', 'purchas
 });
 
 // ═══════════════════════════════════════════════════════════════
+// I-b. TENANT FEATURE PERMISSION OVERRIDES (Super Admin)
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/super-admin/tenants/:id/permissions — get feature overrides for a tenant's admin
+router.get('/tenants/:id/permissions', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT permissions FROM users WHERE id=$1 AND role='admin'`,
+      [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Tenant admin not found' });
+    const raw = result.rows[0].permissions;
+    // If stored as full granular object return as-is; if only { access_level } return null
+    const perms = (raw && typeof raw === 'object' && !raw.access_level) ? raw : null;
+    res.json({ permissions: perms });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/super-admin/tenants/:id/permissions — set feature overrides for a tenant's admin
+router.patch('/tenants/:id/permissions', auditLog('override_tenant_permissions', 'tenant'), async (req, res) => {
+  const { permissions } = req.body;
+  if (!permissions || typeof permissions !== 'object') return res.status(400).json({ error: 'permissions object required' });
+  try {
+    const result = await query(
+      `UPDATE users SET permissions=$1, updated_at=NOW() WHERE id=$2 AND role='admin' RETURNING id`,
+      [JSON.stringify(permissions), req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Tenant admin not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // J. TENANT USERS MANAGEMENT
 // ═══════════════════════════════════════════════════════════════
 
@@ -1427,11 +1516,13 @@ router.get('/accounts', async (req, res) => {
        WHERE role IN ('super_admin','support_admin','billing_admin','content_admin')
        ORDER BY created_at DESC`
     );
-    // Extract permissions string from JSONB for frontend display
-    const accounts = result.rows.map(r => ({
-      ...r,
-      permissions: (r.permissions && r.permissions.access_level) || r.permissions || 'full',
-    }));
+    const accounts = result.rows.map(r => {
+      const p = r.permissions;
+      // Granular object (has module keys, no access_level) → return as-is for frontend matrix
+      // Role shorthand {access_level: 'view_only'} → return the string value
+      const isGranular = p && typeof p === 'object' && !p.access_level && Object.keys(p).length > 0;
+      return { ...r, permissions: isGranular ? p : ((p && p.access_level) || 'full') };
+    });
     res.json({ accounts });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1446,13 +1537,18 @@ router.post('/accounts', auditLog('create_platform_account', 'user'), async (req
     const exists = await query('SELECT id FROM users WHERE email=$1', [email]);
     if (exists.rows.length) return res.status(409).json({ error: 'Email already in use' });
 
+    // If permissions is a granular object store it directly; otherwise wrap as role shorthand
+    const permVal = (permissions && typeof permissions === 'object')
+      ? JSON.stringify(permissions)
+      : JSON.stringify({ access_level: permissions });
+
     const hash = await bcrypt.hash(password || 'ChangeMe@123', 12);
     const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '') + '_' + Date.now().toString(36);
     const result = await query(
       `INSERT INTO users (username, email, password_hash, full_name, role, is_active, permissions)
        VALUES ($1,$2,$3,$4,$5,true,$6)
        RETURNING id, full_name AS name, email, role, is_active, permissions, created_at`,
-      [username, email, hash, name, role, JSON.stringify({ access_level: permissions })]
+      [username, email, hash, name, role, permVal]
     );
     const acc = result.rows[0];
     acc.permissions = permissions;
@@ -1470,14 +1566,25 @@ router.post('/accounts', auditLog('create_platform_account', 'user'), async (req
 
 // PATCH /api/super-admin/accounts/:id — Update account (toggle active, change role, etc.)
 router.patch('/accounts/:id', auditLog('update_platform_account', 'user'), async (req, res) => {
-  const { is_active, role, permissions } = req.body;
+  const { is_active, role, permissions, name, password } = req.body;
   try {
     const updates = [];
     const vals    = [];
     let   i       = 1;
     if (typeof is_active === 'boolean') { updates.push(`is_active = $${i++}`); vals.push(is_active); }
     if (role !== undefined)             { updates.push(`role = $${i++}`);      vals.push(role); }
-    if (permissions !== undefined)       { updates.push(`permissions = $${i++}`); vals.push(JSON.stringify({ access_level: permissions })); }
+    if (permissions !== undefined) {
+      // Granular object → store directly; string shorthand → wrap in {access_level}
+      const permVal = (permissions && typeof permissions === 'object')
+        ? JSON.stringify(permissions)
+        : JSON.stringify({ access_level: permissions });
+      updates.push(`permissions = $${i++}`); vals.push(permVal);
+    }
+    if (name !== undefined)              { updates.push(`full_name = $${i++}`); vals.push(name); }
+    if (password) {
+      const hash = await bcrypt.hash(password, 12);
+      updates.push(`password_hash = $${i++}`); vals.push(hash);
+    }
     if (!updates.length) return res.json({ message: 'Nothing to update' });
     vals.push(req.params.id);
     await query(`UPDATE users SET ${updates.join(', ')}, updated_at=NOW() WHERE id=$${i}`, vals);

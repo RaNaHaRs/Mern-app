@@ -191,9 +191,61 @@ async function requireSuperAdminOrPlatformStaff(req, res, next) {
 
 // Helper to resolve effective user permissions
 async function resolveUserPermissions(userId, role, customPermissions) {
-  // If user has custom permissions directly on their user record, use those
-  if (customPermissions && typeof customPermissions === 'object' && Object.keys(customPermissions).length > 0) {
+  // super_admin always gets full permissions — never restricted
+  if (role === 'super_admin') {
+    const modules = ['cases', 'clients', 'inventory', 'accounting', 'reports', 'analytics', 'knowledge_base', 'recycle_bin', 'settings', 'users', 'webhooks'];
+    const perms = {};
+    modules.forEach(m => { perms[m] = { view: true, create: true, edit: true, delete: true, export: true, advance_stage: true, create_invoice: true, create_quote: true, record_payment: true, create_expense: true, restore: true, permanent_delete: true, edit_company: true, edit_users: true, edit_roles: true, deactivate: true }; });
+    return perms;
+  }
+
+  // admin: if a super admin has set a granular plan-based override, respect it
+  // { access_level } is just an SA staff role marker — not a real module permission set; skip it
+  const isRealGranularPerms = customPermissions && typeof customPermissions === 'object'
+    && !customPermissions.access_level
+    && Object.keys(customPermissions).length > 0;
+
+  if (role === 'admin') {
+    if (isRealGranularPerms) return customPermissions; // SA override active
+    // Otherwise full access
+    const modules = ['cases', 'clients', 'inventory', 'accounting', 'reports', 'analytics', 'knowledge_base', 'recycle_bin', 'settings', 'users', 'webhooks'];
+    const perms = {};
+    modules.forEach(m => { perms[m] = { view: true, create: true, edit: true, delete: true, export: true, advance_stage: true, create_invoice: true, create_quote: true, record_payment: true, create_expense: true, restore: true, permanent_delete: true, edit_company: true, edit_users: true, edit_roles: true, deactivate: true }; });
+    return perms;
+  }
+
+  // For non-admin staff: use granular custom permissions if present
+  if (isRealGranularPerms) {
     return customPermissions;
+  }
+
+  // Expand access_level shorthands for platform staff roles into granular STAFF module permissions
+  const STAFF_MODULES = ['dashboard','tenants','purchases','plans','coupons','invoices','branding','seo','homepage','accounts','activity_logs','platform','email_delivery','staff','roles','security','settings'];
+  const makeStaffPerms = (modules) => {
+    const p = {};
+    STAFF_MODULES.forEach(m => { p[m] = { view: false, create: false, edit: false, delete: false, export: false }; });
+    modules.forEach(([m, actions]) => { p[m] = { ...p[m], ...actions }; });
+    return p;
+  };
+  const ROLE_DEFAULT_STAFF_PERMS = {
+    support_admin: makeStaffPerms([
+      ['dashboard', { view: true }], ['tenants', { view: true }], ['purchases', { view: true }],
+      ['activity_logs', { view: true }], ['settings', { view: true }],
+    ]),
+    billing_admin: makeStaffPerms([
+      ['dashboard', { view: true }], ['purchases', { view: true, export: true }],
+      ['plans', { view: true, edit: true }], ['coupons', { view: true, create: true, edit: true, delete: true }],
+      ['invoices', { view: true, export: true }], ['settings', { view: true }],
+    ]),
+    content_admin: makeStaffPerms([
+      ['dashboard', { view: true }], ['branding', { view: true, edit: true }],
+      ['seo', { view: true, edit: true }], ['homepage', { view: true, edit: true }], ['settings', { view: true }],
+    ]),
+  };
+
+  if (customPermissions?.access_level) {
+    const byRole = ROLE_DEFAULT_STAFF_PERMS[role];
+    if (byRole) return byRole;
   }
 
   // Next, look in the admin_permissions table for this specific user
@@ -290,6 +342,9 @@ async function resolveUserPermissions(userId, role, customPermissions) {
     });
     return perms;
   }
+
+  // Final fallback for known platform staff roles with no stored permissions
+  if (ROLE_DEFAULT_STAFF_PERMS[role]) return ROLE_DEFAULT_STAFF_PERMS[role];
 
   return {};
 }

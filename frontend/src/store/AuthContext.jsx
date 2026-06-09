@@ -183,6 +183,14 @@ export function AuthProvider({ children }) {
     setUser(userData);
   };
 
+  // Re-fetch current user from backend (picks up permission changes without re-login)
+  const refreshUser = useCallback(async () => {
+    try {
+      const u = await authApi.me();
+      setUser(u);
+    } catch {}
+  }, []);
+
   const logout = useCallback(async (reason) => {
     const refreshToken = localStorage.getItem('refreshToken');
     try { await authApi.logout(refreshToken); } catch {}
@@ -253,17 +261,24 @@ export function AuthProvider({ children }) {
   // hasPermission('cases', 'view') → boolean
   const hasPermission = (module, action) => {
     if (!user) return false;
-    // Super admin and admin always have full access
-    if (user.role === 'super_admin' || user.role === 'admin') return true;
+    // super_admin always has full access — no restrictions ever
+    if (user.role === 'super_admin') return true;
 
-    // Check user's assigned permissions (stored on user object or localStorage)
-    const userPerms = user.permissions || (() => {
-      try { return JSON.parse(localStorage.getItem(`user_perms_${user.id}`) || 'null'); } catch { return null; }
-    })();
+    // admin: full access UNLESS super admin has set a custom plan-based override
+    // A real override has module keys; { access_level } is just an SA staff role marker
+    if (user.role === 'admin') {
+      const adminPerms = user.permissions;
+      const hasOverride = adminPerms && typeof adminPerms === 'object'
+        && !adminPerms.access_level && Object.keys(adminPerms).length > 0;
+      if (!hasOverride) return true; // no override → full access
+      return !!(adminPerms[module] && adminPerms[module][action]);
+    }
 
-    // If no permissions object exists at all, deny access for non-admin users.
-    // The backend now resolves role-based permissions into user.permissions,
-    // so if it's still null/empty, the user has no granted access.
+    // For staff roles: use permissions object resolved by backend at login
+    const userPerms = (user.permissions && typeof user.permissions === 'object' && Object.keys(user.permissions).length > 0)
+      ? user.permissions
+      : (() => { try { return JSON.parse(localStorage.getItem(`user_perms_${user.id}`) || 'null'); } catch { return null; } })();
+
     if (!userPerms || typeof userPerms !== 'object' || Object.keys(userPerms).length === 0) {
       return false;
     }
@@ -277,13 +292,13 @@ export function AuthProvider({ children }) {
   const isOwner = user?.role === 'admin';
   // isAdmin — isOwner OR isSuperAdmin (broad admin gate)
   const isAdmin = isOwner || isSuperAdmin;
-  // isPlatformStaff — staff accounts that are platform-scoped (no tenant)
-  const isPlatformStaff = user && ['staff','junior_engineer','senior_engineer'].includes(user.role) && !user.tenantId;
+  // isPlatformStaff — platform-scoped staff (no tenant), mirrors backend isPlatformStaff logic
+  const isPlatformStaff = user && user.role !== 'super_admin' && user.role !== 'admin' && !user.tenantId;
   const tenantId = user?.tenantId || user?.tenant_id || user?.id;
 
   return (
     <AuthContext.Provider value={{
-      user, loading, login, logout, setLoggedIn,
+      user, loading, login, logout, setLoggedIn, refreshUser,
       canAccess, hasPermission,
       isSuperAdmin, isOwner, isAdmin, tenantId,
       isPlatformStaff,
