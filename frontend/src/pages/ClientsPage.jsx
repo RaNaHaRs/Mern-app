@@ -102,13 +102,25 @@ function NewClientModal({ onClose, onCreated }) {
 }
 
 function CollectModal({ client, onClose, onCollected }) {
-  const [notes, setNotes] = useState('Collected from Clients page');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [pendingCases, setPendingCases] = useState([]);
   const [casesLoading, setCasesLoading] = useState(true);
   const [selectedCaseId, setSelectedCaseId] = useState('');
-  const [amount, setAmount] = useState('');
+  const [form, setForm] = useState({
+    discount_type: 'none',
+    discount_value: '',
+    method: 'UPI',
+    reference: '',
+    notes: '',
+  });
+  const [grossAmount, setGrossAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [validationError, setValidationError] = useState('');
+
+  const PAY_METHODS = (() => {
+    try { const c = JSON.parse(localStorage.getItem('custom_payment_methods')); if (c && c.length) return c; } catch {}
+    try { const co = JSON.parse(localStorage.getItem('crm_company')); if (co?.payment_methods?.length) return co.payment_methods; } catch {}
+    return ['Cash','UPI','Card (Debit/Credit)','Bank Transfer','NEFT','RTGS','Cheque','Online (Razorpay)'];
+  })();
 
   useEffect(() => {
     if (!client?.id) return;
@@ -117,199 +129,236 @@ function CollectModal({ client, onClose, onCollected }) {
       .then(data => {
         const cases = (data.cases || []).filter(c => parseFloat(c.pending_amount || 0) > 0);
         setPendingCases(cases);
-        if (cases.length === 1) setSelectedCaseId(cases[0].id);
+        if (cases.length === 1) {
+          setSelectedCaseId(cases[0].id);
+          setGrossAmount(String(parseFloat(cases[0].pending_amount || 0).toFixed(2)));
+        }
       })
-      .catch(() => setError('Failed to load case details'))
+      .catch(() => setValidationError('Failed to load case details'))
       .finally(() => setCasesLoading(false));
   }, [client?.id]);
-
 
   if (!client) return null;
 
   const selectedCase = pendingCases.find(c => c.id === selectedCaseId);
-  const selectedPending = parseFloat(selectedCase?.pending_amount || 0);
-  const enteredAmount = parseFloat(amount) || 0;
-  const totalPending = pendingCases.reduce((s, c) => s + parseFloat(c.pending_amount || 0), 0);
+  const remainingBalance = parseFloat(selectedCase?.pending_amount || 0);
+  const gross = parseFloat(grossAmount) || 0;
+  const discountAmt = form.discount_type === 'flat'
+    ? Math.min(parseFloat(form.discount_value) || 0, gross)
+    : form.discount_type === 'percent'
+      ? gross * (Math.min(parseFloat(form.discount_value) || 0, 100) / 100)
+      : 0;
+  const finalAmount = Math.max(0, gross - discountAmt);
+  const fmt = v => `₹${parseFloat(v||0).toLocaleString('en-IN', {minimumFractionDigits:0,maximumFractionDigits:2})}`;
 
-  const handleCaseChange = (id) => {
+  const stageLabel = s => s ? s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) : '';
+  const stageColor = s => {
+    if (!s) return 'var(--text-muted)';
+    if (s.includes('complet')||s.includes('deliver')) return 'var(--status-success)';
+    if (s.includes('progress')||s.includes('recovery')) return '#2563eb';
+    if (s.includes('cancel')||s.includes('failed')) return 'var(--status-danger,#ef4444)';
+    return 'var(--status-warning)';
+  };
+
+  const handleCaseChange = id => {
     setSelectedCaseId(id);
-    setAmount('');
-    setError('');
+    setValidationError('');
+    const c = pendingCases.find(x => x.id === id);
+    setGrossAmount(c ? String(parseFloat(c.pending_amount||0).toFixed(2)) : '');
+  };
+
+  const validate = () => {
+    if (!selectedCaseId) return 'Please select a case.';
+    if (!gross || gross <= 0) return 'Enter a valid gross amount.';
+    if (finalAmount <= 0) return 'Final amount must be greater than zero after discount.';
+    if (finalAmount > remainingBalance) return `Amount cannot exceed remaining balance of ${fmt(remainingBalance)}.`;
+    return '';
   };
 
   const handleCollect = async () => {
-    setError('');
-    if (!selectedCaseId) { setError('Please select a case'); return; }
-    if (enteredAmount <= 0) { setError('Enter a valid amount'); return; }
-    if (enteredAmount > selectedPending) {
-      setError(`Amount exceeds pending (₹${selectedPending.toLocaleString('en-IN')})`);
-      return;
-    }
+    const err = validate();
+    setValidationError(err);
+    if (err) return;
     setLoading(true);
     try {
       await clientsApi.collectPending(client.id, {
-        case_selections: [{ case_id: selectedCaseId, amount: enteredAmount }],
-        notes
+        case_selections: [{ case_id: selectedCaseId, amount: finalAmount }],
+        method: form.method,
+        reference: form.reference,
+        notes: form.notes,
       });
       if (onCollected) await onCollected();
-      try { window.dispatchEvent(new Event('paymentsUpdated')); } catch (e) {}
+      try { window.dispatchEvent(new Event('paymentsUpdated')); } catch {}
       onClose();
     } catch (err) {
-      setError(err?.response?.data?.error || err?.message || 'Failed to collect payment');
+      setValidationError(err?.response?.data?.error || err?.message || 'Failed to collect payment');
     } finally { setLoading(false); }
   };
 
-  const inputStyle = {
-    width: '100%',
-    padding: '9px 12px',
-    background: 'var(--bg-tertiary, #1a2035)',
-    color: 'var(--text-primary)',
-    border: '1px solid var(--border-default)',
-    borderRadius: 'var(--radius-sm)',
-    fontSize: '0.9rem',
-    outline: 'none',
-    boxSizing: 'border-box'
+  const generateLink = async () => {
+    const err = validate();
+    if (err) { setValidationError(err); return; }
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('crm_token') || '';
+      const res = await fetch(`${window.location.origin.includes('5173') ? 'http://localhost:5000' : ''}/api/razorpay/payment-link`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: finalAmount, description: 'Data Recovery Service Payment', case_id: selectedCaseId }),
+      });
+      const data = await res.json();
+      const url = data.payment_link || `https://rzp.io/l/demo_${Math.random().toString(36).substring(2,8)}`;
+      await navigator.clipboard.writeText(url).catch(()=>{});
+      alert(`✅ Payment Link copied!\n\n${url}\n\nAmount: ₹${finalAmount.toLocaleString('en-IN')}${discountAmt>0?`\n(Incl. discount ₹${discountAmt.toLocaleString('en-IN')})`:''}` );
+    } catch {
+      const url = `https://rzp.io/l/demo_${Math.random().toString(36).substring(2,8)}`;
+      await navigator.clipboard.writeText(url).catch(()=>{});
+      alert(`Payment Link (demo) copied:\n${url}`);
+    }
   };
+
+  const formError = validationError || validate();
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth: 460}}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth: 520}}>
         <div className="modal-header">
-          <h3 className="modal-title">💳 Collect Payment — {client.first_name} {client.last_name}</h3>
+          <h3 className="modal-title"> Collect Payment — {client.first_name} {client.last_name}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
-          {/* Summary row */}
-          <div style={{display:'flex',gap:10,marginBottom:20}}>
-            <div style={{flex:1,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)'}}>
-              <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginBottom:2}}>Total Pending</div>
-              <div style={{fontWeight:800,fontSize:'1rem',fontFamily:'var(--font-mono)',color:'var(--status-warning)'}}>₹{totalPending.toLocaleString('en-IN')}</div>
-            </div>
-            <div style={{flex:1,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)'}}>
-              <div style={{fontSize:'0.72rem',color:'var(--text-muted)',marginBottom:2}}>Total Paid</div>
-              <div style={{fontWeight:700,fontSize:'1rem',fontFamily:'var(--font-mono)',color:'var(--status-success)'}}>₹{parseFloat(client.total_paid||0).toLocaleString('en-IN')}</div>
-            </div>
+
+          {/* Case selector */}
+          <div className="form-group">
+            <label className="form-label">Select Case <span style={{color:'var(--status-danger,#ef4444)'}}>*</span></label>
+            {casesLoading ? (
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)'}}>
+                <div className="spinner" style={{width:14,height:14}}/><span style={{color:'var(--text-muted)',fontSize:'0.85rem'}}>Loading cases…</span>
+              </div>
+            ) : pendingCases.length === 0 ? (
+              <div style={{padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)',color:'var(--text-muted)',fontSize:'0.85rem'}}>No pending cases for this client</div>
+            ) : (
+              <select className="form-select" value={selectedCaseId} onChange={e => handleCaseChange(e.target.value)}>
+                <option value="">— Choose a case —</option>
+                {pendingCases.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.case_number}{c.stage ? ` [${stageLabel(c.stage)}]` : ''} — Pending {fmt(c.pending_amount)}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
-          {casesLoading ? (
-            <div style={{display:'flex',justifyContent:'center',padding:30}}><div className="spinner" style={{width:24,height:24}}/></div>
-          ) : pendingCases.length === 0 ? (
-            <div style={{padding:20,textAlign:'center',color:'var(--text-muted)'}}>No pending cases for this client</div>
-          ) : (
-            <>
-              {/* Case dropdown */}
-              <div className="form-group">
-                <label className="form-label">Select Case</label>
-                <select
-                  value={selectedCaseId}
-                  onChange={e => handleCaseChange(e.target.value)}
-                  style={inputStyle}
-                >
-                  <option value="">— Choose a case —</option>
-                  {pendingCases.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.case_number}{c.stage ? ` [${c.stage.replace(/_/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase())}]` : ''} — Pending ₹{parseFloat(c.pending_amount||0).toLocaleString('en-IN')}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Case details card */}
-              {selectedCase && (
-                <div style={{
-                  padding:'12px 14px',
-                  background:'var(--bg-elevated)',
-                  borderRadius:'var(--radius-sm)',
-                  border:'1px solid var(--border-subtle)',
-                  marginBottom:14,
-                  display:'grid',
-                  gridTemplateColumns:'1fr 1fr 1fr 1fr',
-                  gap:10
-                }}>
-                  <div>
-                    <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Pending</div>
-                    <div style={{fontWeight:700,color:'var(--status-warning)',fontFamily:'var(--font-mono)'}}>
-                      ₹{selectedPending.toLocaleString('en-IN')}
-                    </div>
+          {/* Info card — mirrors CaseDetail layout */}
+          {selectedCase && (
+            <div className="tech-data-table" style={{padding:12, border:'1px solid var(--border-subtle)', borderRadius:'var(--radius-md)', background:'var(--bg-elevated)', marginBottom:16}}>
+              <div className="tech-data-cell"><div className="tech-data-label">Case</div><div className="tech-data-value font-mono">{selectedCase.case_number}</div></div>
+              <div className="tech-data-cell"><div className="tech-data-label">Client</div><div className="tech-data-value">{client.first_name} {client.last_name}</div></div>
+              <div className="tech-data-cell"><div className="tech-data-label">Quotation</div><div className="tech-data-value">{fmt(selectedCase.quotation_total)}</div></div>
+              <div className="tech-data-cell"><div className="tech-data-label">Collected</div><div className="tech-data-value" style={{color:'var(--status-success)'}}>{fmt(selectedCase.total_paid)}</div></div>
+              <div className="tech-data-cell"><div className="tech-data-label">Remaining</div><div className="tech-data-value" style={{color: remainingBalance > 0 ? 'var(--status-danger,#ef4444)' : 'var(--status-success)'}}>{fmt(remainingBalance)}</div></div>
+              {selectedCase.stage && (
+                <div className="tech-data-cell">
+                  <div className="tech-data-label">Status</div>
+                  <div className="tech-data-value">
+                    <span style={{fontSize:'0.75rem',fontWeight:600,padding:'2px 8px',borderRadius:10,background:stageColor(selectedCase.stage)+'20',color:stageColor(selectedCase.stage),border:`1px solid ${stageColor(selectedCase.stage)}40`}}>
+                      {stageLabel(selectedCase.stage)}
+                    </span>
                   </div>
-                  <div>
-                    <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Total</div>
-                    <div style={{fontWeight:600,fontFamily:'var(--font-mono)'}}>
-                      ₹{parseFloat(selectedCase.quotation_total||0).toLocaleString('en-IN')}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Paid</div>
-                    <div style={{fontWeight:600,color:'var(--status-success)',fontFamily:'var(--font-mono)'}}>
-                      ₹{parseFloat(selectedCase.total_paid||0).toLocaleString('en-IN')}
-                    </div>
-                  </div>
-                  {selectedCase.stage && (
-                    <div>
-                      <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Status</div>
-                      <div style={{
-                        fontSize:'0.72rem',fontWeight:600,marginTop:2,padding:'2px 6px',
-                        borderRadius:10,display:'inline-block',
-                        background: selectedCase.stage.includes('complet') || selectedCase.stage.includes('deliver') ? 'rgba(22,163,74,0.15)' :
-                                    selectedCase.stage.includes('progress') || selectedCase.stage.includes('recovery') ? 'rgba(37,99,235,0.15)' :
-                                    selectedCase.stage.includes('cancel') || selectedCase.stage.includes('failed') ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)',
-                        color: selectedCase.stage.includes('complet') || selectedCase.stage.includes('deliver') ? 'var(--status-success)' :
-                               selectedCase.stage.includes('progress') || selectedCase.stage.includes('recovery') ? '#2563eb' :
-                               selectedCase.stage.includes('cancel') || selectedCase.stage.includes('failed') ? 'var(--status-error)' : 'var(--status-warning)'
-                      }}>
-                        {selectedCase.stage.replace(/_/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase())}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
-
-              {/* Amount input */}
-              <div className="form-group">
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                  <label className="form-label" style={{margin:0}}>Amount (₹)</label>
-                  {selectedCase && (
-                    <button
-                      className="btn btn-ghost btn-xs"
-                      style={{fontSize:'0.72rem'}}
-                      onClick={() => setAmount(selectedPending)}
-                    >
-                      Fill Pending
-                    </button>
-                  )}
-                </div>
-                <input
-                  type="number"
-                  style={inputStyle}
-                  placeholder="Enter amount..."
-                  min="0"
-                  step="0.01"
-                  value={amount}
-                  disabled={!selectedCaseId}
-                  onChange={e => { setAmount(e.target.value); setError(''); }}
-                />
-              </div>
-            </>
+            </div>
           )}
 
-          {/* Notes */}
-          <div className="form-group" style={{marginBottom:0}}>
-            <label className="form-label">Notes</label>
-            <input className="form-input" style={inputStyle} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Payment notes..." />
+          {/* Error banner */}
+          {validationError && (
+            <div style={{padding:10,borderRadius:'var(--radius-sm)',background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.25)',color:'var(--status-danger,#ef4444)',fontSize:'0.88rem',marginBottom:12}}>
+              {validationError}
+            </div>
+          )}
+
+          {/* Amount + discount */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div className="form-group" style={{margin:0}}>
+              <label className="form-label required">Gross Amount (₹)</label>
+              <input type="number" className="form-input" value={grossAmount}
+                onChange={e => { setValidationError(''); setGrossAmount(e.target.value); }}
+                placeholder="0.00" disabled={!selectedCaseId} />
+            </div>
+            <div className="form-group" style={{margin:0}}>
+              <label className="form-label">Discount</label>
+              <div style={{display:'flex',gap:6}}>
+                <select className="form-select" style={{width:130}} value={form.discount_type}
+                  onChange={e => { setValidationError(''); setForm(p=>({...p,discount_type:e.target.value,discount_value:''})); }}>
+                  <option value="none">No Discount</option>
+                  <option value="flat">Flat (₹)</option>
+                  <option value="percent">Percent (%)</option>
+                </select>
+                {form.discount_type !== 'none' && (
+                  <input type="number" className="form-input" style={{flex:1}}
+                    placeholder={form.discount_type==='percent'?'0–100':'Amount'}
+                    value={form.discount_value}
+                    onChange={e => { setValidationError(''); setForm(p=>({...p,discount_value:e.target.value})); }} />
+                )}
+              </div>
+            </div>
           </div>
 
-          {error && <div className="alert alert-danger" style={{marginTop:12}}>{error}</div>}
+          {/* Summary row */}
+          {gross > 0 && (
+            <div style={{display:'flex',gap:16,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:8,margin:'10px 0',fontSize:'0.82rem',border:'1px solid var(--border-subtle)'}}>
+              <div>Gross: <strong>{fmt(gross)}</strong></div>
+              {discountAmt > 0 && <div style={{color:'#22c55e'}}>Discount: −{fmt(discountAmt)}</div>}
+              <div style={{marginLeft:'auto',fontWeight:800,color:'var(--accent-primary)',fontSize:'0.9rem'}}>
+                To Collect: {fmt(finalAmount)}
+              </div>
+            </div>
+          )}
+
+          {/* Payment method + reference */}
+          <div className="form-row form-row-2" style={{marginTop:8}}>
+            <div className="form-group">
+              <label className="form-label">Payment Method</label>
+              <select className="form-select" value={form.method}
+                onChange={e => { setValidationError(''); setForm(p=>({...p,method:e.target.value})); }}>
+                {PAY_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reference / Transaction ID</label>
+              <input className="form-input" value={form.reference}
+                onChange={e => { setValidationError(''); setForm(p=>({...p,reference:e.target.value})); }}
+                placeholder="UPI ref, cheque no, transaction ID..." />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div className="form-group">
+            <label className="form-label">Notes</label>
+            <input className="form-input" value={form.notes}
+              onChange={e => { setValidationError(''); setForm(p=>({...p,notes:e.target.value})); }}
+              placeholder="Payment notes..." />
+          </div>
+
+          {/* Razorpay link box */}
+          <div style={{display:'flex',gap:12,padding:'12px 14px',background:'rgba(0,212,255,0.05)',borderRadius:'var(--radius-sm)',border:'1px solid rgba(0,212,255,0.15)',alignItems:'center',marginBottom:4}}>
+            <div style={{fontSize:'1.3rem'}}>🔗</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:'0.8rem',fontWeight:600,color:'var(--text-primary)',marginBottom:2}}>Generate Razorpay Link Instead</div>
+              <div style={{fontSize:'0.7rem',color:'var(--text-muted)'}}>Send a payment link to the client via WhatsApp/Email.</div>
+            </div>
+            <button className="btn btn-sm" style={{background:'rgba(0,212,255,0.1)',color:'var(--accent-primary)',borderColor:'rgba(0,212,255,0.3)'}} onClick={generateLink}>
+              Generate Link
+            </button>
+          </div>
+
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={loading}>Cancel</button>
-          <button
-            className="btn btn-primary"
-            onClick={handleCollect}
-            disabled={loading || enteredAmount <= 0 || !selectedCaseId}
-          >
+          <button className="btn btn-primary" onClick={handleCollect}
+            disabled={loading || !!formError || !selectedCaseId}>
             {loading
-              ? <><div className="spinner" style={{width:14,height:14}}/> Processing...</>
-              : `Collect ₹${enteredAmount > 0 ? enteredAmount.toLocaleString('en-IN') : 0}`}
+              ? <><div className="spinner" style={{width:14,height:14}}/> Recording…</>
+              : ` Record Payment${finalAmount > 0 ? ` — ${fmt(finalAmount)}` : ''}`}
           </button>
         </div>
       </div>
