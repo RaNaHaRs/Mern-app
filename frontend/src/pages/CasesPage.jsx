@@ -46,29 +46,68 @@ function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
   );
 }
 
+const EDIT_TABS = ['Client', 'Device', 'Problem', 'Commercial'];
+
+const DEFAULT_SYMPTOMS = ['not_detected','clicking','slow','dead','beeping','grinding','pcb_burnt','corrupted','bad_sectors','head_crash','water_damage','not_spinning','read_errors'];
+
 function EditCaseModal({ caseData, onClose, onSaved }) {
+  const [tab, setTab] = useState(0);
   const [form, setForm] = useState({
+    // Client / scheduling
+    priority: caseData.priority || 3,
+    deadline_at: caseData.deadline_at ? caseData.deadline_at.slice(0, 16) : '',
+    received_at: caseData.received_at ? caseData.received_at.slice(0, 16) : '',
+    reminder_days: caseData.reminder_days || 4,
+    assigned_engineer: caseData.assigned_engineer || '',
+    // Device
     device_brand: caseData.device_brand || '',
     device_model: caseData.device_model || '',
     serial_number: caseData.serial_number || '',
+    capacity_gb: caseData.capacity_gb || '',
+    interface: caseData.interface || '',
+    form_factor: caseData.form_factor || '',
+    // Problem
     failure_type: caseData.failure_type || '',
-    priority: caseData.priority || 3,
+    symptoms: Array.isArray(caseData.symptoms) ? caseData.symptoms : [],
     symptom_notes: caseData.symptom_notes || '',
     initial_diagnosis: caseData.initial_diagnosis || '',
+    final_diagnosis: caseData.final_diagnosis || '',
     internal_notes: caseData.internal_notes || '',
-    deadline_at: caseData.deadline_at ? caseData.deadline_at.slice(0, 10) : '',
+    // Recovery progress
+    recovery_progress_pct: caseData.recovery_progress_pct || '',
+    data_recovered_gb: caseData.data_recovered_gb || '',
+    total_data_gb: caseData.total_data_gb || '',
+    imaging_tool: caseData.imaging_tool || '',
+    recovery_tool: caseData.recovery_tool || '',
+    // Commercial
+    transfer_to_client: caseData.transfer_to_client || false,
   });
+  const [engineers, setEngineers] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const toggleSymptom = (s) => set('symptoms', form.symptoms.includes(s) ? form.symptoms.filter(x => x !== s) : [...form.symptoms, s]);
+
+  useEffect(() => {
+    import('../services/api').then(({ usersApi }) => {
+      usersApi.list().then(d => setEngineers(d.users || (Array.isArray(d) ? d : []))).catch(() => {});
+    });
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
     setError('');
     try {
-      const payload = { ...form };
-      if (!payload.deadline_at) payload.deadline_at = null;
+      const payload = {
+        ...form,
+        deadline_at: form.deadline_at || null,
+        received_at: form.received_at || null,
+        recovery_progress_pct: form.recovery_progress_pct !== '' ? Number(form.recovery_progress_pct) : null,
+        data_recovered_gb: form.data_recovered_gb !== '' ? Number(form.data_recovered_gb) : null,
+        total_data_gb: form.total_data_gb !== '' ? Number(form.total_data_gb) : null,
+        capacity_gb: form.capacity_gb !== '' ? Number(form.capacity_gb) : null,
+      };
       await casesApi.update(caseData.id, payload);
       onSaved();
     } catch (err) {
@@ -78,65 +117,169 @@ function EditCaseModal({ caseData, onClose, onSaved }) {
     }
   };
 
-  const stages = getSettings('custom_stages', DEFAULT_STAGES);
   const failureTypes = getSettings('custom_failure_types', DEFAULT_FAILURE_TYPES);
+  const symptoms = getSettings('custom_symptoms', DEFAULT_SYMPTOMS);
+  const interfaces = getSettings('custom_interfaces', ['SATA','NVMe','SAS','IDE','USB','PCIe','M2','eSATA']);
+
+  const inp = (label, key, type = 'text', props = {}) => (
+    <div className="form-group" style={{ margin: 0 }}>
+      <label className="form-label" style={{ fontSize: '0.78rem' }}>{label}</label>
+      <input className="form-input" type={type} value={form[key]} onChange={e => set(key, e.target.value)} style={{ fontSize: '0.82rem' }} {...props} />
+    </div>
+  );
+
+  const tabContent = [
+    // Tab 0: Client / Scheduling
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.82rem' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{caseData.first_name} {caseData.last_name}</div>
+        <div style={{ color: 'var(--text-muted)' }}>{caseData.phone} {caseData.email ? `· ${caseData.email}` : ''} {caseData.company ? `· ${caseData.company}` : ''}</div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Client cannot be changed after case creation.</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {inp('Received At', 'received_at', 'datetime-local')}
+        {inp('Deadline / SLA', 'deadline_at', 'datetime-local')}
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ fontSize: '0.78rem' }}>Priority</label>
+          <select className="form-select" value={form.priority} onChange={e => set('priority', parseInt(e.target.value))} style={{ fontSize: '0.82rem' }}>
+            {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        {inp('Stale Reminder (days)', 'reminder_days', 'number', { min: 1, max: 90 })}
+        <div className="form-group" style={{ margin: 0, gridColumn: '1/-1' }}>
+          <label className="form-label" style={{ fontSize: '0.78rem' }}>Assigned Engineer</label>
+          <select className="form-select" value={form.assigned_engineer} onChange={e => set('assigned_engineer', e.target.value)} style={{ fontSize: '0.82rem' }}>
+            <option value="">Unassigned</option>
+            {engineers.map(eng => <option key={eng.id} value={eng.id}>{eng.full_name || eng.username} ({(eng.role || '').replace(/_/g, ' ')})</option>)}
+          </select>
+        </div>
+      </div>
+    </div>,
+
+    // Tab 1: Device
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        {inp('Device Brand', 'device_brand')}
+        {inp('Device Model', 'device_model')}
+        {inp('Serial Number', 'serial_number')}
+        {inp('Capacity (GB)', 'capacity_gb', 'number', { min: 0 })}
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ fontSize: '0.78rem' }}>Interface</label>
+          <select className="form-select" value={form.interface} onChange={e => set('interface', e.target.value)} style={{ fontSize: '0.82rem' }}>
+            <option value="">Select...</option>
+            {interfaces.map(i => <option key={i} value={i}>{i}</option>)}
+          </select>
+        </div>
+        <div className="form-group" style={{ margin: 0 }}>
+          <label className="form-label" style={{ fontSize: '0.78rem' }}>Form Factor</label>
+          <select className="form-select" value={form.form_factor} onChange={e => set('form_factor', e.target.value)} style={{ fontSize: '0.82rem' }}>
+            <option value="">Select...</option>
+            {['2.5"','3.5"','M.2','PCIe Card','Other'].map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+        <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>Recovery Progress</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          {inp('Progress (%)', 'recovery_progress_pct', 'number', { min: 0, max: 100 })}
+          {inp('Data Recovered (GB)', 'data_recovered_gb', 'number', { min: 0 })}
+          {inp('Total Data (GB)', 'total_data_gb', 'number', { min: 0 })}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+          {inp('Imaging Tool', 'imaging_tool')}
+          {inp('Recovery Tool', 'recovery_tool')}
+        </div>
+      </div>
+    </div>,
+
+    // Tab 2: Problem
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Failure Type</label>
+        <select className="form-select" value={form.failure_type} onChange={e => set('failure_type', e.target.value)} style={{ fontSize: '0.82rem' }}>
+          <option value="">Select...</option>
+          {failureTypes.map(f => <option key={f} value={f}>{f.replace(/_/g, ' ')}</option>)}
+        </select>
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Symptoms</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+          {symptoms.map(s => {
+            const on = form.symptoms.includes(s);
+            return (
+              <button key={s} type="button" onClick={() => toggleSymptom(s)}
+                style={{ padding: '4px 10px', borderRadius: 20, border: `1px solid ${on ? 'var(--accent-primary)' : 'var(--border-default)'}`, background: on ? 'var(--accent-glow)' : 'transparent', color: on ? 'var(--accent-primary)' : 'var(--text-muted)', fontSize: '0.72rem', cursor: 'pointer', fontWeight: on ? 700 : 400 }}>
+                {s.replace(/_/g, ' ')}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Problem Description / Symptom Notes</label>
+        <textarea className="form-input" rows={3} value={form.symptom_notes} onChange={e => set('symptom_notes', e.target.value)} style={{ resize: 'vertical', fontSize: '0.82rem' }} />
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Initial Diagnosis</label>
+        <textarea className="form-input" rows={2} value={form.initial_diagnosis} onChange={e => set('initial_diagnosis', e.target.value)} style={{ resize: 'vertical', fontSize: '0.82rem' }} />
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Final Diagnosis</label>
+        <textarea className="form-input" rows={2} value={form.final_diagnosis} onChange={e => set('final_diagnosis', e.target.value)} style={{ resize: 'vertical', fontSize: '0.82rem' }} />
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Internal Notes</label>
+        <textarea className="form-input" rows={2} value={form.internal_notes} onChange={e => set('internal_notes', e.target.value)} style={{ resize: 'vertical', fontSize: '0.82rem' }} />
+      </div>
+    </div>,
+
+    // Tab 3: Commercial
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+        Quotation and payment amounts are managed from the case detail page.
+      </div>
+      <div className="form-group" style={{ margin: 0 }}>
+        <label className="form-label" style={{ fontSize: '0.78rem' }}>Transfer to Client</label>
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          {[['Yes', true], ['No', false]].map(([label, val]) => (
+            <label key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', border: `1px solid ${form.transfer_to_client === val ? 'var(--accent-primary)' : 'var(--border-default)'}`, borderRadius: 8, cursor: 'pointer', background: form.transfer_to_client === val ? 'var(--accent-glow)' : 'transparent', fontSize: '0.82rem', fontWeight: form.transfer_to_client === val ? 700 : 400, color: form.transfer_to_client === val ? 'var(--accent-primary)' : 'var(--text-secondary)', userSelect: 'none' }}>
+              <input type="radio" style={{ display: 'none' }} checked={form.transfer_to_client === val} onChange={() => set('transfer_to_client', val)} />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>,
+  ];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 620, width: '95vw' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 680, width: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Edit Case — {caseData.case_number}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {error && (
-            <div style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: '0.82rem' }}>
-              {error}
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Device Brand</label>
-              <input className="form-input" value={form.device_brand} onChange={e => set('device_brand', e.target.value)} />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Device Model</label>
-              <input className="form-input" value={form.device_model} onChange={e => set('device_model', e.target.value)} />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Serial Number</label>
-              <input className="form-input" value={form.serial_number} onChange={e => set('serial_number', e.target.value)} />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Failure Type</label>
-              <select className="form-select" value={form.failure_type} onChange={e => set('failure_type', e.target.value)}>
-                {failureTypes.map(f => <option key={f} value={f}>{f.replace(/_/g, ' ')}</option>)}
-              </select>
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Priority</label>
-              <select className="form-select" value={form.priority} onChange={e => set('priority', parseInt(e.target.value))}>
-                {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Deadline</label>
-              <input className="form-input" type="date" value={form.deadline_at} onChange={e => set('deadline_at', e.target.value)} />
-            </div>
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">Symptom Notes</label>
-            <textarea className="form-input" rows={2} value={form.symptom_notes} onChange={e => set('symptom_notes', e.target.value)} style={{ resize: 'vertical' }} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">Initial Diagnosis</label>
-            <textarea className="form-input" rows={2} value={form.initial_diagnosis} onChange={e => set('initial_diagnosis', e.target.value)} style={{ resize: 'vertical' }} />
-          </div>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label">Internal Notes</label>
-            <textarea className="form-input" rows={2} value={form.internal_notes} onChange={e => set('internal_notes', e.target.value)} style={{ resize: 'vertical' }} />
-          </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', padding: '0 24px' }}>
+          {EDIT_TABS.map((t, i) => (
+            <button key={t} onClick={() => setTab(i)}
+              style={{ padding: '10px 16px', fontSize: '0.8rem', fontWeight: tab === i ? 700 : 400, color: tab === i ? 'var(--accent-primary)' : 'var(--text-muted)', background: 'none', border: 'none', borderBottom: `2px solid ${tab === i ? 'var(--accent-primary)' : 'transparent'}`, cursor: 'pointer', marginBottom: -1 }}>
+              {t}
+            </button>
+          ))}
         </div>
+
+        {error && (
+          <div style={{ margin: '12px 24px 0', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: '0.82rem' }}>
+            {error}
+          </div>
+        )}
+
+        <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
+          {tabContent[tab]}
+        </div>
+
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
@@ -265,14 +408,14 @@ export default function CasesPage() {
           {selectedIds.size > 0 && canDeleteCases && (
             <>
               <button className="btn btn-danger btn-sm" onClick={() => setShowDeleteConfirm(true)}>
-                🗑 Delete ({selectedIds.size})
+                Delete ({selectedIds.size})
               </button>
               <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear</button>
             </>
           )}
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg-elevated)', borderRadius: 6, padding: 3, border: '1px solid var(--border-subtle)' }}>
-            <button className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('list')}>☰ List</button>
-            <button className={`btn btn-sm ${viewMode === 'kanban' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('kanban')}>⊞ Kanban</button>
+            <button className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('list')}>List</button>
+            <button className={`btn btn-sm ${viewMode === 'kanban' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('kanban')}>Kanban</button>
           </div>
           {canAccess('staff') && (
             <button className="btn btn-primary" onClick={() => setShowNewCase(true)}>+ New Case</button>
@@ -283,7 +426,7 @@ export default function CasesPage() {
       {/* Filters */}
       <div className="filters-bar">
         <div className="search-bar">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon"></span>
           <input className="search-input" placeholder="Search case#, client, serial..." value={filters.search}
             onChange={e => { setFilters({ ...filters, search: e.target.value }); setPage(1); }} />
         </div>
@@ -303,7 +446,7 @@ export default function CasesPage() {
           {Object.entries(PRIORITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         {(filters.stage || filters.failure_type || filters.priority || filters.search) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({ stage: '', search: '', priority: '', failure_type: '' }); setPage(1); }}>✕ Clear</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilters({ stage: '', search: '', priority: '', failure_type: '' }); setPage(1); }}>Clear Filters</button>
         )}
       </div>
 
@@ -386,39 +529,36 @@ export default function CasesPage() {
                       <td className="text-xs text-muted font-mono">
                         {new Date(c.received_at || c.created_at).toLocaleDateString('en-IN')}
                       </td>
-                      {/* ── Actions ── */}
+                      {/* Actions */}
                       <td onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'center', alignItems: 'center' }}>
-                          {/* View */}
                           <button
                             title="View case"
-                            className="btn btn-ghost btn-icon"
-                            style={{ width: 30, height: 30, fontSize: '0.85rem', padding: 0 }}
+                            className="btn btn-ghost btn-sm"
+                            style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                             onClick={() => navigate(`/cases/${c.id}`)}
                           >
-                            👁
+                            View
                           </button>
-                          {/* Edit */}
                           {canEditCases && (
                             <button
                               title="Edit case"
-                              className="btn btn-ghost btn-icon"
-                              style={{ width: 30, height: 30, fontSize: '0.85rem', padding: 0 }}
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                               onClick={() => setEditingCase(c)}
                             >
-                              ✏️
+                              Edit
                             </button>
                           )}
-                          {/* Delete → Recycle Bin */}
                           {canDeleteCases && (
                             <button
                               title="Move to Recycle Bin"
-                              className="btn btn-ghost btn-icon"
-                              style={{ width: 30, height: 30, fontSize: '0.85rem', padding: 0, color: 'var(--danger)' }}
+                              className="btn btn-danger btn-sm"
+                              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
                               disabled={deletingIds.has(c.id)}
                               onClick={() => setSingleDeleteId(c.id)}
                             >
-                              {deletingIds.has(c.id) ? '…' : '🗑'}
+                              {deletingIds.has(c.id) ? 'Deleting...' : 'Delete'}
                             </button>
                           )}
                         </div>
@@ -428,7 +568,6 @@ export default function CasesPage() {
                   {!cases.length && (
                     <tr><td colSpan={colCount}>
                       <div className="empty-state">
-                        <div className="empty-icon">📂</div>
                         <div className="empty-title">No cases found</div>
                         <div className="empty-desc">Create a new case or adjust your filters.</div>
                       </div>
