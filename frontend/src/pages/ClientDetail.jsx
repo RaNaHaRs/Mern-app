@@ -282,7 +282,7 @@ export default function ClientDetail() {
           <div style={{ display:'flex',gap:10,flexWrap:'wrap' }}>
             <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
               <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Paid</div>
-              <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.total_paid||0).toLocaleString('en-IN')}</div>
+              <div style={{ fontSize:'1.1rem',fontWeight:800,color:'var(--status-success)',fontFamily:'var(--font-mono)' }}>₹{parseFloat(cl.paymentSummary?.total_paid||0).toLocaleString('en-IN')}</div>
             </div>
             <div style={{ textAlign:'right',padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:'var(--radius-md)',border:'1px solid var(--border-subtle)' }}>
               <div style={{ fontSize:'0.65rem',color:'var(--text-muted)',fontFamily:'var(--font-mono)',textTransform:'uppercase',marginBottom:2 }}>Total Pending</div>

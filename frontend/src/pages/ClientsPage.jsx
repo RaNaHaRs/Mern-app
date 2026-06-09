@@ -256,24 +256,32 @@ function CollectModal({ client, onClose, onCollected }) {
             )}
           </div>
 
-          {/* Info card — mirrors CaseDetail layout */}
+          {/* Case financial breakdown */}
           {selectedCase && (
-            <div className="tech-data-table" style={{padding:12, border:'1px solid var(--border-subtle)', borderRadius:'var(--radius-md)', background:'var(--bg-elevated)', marginBottom:16}}>
-              <div className="tech-data-cell"><div className="tech-data-label">Case</div><div className="tech-data-value font-mono">{selectedCase.case_number}</div></div>
-              <div className="tech-data-cell"><div className="tech-data-label">Client</div><div className="tech-data-value">{client.first_name} {client.last_name}</div></div>
-              <div className="tech-data-cell"><div className="tech-data-label">Quotation</div><div className="tech-data-value">{fmt(selectedCase.quotation_total)}</div></div>
-              <div className="tech-data-cell"><div className="tech-data-label">Collected</div><div className="tech-data-value" style={{color:'var(--status-success)'}}>{fmt(selectedCase.total_paid)}</div></div>
-              <div className="tech-data-cell"><div className="tech-data-label">Remaining</div><div className="tech-data-value" style={{color: remainingBalance > 0 ? 'var(--status-danger,#ef4444)' : 'var(--status-success)'}}>{fmt(remainingBalance)}</div></div>
-              {selectedCase.stage && (
-                <div className="tech-data-cell">
-                  <div className="tech-data-label">Status</div>
-                  <div className="tech-data-value">
-                    <span style={{fontSize:'0.75rem',fontWeight:600,padding:'2px 8px',borderRadius:10,background:stageColor(selectedCase.stage)+'20',color:stageColor(selectedCase.stage),border:`1px solid ${stageColor(selectedCase.stage)}40`}}>
-                      {stageLabel(selectedCase.stage)}
-                    </span>
-                  </div>
+            <div style={{border:'1px solid var(--border-subtle)', borderRadius:'var(--radius-md)', background:'var(--bg-elevated)', marginBottom:16, overflow:'hidden'}}>
+              <div style={{padding:'8px 14px', borderBottom:'1px solid var(--border-subtle)', display:'flex', alignItems:'center', gap:10}}>
+                <span style={{fontFamily:'var(--font-mono)', fontWeight:700, fontSize:'0.88rem'}}>{selectedCase.case_number}</span>
+                {selectedCase.stage && (
+                  <span style={{fontSize:'0.72rem',fontWeight:600,padding:'2px 8px',borderRadius:10,background:stageColor(selectedCase.stage)+'20',color:stageColor(selectedCase.stage),border:`1px solid ${stageColor(selectedCase.stage)}40`}}>
+                    {stageLabel(selectedCase.stage)}
+                  </span>
+                )}
+                <span style={{marginLeft:'auto', fontSize:'0.75rem', color:'var(--text-muted)'}}>{client.first_name} {client.last_name}</span>
+              </div>
+              <div style={{padding:'10px 14px', display:'flex', flexDirection:'column', gap:7, fontSize:'0.85rem'}}>
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                  <span style={{color:'var(--text-muted)'}}>Total Amount (Quotation)</span>
+                  <span style={{fontWeight:600}}>{fmt(selectedCase.quotation_total)}</span>
                 </div>
-              )}
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                  <span style={{color:'var(--text-muted)'}}>Already Paid</span>
+                  <span style={{fontWeight:600, color:'var(--status-success)'}}>- {fmt(selectedCase.total_paid)}</span>
+                </div>
+                <div style={{display:'flex', justifyContent:'space-between', paddingTop:6, borderTop:'1px solid var(--border-subtle)'}}>
+                  <span style={{fontWeight:600}}>Pending Balance</span>
+                  <span style={{fontWeight:700, color: remainingBalance > 0 ? 'var(--status-danger,#ef4444)' : 'var(--status-success)'}}>{fmt(remainingBalance)}</span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -311,13 +319,28 @@ function CollectModal({ client, onClose, onCollected }) {
             </div>
           </div>
 
-          {/* Summary row */}
-          {gross > 0 && (
-            <div style={{display:'flex',gap:16,padding:'10px 14px',background:'var(--bg-elevated)',borderRadius:8,margin:'10px 0',fontSize:'0.82rem',border:'1px solid var(--border-subtle)'}}>
-              <div>Gross: <strong>{fmt(gross)}</strong></div>
-              {discountAmt > 0 && <div style={{color:'#22c55e'}}>Discount: −{fmt(discountAmt)}</div>}
-              <div style={{marginLeft:'auto',fontWeight:800,color:'var(--accent-primary)',fontSize:'0.9rem'}}>
-                To Collect: {fmt(finalAmount)}
+          {/* Payment summary breakdown */}
+          {selectedCase && gross > 0 && (
+            <div style={{background:'var(--bg-elevated)',borderRadius:8,margin:'10px 0',border:'1px solid var(--border-subtle)',overflow:'hidden'}}>
+              <div style={{padding:'8px 14px', display:'flex', flexDirection:'column', gap:6, fontSize:'0.83rem'}}>
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                  <span style={{color:'var(--text-muted)'}}>Total Amount</span>
+                  <span style={{fontWeight:600}}>{fmt(selectedCase.quotation_total)}</span>
+                </div>
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                  <span style={{color:'var(--text-muted)'}}>Already Paid</span>
+                  <span style={{fontWeight:600, color:'var(--status-success)'}}>- {fmt(selectedCase.total_paid)}</span>
+                </div>
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                  <span style={{color:'var(--text-muted)'}}>Collecting Now{discountAmt > 0 ? ` (incl. −${fmt(discountAmt)} discount)` : ''}</span>
+                  <span style={{fontWeight:600, color:'var(--accent-primary)'}}>- {fmt(finalAmount)}</span>
+                </div>
+                <div style={{display:'flex', justifyContent:'space-between', paddingTop:6, borderTop:'1px solid var(--border-subtle)'}}>
+                  <span style={{fontWeight:700}}>Pending After</span>
+                  <span style={{fontWeight:800, color: Math.max(0, remainingBalance - finalAmount) > 0 ? 'var(--status-danger,#ef4444)' : 'var(--status-success)'}}>
+                    {fmt(Math.max(0, remainingBalance - finalAmount))}
+                  </span>
+                </div>
               </div>
             </div>
           )}

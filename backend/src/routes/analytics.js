@@ -31,7 +31,7 @@ router.get('/dashboard', async (req, res) => {
         COUNT(*) FILTER (WHERE priority = 1) as critical,
         COUNT(*) FILTER (WHERE received_at >= NOW() - INTERVAL '7 days') as this_week,
         COUNT(*) FILTER (WHERE received_at >= NOW() - INTERVAL '30 days') as this_month
-        FROM cases c${tenantCase ? ` WHERE ${tenantCase.clause}` : ''}`,
+        FROM cases c WHERE c.deleted_at IS NULL${tenantCase ? ` AND ${tenantCase.clause}` : ''}`,
         tenantCaseParams),
 
       // Revenue this month
@@ -41,7 +41,7 @@ router.get('/dashboard', async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'paid') as paid_count
         FROM payments p
         JOIN cases c ON p.case_id = c.id
-        ${tenantCase ? `WHERE ${tenantCase.clause}` : ''}`,
+        WHERE c.deleted_at IS NULL${tenantCase ? ` AND ${tenantCase.clause}` : ''}`,
         tenantCaseParams),
 
       // Pending amount from latest case quote minus received payments
@@ -59,7 +59,7 @@ router.get('/dashboard', async (req, res) => {
           FROM payments p
           WHERE p.case_id = c.id
         ) paid ON TRUE
-        ${tenantCase ? `WHERE ${tenantCase.clause}` : ''}`,
+        WHERE c.deleted_at IS NULL${tenantCase ? ` AND ${tenantCase.clause}` : ''}`,
         tenantCaseParams),
 
       // Engineer performance
@@ -69,7 +69,7 @@ router.get('/dashboard', async (req, res) => {
         AVG(EXTRACT(EPOCH FROM (c.completed_at - c.received_at))/3600) FILTER (WHERE c.completed_at IS NOT NULL) as avg_hours,
         ROUND(COUNT(c.id) FILTER (WHERE c.stage IN ('completed','delivered'))::decimal / NULLIF(COUNT(c.id),0) * 100, 1) as success_rate
         FROM users u
-        LEFT JOIN cases c ON c.assigned_engineer = u.id${engineerTenantCase ? ` AND ${engineerTenantCase.clause}` : ''}
+        LEFT JOIN cases c ON c.assigned_engineer = u.id AND c.deleted_at IS NULL${engineerTenantCase ? ` AND ${engineerTenantCase.clause}` : ''}
         WHERE u.role IN ('senior_engineer','junior_engineer') AND u.is_active = true${engineerTenantUser ? ` AND ${engineerTenantUser.clause}` : ''}
         GROUP BY u.id ORDER BY completed_cases DESC LIMIT 10`,
         engineerParams
@@ -80,10 +80,9 @@ router.get('/dashboard', async (req, res) => {
         COUNT(*) as count,
         ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - c.received_at))/3600) FILTER (WHERE completed_at IS NOT NULL), 1) as avg_recovery_hours
         FROM cases c
-        ${tenantCase ? `WHERE c.received_at >= NOW() - INTERVAL '90 days' AND ${tenantCase.clause}` : `WHERE c.received_at >= NOW() - INTERVAL '90 days'`}
+        WHERE c.deleted_at IS NULL AND c.received_at >= NOW() - INTERVAL '90 days'${tenantCase ? ` AND ${tenantCase.clause}` : ''}
         GROUP BY failure_type, device_brand
         ORDER BY count DESC LIMIT 10`,
-
         tenantCaseParams),
 
       // Recent cases
@@ -94,12 +93,12 @@ router.get('/dashboard', async (req, res) => {
         FROM cases c
         LEFT JOIN clients cl ON c.client_id = cl.id
         LEFT JOIN users u ON c.assigned_engineer = u.id
-        ${tenantCase ? `WHERE ${tenantCase.clause}` : ''}
+        WHERE c.deleted_at IS NULL${tenantCase ? ` AND ${tenantCase.clause}` : ''}
         ORDER BY c.created_at DESC LIMIT 10`,
         tenantCaseParams),
 
       // Stage distribution
-      query(`SELECT stage, COUNT(*) as count FROM cases c ${tenantCase ? `WHERE ${tenantCase.clause}` : ''} GROUP BY stage ORDER BY count DESC`,
+      query(`SELECT stage, COUNT(*) as count FROM cases c WHERE c.deleted_at IS NULL${tenantCase ? ` AND ${tenantCase.clause}` : ''} GROUP BY stage ORDER BY count DESC`,
         tenantCaseParams),
 
       // Expenses this month (for profit calculation)
@@ -141,7 +140,7 @@ router.get('/failure-trends', async (req, res) => {
         device_brand,
         COUNT(*) as count
        FROM cases c
-       WHERE c.received_at >= NOW() - ($1 || ' days')::INTERVAL
+       WHERE c.deleted_at IS NULL AND c.received_at >= NOW() - ($1 || ' days')::INTERVAL
        ${tenantCase ? `AND ${tenantCase.clause}` : ''}
        GROUP BY DATE_TRUNC('day', c.received_at), failure_type, device_brand
        ORDER BY date DESC`,
@@ -167,7 +166,7 @@ router.get('/model-failures', async (req, res) => {
        FROM storage_models sm
        JOIN storage_brands sb ON sm.brand_id = sb.id
        JOIN cases c ON c.storage_model_id = sm.id
-       ${tenantCase ? `WHERE ${tenantCase.clause}` : ''}
+       WHERE c.deleted_at IS NULL${tenantCase ? ` AND ${tenantCase.clause}` : ''}
        GROUP BY sm.id, sm.model_number, sb.name
        HAVING COUNT(c.id) > 0
        ORDER BY total_cases DESC LIMIT 20`,
@@ -188,7 +187,7 @@ router.get('/revenue-trend', async (req, res) => {
         COUNT(*) as payment_count
        FROM payments p
        JOIN cases c ON p.case_id = c.id
-       WHERE status = 'paid' AND paid_at >= NOW() - INTERVAL '30 days'
+       WHERE c.deleted_at IS NULL AND status = 'paid' AND paid_at >= NOW() - INTERVAL '30 days'
        ${tenantCase ? `AND ${tenantCase.clause}` : ''}
        GROUP BY DATE_TRUNC('day', paid_at) ORDER BY date`,
       tenantCaseParams

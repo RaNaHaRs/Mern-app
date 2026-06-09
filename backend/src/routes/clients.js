@@ -188,7 +188,7 @@ router.get('/:id', async (req, res) => {
          FROM accounting_purchases ap
          WHERE ap.case_id = c.id
        ) purch ON TRUE
-       WHERE c.client_id = $1 ORDER BY c.created_at DESC`,
+       WHERE c.client_id = $1 AND c.deleted_at IS NULL ORDER BY c.created_at DESC`,
       [req.params.id]
     );
 
@@ -204,7 +204,7 @@ router.get('/:id', async (req, res) => {
               COUNT(p.*) FILTER (WHERE p.status = 'paid') as payment_count
        FROM payments p
        JOIN cases c ON p.case_id = c.id
-       WHERE c.client_id = $1`,
+       WHERE c.client_id = $1 AND c.deleted_at IS NULL`,
       [req.params.id]
     );
 

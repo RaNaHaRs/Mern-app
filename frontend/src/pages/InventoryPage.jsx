@@ -958,6 +958,21 @@ export default function InventoryPage() {
                                 title="Adjust stock quantity">
                                 Adjust
                               </button>
+                              <button type="button" className="btn btn-danger btn-sm"
+                                onClick={async () => {
+                                  if (!confirm(`Move "${item.stock_number || item.name || item.id}" to Recycle Bin?`)) return;
+                                  try {
+                                    await inventoryApi.bulkSoftDelete([item.id]);
+                                    await loadStock();
+                                    await loadRecycle();
+                                  } catch (err) {
+                                    alert(`Delete failed: ${err.message}`);
+                                  }
+                                }}
+                                style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                                title="Move to Recycle Bin">
+                                Delete
+                              </button>
                             </>
                           )}
                           {viewMode === 'recycle' && (

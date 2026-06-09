@@ -1656,7 +1656,7 @@ router.put('/:caseId/inventory/:itemId',
           updateData.qty_used = (cii.qty_used || 0) + updateQty;
           newStatus = 'consumed';
           logType = 'CONSUMED';
-          quantityChange = -updateQty;
+          quantityChange = 0; // Stock already deducted on allocation (POST endpoint)
         } else if (action === 'return') {
           updateData.qty_returned = (cii.qty_returned || 0) + updateQty;
           updateData.returned_at = new Date().toISOString();

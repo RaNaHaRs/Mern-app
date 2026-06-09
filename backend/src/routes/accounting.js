@@ -113,7 +113,7 @@ router.get('/summary', async (req, res) => {
         COALESCE(SUM(p.amount) FILTER (WHERE p.status = 'paid' AND p.paid_at >= DATE_TRUNC('month', NOW())), 0) AS revenue_month
         FROM payments p
         JOIN cases c ON p.case_id = c.id
-        ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}`,
+        WHERE c.deleted_at IS NULL${caseScope.clause ? ` AND ${caseScope.clause}` : ''}`,
         caseScope.params),
       query(`SELECT
         COALESCE(SUM(total), 0) as total_purchases,
@@ -130,7 +130,7 @@ router.get('/summary', async (req, res) => {
                     COALESCE(SUM(ce.amount) FILTER (WHERE ce.created_at >= DATE_TRUNC('month', NOW())), 0) as case_expenses_month
              FROM case_expenses ce
              JOIN cases c ON ce.case_id = c.id
-             WHERE ${caseScope.clause.replace(/^WHERE\s*/i, '') || '1=1'}`,
+             WHERE c.deleted_at IS NULL AND (${caseScope.clause.replace(/^WHERE\s*/i, '') || '1=1'})`,
             caseScope.params
           )
     ]);
@@ -152,7 +152,7 @@ router.get('/summary', async (req, res) => {
            FROM payments p
            WHERE p.case_id = c.id
          ) paid ON TRUE
-         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}`,
+         WHERE c.deleted_at IS NULL${caseScope.clause ? ` AND ${caseScope.clause}` : ''}`,
       caseScope.params
     );
 
@@ -199,7 +199,7 @@ router.get('/summary', async (req, res) => {
          SELECT p.amount, p.status, p.paid_at
          FROM payments p
          JOIN cases c ON p.case_id = c.id
-         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}
+         WHERE c.deleted_at IS NULL${caseScope.clause ? ` AND ${caseScope.clause}` : ''}
        ) p ON DATE_TRUNC('month', p.paid_at) = d
        LEFT JOIN accounting_expenses exp ON DATE_TRUNC('month', exp.date) = d
          AND exp.deleted_at IS NULL
@@ -208,7 +208,7 @@ router.get('/summary', async (req, res) => {
          SELECT ce.amount, ce.created_at
          FROM case_expenses ce
          JOIN cases c ON ce.case_id = c.id
-         ${caseScope.clause ? `WHERE ${caseScope.clause}` : ''}
+         WHERE c.deleted_at IS NULL${caseScope.clause ? ` AND ${caseScope.clause}` : ''}
        ) ce ON DATE_TRUNC('month', ce.created_at) = d
        GROUP BY d ORDER BY d`,
       [...new Set([...caseScope.params, ...expenseScope.params])]
