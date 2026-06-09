@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { clientsApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
 
-function NewClientModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ country: 'India' });
+function NewClientModal({ onClose, onCreated, initialData }) {
+  const isEdit = !!initialData?.id;
+  const [form, setForm] = useState(initialData || { country: 'India' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -13,8 +14,13 @@ function NewClientModal({ onClose, onCreated }) {
     setLoading(true);
     setError('');
     try {
-      const client = await clientsApi.create(form);
-      onCreated(client);
+      if (isEdit) {
+        await clientsApi.update(initialData.id, form);
+      } else {
+        const client = await clientsApi.create(form);
+        onCreated(client);
+      }
+      onCreated();
       onClose();
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
@@ -24,7 +30,7 @@ function NewClientModal({ onClose, onCreated }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h3 className="modal-title">👥 New Client</h3>
+          <h3 className="modal-title">{isEdit ? '✏️ Edit Client' : '👥 New Client'}</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
@@ -93,7 +99,9 @@ function NewClientModal({ onClose, onCreated }) {
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" disabled={loading||!form.first_name||!form.phone} onClick={handleSubmit}>
-            {loading?<><div className="spinner" style={{width:14,height:14}}/> Creating...</>:'+ Add Client'}
+            {loading
+              ? <><div className="spinner" style={{width:14,height:14}}/> {isEdit ? 'Saving...' : 'Creating...'}</>
+              : isEdit ? 'Save Changes' : '+ Add Client'}
           </button>
         </div>
       </div>
@@ -377,6 +385,7 @@ export default function ClientsPage() {
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
   const [showNew, setShowNew] = useState(false);
+  const [showEditClient, setShowEditClient] = useState(null);
   const [collectingIds, setCollectingIds] = useState(new Set());
   const [showCollectClient, setShowCollectClient] = useState(null);
 
@@ -473,7 +482,7 @@ export default function ClientsPage() {
                     Joined <span style={{fontSize:'0.75rem',opacity:0.8}}>{renderSortIcon('created_at')}</span>
                   </button>
                 </th>
-                <th>Collect</th>
+                <th>Actions</th>
               </tr></thead>
               <tbody>
                 {clients.map(cl => (
@@ -499,14 +508,24 @@ export default function ClientsPage() {
                     </td>
                     <td className="text-xs text-muted">{new Date(cl.created_at).toLocaleDateString('en-IN')}</td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${parseFloat(cl.pending_amount || 0) > 0 ? 'btn-primary' : 'btn-secondary'}`}
-                        disabled={parseFloat(cl.pending_amount || 0) <= 0 || collectingIds.has(cl.id)}
-                        onClick={() => handleCollect(cl)}
-                      >
-                        {collectingIds.has(cl.id) ? 'Collecting...' : 'Collect'}
-                      </button>
+                      <div style={{display:'flex',gap:6}}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-secondary"
+                          onClick={() => setShowEditClient(cl)}
+                          title="Edit client"
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${parseFloat(cl.pending_amount || 0) > 0 ? 'btn-primary' : 'btn-secondary'}`}
+                          disabled={parseFloat(cl.pending_amount || 0) <= 0 || collectingIds.has(cl.id)}
+                          onClick={() => handleCollect(cl)}
+                        >
+                          {collectingIds.has(cl.id) ? 'Collecting...' : 'Collect'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -533,6 +552,7 @@ export default function ClientsPage() {
       </div>
 
       {showNew && <NewClientModal onClose={()=>setShowNew(false)} onCreated={load} />}
+      {showEditClient && <NewClientModal initialData={showEditClient} onClose={()=>setShowEditClient(null)} onCreated={load} />}
       {showCollectClient && <CollectModal client={showCollectClient} onClose={()=>setShowCollectClient(null)} onCollected={load} />}
     </div>
   );

@@ -12,7 +12,7 @@ const router = express.Router();
 router.use(authenticate);
 
 // Ensure soft-delete column exists on accounting tables (non-blocking)
-['accounting_expenses', 'accounting_purchases', 'accounting_invoices'].forEach(table => {
+['accounting_expenses', 'accounting_purchases', 'accounting_invoices', 'accounting_quotes'].forEach(table => {
   query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`).catch(() => {});
 });
 
