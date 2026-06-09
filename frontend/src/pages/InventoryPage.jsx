@@ -351,7 +351,7 @@ function AdjustStockModal({ item, onClose, onDone }) {
             </div>
             <div className="form-group">
               <label className="form-label required">Quantity</label>
-              <input type="number" className="form-input" required min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: parseInt(e.target.value) })} />
+              <input type="number" className="form-input" required min="1" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value === '' ? '' : parseInt(e.target.value) || 1 })} />
             </div>
             <div className="form-group">
               <label className="form-label">Notes / Reason</label>
