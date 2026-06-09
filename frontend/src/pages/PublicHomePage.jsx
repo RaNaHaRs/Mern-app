@@ -1,6 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { HOMEPAGE_THEMES, HOMEPAGE_LAYOUTS, getTheme, getLayout } from './HomepageThemes';
+
+// Light overrides: applied on top of any color theme when brightness = 'light'
+const LIGHT_OVERRIDES = {
+  bg_primary: '#f8fafc',
+  bg_secondary: '#f1f5f9',
+  bg_card: 'rgba(255,255,255,0.92)',
+  bg_card_hover: 'rgba(255,255,255,1)',
+  text_primary: '#0f172a',
+  text_secondary: '#475569',
+  text_muted: '#94a3b8',
+  border: 'rgba(15,23,42,0.08)',
+  border_accent: 'rgba(0,212,255,0.3)',
+  navbar_blur: 'rgba(248,250,252,0.88)',
+  particle_colors: ['rgba(0,212,255,0.35)', 'rgba(124,58,237,0.3)', 'rgba(16,185,129,0.25)'],
+};
 
 const API = 'http://localhost:5000/api';
 
@@ -123,6 +138,15 @@ export default function PublicHomePage() {
   const [cmsData, setCmsData] = useState(defaultContent);
   const [navSolid, setNavSolid] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [brightness, setBrightness] = useState(() => localStorage.getItem('homepage_brightness') || 'dark');
+
+  const toggleBrightness = useCallback(() => {
+    setBrightness(b => {
+      const next = b === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('homepage_brightness', next);
+      return next;
+    });
+  }, []);
 
   const [heroRef, heroVisible]   = useReveal(0.1);
   const [howRef, howVisible]     = useReveal(0.2);
@@ -197,7 +221,8 @@ export default function PublicHomePage() {
   }, []);
 
   const c = cmsData;
-  const theme = getTheme(c.active_theme);
+  const baseTheme = getTheme(c.active_theme);
+  const theme = brightness === 'light' ? { ...baseTheme, ...LIGHT_OVERRIDES } : baseTheme;
   const layout = c.active_layout || 'split_hero';
   const isLight = theme.id === 'slate_pro';
   const isReversed = layout === 'reversed_hero';
@@ -275,7 +300,8 @@ export default function PublicHomePage() {
             background: theme.gradient_cta,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 20, boxShadow: `0 0 20px ${theme.glow_primary}`, animation: 'pulse 3s infinite',
-          }}>{c.logo_emoji}</div>
+            overflow: 'hidden',
+          }}>{c.logo_url ? <img src={c.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : c.logo_emoji}</div>
           <div>
             <div style={{ fontWeight: 900, fontSize: '1.05rem', letterSpacing: '-0.03em', color: theme.text_primary, fontFamily: "'Outfit',sans-serif" }}>{c.app_name}</div>
             <div style={{ fontSize: '0.58rem', color: theme.text_muted, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.12em' }}>CRM PLATFORM</div>
@@ -293,6 +319,11 @@ export default function PublicHomePage() {
               📋 Track Case
             </Link>
           )}
+          <button onClick={toggleBrightness} title={brightness === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} style={{ background: 'none', border: `1px solid ${theme.border}`, borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontSize: '1rem', color: theme.text_secondary, transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = theme.accent; e.currentTarget.style.color = theme.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = theme.border; e.currentTarget.style.color = theme.text_secondary; }}>
+            {brightness === 'dark' ? '☀️' : '🌙'}
+          </button>
           <button onClick={() => navigate('/login')} className="rl-btn-primary" style={{ padding: '9px 22px', borderRadius: 10, fontSize: '0.87rem' }}>Sign In →</button>
         </div>
 
@@ -304,6 +335,9 @@ export default function PublicHomePage() {
           {[['#features','Features'],['#process','How It Works'],['#why','Why Us'],['#reviews','Reviews'],['#contact','Contact']].map(([h,l]) => (
             <a key={h} href={h} onClick={() => setMenuOpen(false)} style={{ display: 'block', padding: '12px 0', color: theme.text_secondary, textDecoration: 'none', fontSize: '0.95rem', borderBottom: `1px solid ${theme.border}` }}>{l}</a>
           ))}
+          <button onClick={toggleBrightness} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '12px 0', color: theme.text_secondary, background: 'none', border: 'none', borderBottom: `1px solid ${theme.border}`, fontSize: '0.95rem', cursor: 'pointer', textAlign: 'left' }}>
+            {brightness === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode'}
+          </button>
           <button onClick={() => navigate('/login')} className="rl-btn-primary" style={{ width: '100%', padding: 12, borderRadius: 10, fontSize: '0.95rem', marginTop: 16 }}>Sign In →</button>
         </div>
       )}
@@ -524,7 +558,7 @@ export default function PublicHomePage() {
       <section style={{ padding: 'clamp(60px,8vw,100px) clamp(16px,5vw,72px)', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse at 50% 50%, ${theme.glow_primary} 0%, ${theme.glow_secondary} 40%, transparent 70%)`, pointerEvents: 'none' }} />
         <div ref={ctaRef} style={{ maxWidth: 640, margin: '0 auto', position: 'relative', zIndex: 1, animation: ctaVisible ? 'slideUp 0.8s ease both' : 'none' }}>
-          <div style={{ width: 72, height: 72, borderRadius: 20, background: theme.gradient_cta, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.2rem', margin: '0 auto 24px', boxShadow: `0 0 48px ${theme.glow_primary}`, animation: 'heroFloat 6s ease-in-out infinite' }}>{c.logo_emoji}</div>
+          <div style={{ width: 72, height: 72, borderRadius: 20, background: theme.gradient_cta, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.2rem', margin: '0 auto 24px', boxShadow: `0 0 48px ${theme.glow_primary}`, animation: 'heroFloat 6s ease-in-out infinite', overflow: 'hidden' }}>{c.logo_url ? <img src={c.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : c.logo_emoji}</div>
           <h2 style={{ fontSize: 'clamp(2rem,5vw,3rem)', fontWeight: 900, color: theme.text_primary, marginBottom: 14, fontFamily: "'Outfit',sans-serif" }}>Ready to streamline your lab?</h2>
           <p style={{ color: theme.text_secondary, marginBottom: 36, fontSize: '1rem', lineHeight: 1.7 }}>Join hundreds of data recovery labs using RecoverLab CRM to manage cases, clients, and billing from one beautiful platform.</p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -542,7 +576,7 @@ export default function PublicHomePage() {
           <div style={{ display: 'flex', gap: 40, background: theme.bg_card, border: `1px solid ${theme.border}`, borderRadius: 24, padding: 'clamp(24px,4vw,44px)', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 9, background: theme.gradient_cta, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>{c.logo_emoji}</div>
+                <div style={{ width: 34, height: 34, borderRadius: 9, background: theme.gradient_cta, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, overflow: 'hidden' }}>{c.logo_url ? <img src={c.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : c.logo_emoji}</div>
                 <span style={{ fontSize: '1.05rem', fontWeight: 900, color: theme.text_primary, fontFamily: "'Outfit',sans-serif" }}>{c.app_name}</span>
               </div>
               <div style={{ fontSize: '0.8rem', color: theme.text_secondary, maxWidth: 280 }}>{c.app_tagline}</div>
@@ -555,7 +589,10 @@ export default function PublicHomePage() {
                 </div>
               ))}
             </div>
-            <button onClick={() => navigate('/login')} className="rl-btn-primary" style={{ padding: '11px 26px', borderRadius: 10, fontSize: '0.88rem' }}>Sign In →</button>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button onClick={() => navigate('/contact-us')} className="rl-btn-primary" style={{ padding: '11px 26px', borderRadius: 10, fontSize: '0.88rem' }}>Contact Us →</button>
+              <button onClick={() => navigate('/login')} className="rl-btn-secondary" style={{ padding: '11px 26px', borderRadius: 10, fontSize: '0.88rem' }}>Sign In →</button>
+            </div>
           </div>
         </div>
       </section>
@@ -566,6 +603,7 @@ export default function PublicHomePage() {
           <span style={{ fontSize: '0.75rem', color: theme.text_muted }}>{c.footer_text}</span>
           <div style={{ display: 'flex', gap: 20 }}>
             <button onClick={() => navigate('/login')} style={{ fontSize: '0.75rem', color: theme.text_muted, background: 'none', border: 'none', cursor: 'pointer', padding: 0, transition: 'color 0.15s' }} onMouseEnter={e => e.target.style.color = theme.accent} onMouseLeave={e => e.target.style.color = theme.text_muted}>Admin Login</button>
+            <Link to="/contact-us" style={{ fontSize: '0.75rem', color: theme.text_muted, textDecoration: 'none', transition: 'color 0.15s' }} onMouseEnter={e => e.target.style.color = theme.accent} onMouseLeave={e => e.target.style.color = theme.text_muted}>Contact Us</Link>
             {c.show_client_portal && <Link to="/client-portal" style={{ fontSize: '0.75rem', color: theme.text_muted, textDecoration: 'none' }}>Client Portal</Link>}
           </div>
         </div>

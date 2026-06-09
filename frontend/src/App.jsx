@@ -399,7 +399,6 @@ function AppLayout() {
 
 // ── Root App ───────────────────────────────────────────────────
 export default function App() {
-  // MERGED: Keep both branding fetch (current) AND temp comment (incoming)
   useEffect(() => {
     fetch('/api/settings/branding').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) return;
@@ -414,7 +413,6 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
-
   return (
     <ThemeProvider>
       <FontSizeProvider>
