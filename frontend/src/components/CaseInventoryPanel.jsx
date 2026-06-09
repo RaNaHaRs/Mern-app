@@ -526,21 +526,13 @@ export default function CaseInventoryPanel({ caseId }) {
                         </td>
                         <td style={{ padding: 8, textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
-                            {isTemp ? (
+                            {isTemp && (
                               <button
                                 className="btn btn-sm btn-secondary"
                                 onClick={() => handleUpdateUsage(item.id, 'return')}
                                 style={{ fontSize: '0.65rem', padding: '2px 6px' }}
                               >
                                 Return
-                              </button>
-                            ) : (
-                              <button
-                                className="btn btn-sm btn-secondary"
-                                onClick={() => handleUpdateUsage(item.id, 'consume')}
-                                style={{ fontSize: '0.65rem', padding: '2px 6px' }}
-                              >
-                                Consume
                               </button>
                             )}
                             {isAdmin && (
