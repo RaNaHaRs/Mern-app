@@ -204,16 +204,6 @@ function Sidebar({ open, onClose, branding }) {
         </div>
 
         <div className="sidebar-footer">
-<<<<<<< HEAD
-          <div className="user-card" onClick={() => { navigate('/settings'); onClose(); }}>
-            <div className="user-avatar" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <UserAvatar
-                name={user?.fullName || user?.username}
-                avatarUrl={user?.avatar || user?.avatarUrl}
-                size={36}
-                style={{ borderRadius: '50%' }}
-              />
-=======
           {user && (
             <div style={{
               padding: '10px 12px',
@@ -246,7 +236,6 @@ function Sidebar({ open, onClose, branding }) {
                   </div>
                 </div>
               </div>
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
             </div>
           )}
           <button onClick={handleLogout} title="Sign out">
@@ -427,7 +416,6 @@ function AppLayout() {
 
 // ── Root App ───────────────────────────────────────────────────
 export default function App() {
-<<<<<<< HEAD
   useEffect(() => {
     fetch('/api/settings/branding').then(r => r.ok ? r.json() : null).then(d => {
       if (!d) return;
@@ -442,9 +430,6 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
-=======
-  // TEMP 2
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
   return (
     <ThemeProvider>
       <FontSizeProvider>

@@ -95,25 +95,15 @@ function PlanBadge({ plan }) {
 
 // ── Add Tenant Modal ───────────────────────────────────────────────────────
 function AddTenantModal({ onClose, onDone }) {
-<<<<<<< HEAD
   const [plansLoading, setPlansLoading] = useState(true);
   const [dynamicPlans, setDynamicPlans] = useState(DEFAULT_PLANS);
-  
-  // Load plans from backend on mount
+
   useEffect(() => {
     saApi.get('/plans')
-      .then(res => {
-        if (res.plans && res.plans.length > 0) {
-          setDynamicPlans(res.plans);
-        }
-      })
+      .then(res => { if (res.plans && res.plans.length > 0) setDynamicPlans(res.plans); })
       .catch(() => {})
       .finally(() => setPlansLoading(false));
   }, []);
-  
-=======
-  const dynamicPlans = getPlans().filter(p => p.is_active !== false);
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
   const [form, setForm] = useState({
     company_name: '', admin_name: '', admin_email: '', admin_password: '',
     plan: dynamicPlans[1]?.key || 'professional', max_team_users: dynamicPlans[1]?.maxUsers || 5, subscription_months: 12,
@@ -625,14 +615,8 @@ function TenantUsersModal({ tenant, onClose }) {
     if (!confirm(`${action} ${u.full_name || u.username}?`)) return;
     try {
       const res = await saApi.patch(`/tenants/${tenant.id}/users/${u.id}`, { is_active: !u.is_active });
-<<<<<<< HEAD
-      if (res?.error) {
-        throw new Error(res.error);
-      }
-      if (res.ok) {
-=======
+      if (res?.error) throw new Error(res.error);
       if (res.ok || res.is_active !== undefined) {
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
         setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: res.is_active } : x));
       } else {
         throw new Error('Invalid response from server');
@@ -1491,29 +1475,13 @@ function BrandingTab() {
     } catch (e) {}
   };
 
-<<<<<<< HEAD
   const handleFileUpload = async (field, file) => {
-    console.log(`Uploading ${field}:`, file.name);
-    
-    // Validate file type
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/svg+xml', 'image/webp', 'image/x-icon', 'image/vnd.microsoft.icon'];
-    if (!allowedTypes.includes(file.type)) {
-      alert('Please upload a valid image file (JPG, PNG, GIF, SVG, WebP, or ICO)');
-      return;
-    }
-    
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB');
-      return;
-    }
-
+    if (!allowedTypes.includes(file.type)) { alert('Please upload a valid image file (JPG, PNG, GIF, SVG, WebP, or ICO)'); return; }
+    if (file.size > 5 * 1024 * 1024) { alert('File size must be less than 5MB'); return; }
     const fieldKey = field === 'logo' ? 'logo_url' : 'favicon_url';
-    
-    // Reset error state and start uploading
     setImageErrors(e => ({ ...e, [field]: false }));
     setUploading(u => ({ ...u, [field]: true }));
-    
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -1522,47 +1490,23 @@ function BrandingTab() {
         headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` },
         body: fd,
       });
-      
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-      
+      if (!res.ok) { const error = await res.json(); throw new Error(error.error || 'Upload failed'); }
       const data = await res.json();
-      console.log(`Upload response for ${field}:`, data);
-      
-      if (data.url) {
-        // Update form with server URL
-        setForm(f => {
-          const newForm = { ...f, [fieldKey]: data.url };
-          console.log(`Updated form after ${field} upload:`, newForm);
-          return newForm;
-        });
-      }
-    } catch (e) { 
-      console.error(`Upload failed for ${field}:`, e);
-      alert('Upload failed: ' + e.message); 
-    } finally { 
-      setUploading(u => ({ ...u, [field]: false })); 
-    }
+      if (data.url) setForm(f => ({ ...f, [fieldKey]: data.url }));
+    } catch (e) { alert('Upload failed: ' + e.message); }
+    finally { setUploading(u => ({ ...u, [field]: false })); }
   };
 
   const save = () => {
-    console.log('Saving branding with form data:', form);
     localStorage.setItem('sa_branding', JSON.stringify(form));
     applyBranding(form);
     window.__branding = form;
     window.dispatchEvent(new CustomEvent('sa_branding_update', { detail: form }));
-    saApi.put('/settings', { branding: form })
-      .then(() => console.log('Branding saved successfully'))
-      .catch(err => console.error('Failed to save branding:', err));
+    saApi.put('/settings', { branding: form }).catch(() => {});
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
-=======
-  const save = () => { localStorage.setItem('sa_branding', JSON.stringify(form)); applyBranding(form); setSaved(true); setTimeout(() => setSaved(false), 2000); };
   const reset = () => { localStorage.removeItem('sa_branding'); setForm({ ...DEFAULT_BRANDING }); applyBranding(DEFAULT_BRANDING); setSaved(true); setTimeout(() => setSaved(false), 2000); };
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
 
   useEffect(() => { try { const stored = load(); if (stored) applyBranding(stored); } catch (e) {} }, []);
 
@@ -1893,16 +1837,9 @@ function HomepageTab() {
 
   const save = () => {
     applyHomepage(form);
-<<<<<<< HEAD
-    // Persist to backend
-    saApi.put('/settings', { homepage: form }).catch(() => {});
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-=======
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     saApi.patch('/settings', { key: 'homepage', value: form }).catch(() => {});
->>>>>>> 389f48cffc70f5609955a908ae817717ba7d9296
   };
 
   return (
