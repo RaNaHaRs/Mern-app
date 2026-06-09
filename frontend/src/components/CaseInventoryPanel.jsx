@@ -303,7 +303,15 @@ export default function CaseInventoryPanel({ caseId }) {
                     type="number"
                     min="1"
                     value={form.qty_allocated}
-                    onChange={(e) => setForm({ ...form, qty_allocated: e.target.value })}
+                    onChange={(e) => {
+                      const qty = e.target.value;
+                      const autoAmount = (parseFloat(form.unit_cost || 0) * parseFloat(qty || 1)).toFixed(2);
+                      setForm(f => ({
+                        ...f,
+                        qty_allocated: qty,
+                        client_charge_amount: f.charge_to_client ? autoAmount : f.client_charge_amount,
+                      }));
+                    }}
                     style={inputStyle}
                   />
                 </div>
@@ -314,7 +322,15 @@ export default function CaseInventoryPanel({ caseId }) {
                     type="number"
                     step="0.01"
                     value={form.unit_cost}
-                    onChange={(e) => setForm({ ...form, unit_cost: e.target.value })}
+                    onChange={(e) => {
+                      const cost = e.target.value;
+                      const autoAmount = (parseFloat(cost || 0) * parseFloat(form.qty_allocated || 1)).toFixed(2);
+                      setForm(f => ({
+                        ...f,
+                        unit_cost: cost,
+                        client_charge_amount: f.charge_to_client ? autoAmount : f.client_charge_amount,
+                      }));
+                    }}
                     placeholder="Enter amount or apply discount"
                     style={inputStyle}
                     required={form.usage_type === 'CONSUMED'}
