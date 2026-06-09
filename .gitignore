@@ -90,3 +90,7 @@ backend/tmp/
 # MISC
 # =========================
 *.local
+
+# unnecessary files
+*.md
+*.txt
