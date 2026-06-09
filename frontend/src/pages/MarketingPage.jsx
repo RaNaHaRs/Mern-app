@@ -687,6 +687,8 @@ function CampaignWizard({ onClose, onDone }) {
   });
   const [audience, setAudience] = useState([]);
   const [loadingAudience, setLoadingAudience] = useState(true);
+  const [launching, setLaunching] = useState(false);
+  const [sendError, setSendError] = useState('');
   const emailTemplates = ls.get('crm_email_templates', DEFAULT_EMAIL_TEMPLATES);
   const waTemplates    = ls.get('crm_wa_templates', DEFAULT_WA_TEMPLATES);
   const smsTemplates   = ls.get('crm_sms_templates', DEFAULT_SMS_TEMPLATES);
@@ -735,17 +737,16 @@ function CampaignWizard({ onClose, onDone }) {
   const handleLaunch = async () => {
     if (!form.name.trim()) { alert('Campaign name is required.'); return; }
     if (!form.template_id) { alert('Please select a template.'); return; }
+    setSendError('');
+    setLaunching(true);
 
     const allCampaigns = ls.get('crm_campaigns', []);
     const campaign = {
       ...form,
       id: `camp_${Date.now()}`,
       audience_count: selectedCount,
-      sent: 0,
-      opened: 0,
-      clicked: 0,
-      failed: 0,
-      status: form.scheduled_at ? 'scheduled' : 'sent',
+      sent: 0, opened: 0, clicked: 0, failed: 0,
+      status: form.scheduled_at ? 'scheduled' : 'sending',
       createdAt: new Date().toISOString(),
       sentAt: form.scheduled_at || new Date().toISOString(),
       audience_ids: form.audience_ids,
@@ -754,21 +755,17 @@ function CampaignWizard({ onClose, onDone }) {
 
     // Bump template usage count
     if (form.channel === 'email') {
-      const updated = emailTemplates.map(t => t.id === form.template_id ? { ...t, usageCount: (t.usageCount || 0) + 1 } : t);
-      ls.set('crm_email_templates', updated);
+      ls.set('crm_email_templates', emailTemplates.map(t => t.id === form.template_id ? { ...t, usageCount: (t.usageCount || 0) + 1 } : t));
     }
 
-    // Send email campaign via backend
-    if (form.channel === 'email' && selectedTpl) {
-      try {
-        // Create backend email template
+    try {
+      if (form.channel === 'email' && selectedTpl) {
         const tplRes = await marketingApi.createEmailTemplate({
           name: selectedTpl.name || form.name,
           subject: selectedTpl.subject || form.name,
           html_body: selectedTpl.html || selectedTpl.message_body || '',
           category: selectedTpl.category || 'campaign',
         });
-        // Create campaign with audience filter and selected IDs
         const campRes = await marketingApi.createCampaign({
           name: form.name,
           type: 'email',
@@ -778,19 +775,37 @@ function CampaignWizard({ onClose, onDone }) {
           from_email: '',
           audience_filter: JSON.stringify({ filter: form.audience_filter, client_ids: form.audience_ids }),
         });
-        // Send
-        await marketingApi.sendCampaign(campRes.id);
+        const result = await marketingApi.sendCampaign(campRes.id);
         campaign.status = 'sent';
-        ls.set('crm_campaigns', [campaign, ...ls.get('crm_campaigns', []).filter(c => c.id !== campaign.id)]);
-      } catch (e) {
-        console.error('Backend campaign send failed:', e);
-        campaign.status = 'failed';
-        ls.set('crm_campaigns', [campaign, ...ls.get('crm_campaigns', []).filter(c => c.id !== campaign.id)]);
+        campaign.sent = result?.sent || 0;
+        campaign.failed = result?.failed || 0;
+      } else if (form.channel === 'sms' && selectedTpl) {
+        const campRes = await marketingApi.createCampaign({
+          name: form.name,
+          type: 'sms',
+          sms_template: selectedTpl.message_body || selectedTpl.message || '',
+          audience_filter: JSON.stringify({ filter: form.audience_filter, client_ids: form.audience_ids }),
+        });
+        const result = await marketingApi.sendCampaign(campRes.id);
+        campaign.status = 'sent';
+        campaign.sent = result?.sent || 0;
+        campaign.failed = result?.failed || 0;
+      } else if (form.channel === 'whatsapp') {
+        throw new Error('WhatsApp Business API is not yet configured. Please contact support.');
+      } else {
+        campaign.status = 'sent';
       }
+      ls.set('crm_campaigns', [campaign, ...ls.get('crm_campaigns', []).filter(c => c.id !== campaign.id)]);
+      onDone();
+      onClose();
+    } catch (e) {
+      const msg = e?.response?.data?.error || e?.message || 'Failed to send campaign';
+      campaign.status = 'failed';
+      ls.set('crm_campaigns', [campaign, ...ls.get('crm_campaigns', []).filter(c => c.id !== campaign.id)]);
+      setSendError(msg);
+    } finally {
+      setLaunching(false);
     }
-
-    onDone();
-    onClose();
   };
 
   return (
@@ -978,17 +993,25 @@ function CampaignWizard({ onClose, onDone }) {
           )}
         </div>
 
+        {sendError && (
+          <div style={{ margin: '0 24px 12px', padding: '10px 14px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#ef4444', fontSize: '0.85rem' }}>
+            <strong>Send failed:</strong> {sendError}
+          </div>
+        )}
+
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={step === 1 ? onClose : () => setStep(s => s - 1)}>
+          <button className="btn btn-ghost" disabled={launching} onClick={step === 1 ? onClose : () => setStep(s => s - 1)}>
             {step === 1 ? 'Cancel' : '← Back'}
           </button>
           {step < 4
-            ? <button className="btn btn-primary" onClick={() => setStep(s => s + 1)} disabled={step === 1 && !form.name.trim() || step === 2 && !form.template_id}>
+            ? <button className="btn btn-primary" onClick={() => { setSendError(''); setStep(s => s + 1); }} disabled={step === 1 && !form.name.trim() || step === 2 && !form.template_id}>
                 Next →
               </button>
-            : <button className="btn btn-primary" onClick={handleLaunch}
-                style={{ background: form.scheduled_at ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#10b981,#059669)' }}>
-                {form.scheduled_at ? ' Schedule Campaign' : ' Launch Now'}
+            : <button className="btn btn-primary" onClick={handleLaunch} disabled={launching}
+                style={{ background: form.scheduled_at ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#10b981,#059669)', opacity: launching ? 0.7 : 1 }}>
+                {launching
+                  ? <><div className="spinner" style={{width:14,height:14,display:'inline-block',marginRight:6}}/> Sending…</>
+                  : form.scheduled_at ? ' Schedule Campaign' : ' Launch Now'}
               </button>
           }
         </div>

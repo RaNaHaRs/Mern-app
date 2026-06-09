@@ -499,12 +499,23 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
 
     if (c.type === 'email') {
       const smtp = await loadAdminSmtpConfig();
+      if (!smtp.host || !smtp.user || !smtp.pass) {
+        await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+        return res.status(400).json({ error: 'Email not configured. Go to Settings → Integrations → Email (SMTP) to add your email credentials.' });
+      }
       smtpFrom = { name: c.from_name || smtp.from_name || 'RecoverLab CRM', email: c.from_email || smtp.from_email || smtp.user };
       transporter = nodemailer.createTransport({
         host: smtp.host, port: smtp.port, secure: smtp.secure,
         auth: { user: smtp.user, pass: smtp.pass },
         tls: { rejectUnauthorized: false },
       });
+      // Verify SMTP connection before sending to any recipients
+      try {
+        await transporter.verify();
+      } catch (smtpErr) {
+        await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+        return res.status(400).json({ error: `SMTP connection failed: ${smtpErr.message}. Check your email settings in Settings → Integrations → Email.` });
+      }
     } else if (c.type === 'sms') {
       const { loadCompanySettings } = require('./settings');
       const companySettings = await loadCompanySettings();
@@ -622,6 +633,18 @@ router.post('/campaigns/:id/send', auditLog('campaign_send', 'campaign'), async 
         );
         failed++;
       }
+    }
+
+    if (sent === 0 && failed > 0) {
+      // All sends failed — revert to draft and return the error from the first failure
+      const firstFail = await query(
+        `SELECT bounce_reason FROM marketing_campaign_recipients WHERE campaign_id=$1 AND status='failed' LIMIT 1`,
+        [c.id]
+      );
+      await query(`UPDATE marketing_campaigns SET status='draft' WHERE id=$1`, [c.id]);
+      const reason = firstFail.rows[0]?.bounce_reason || 'Unknown error';
+      logger.error(`Campaign ${c.id} all sends failed. First error: ${reason}`);
+      return res.status(400).json({ error: `All ${failed} sends failed. First error: ${reason}` });
     }
 
     await query(
