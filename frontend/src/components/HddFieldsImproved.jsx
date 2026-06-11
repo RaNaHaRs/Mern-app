@@ -101,6 +101,7 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
             const alias = await fieldConfigApi.getSchema(legacyKey);
             console.debug('[HddFieldsImproved] fetched alias schema for', legacyKey, alias);
             if (!signal?.aborted && (alias.standardFields?.length || alias.customFields?.length)) {
+              console.log('[HddFieldsImproved] Using alias schema. Custom fields:', alias.customFields?.map(f => ({ id: f.id, label: f.field_label })));
               setSchema(alias);
               return;
             }
@@ -116,6 +117,7 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
         console.debug('[HddFieldsImproved] using local fallback for', normKey, fallback);
         setSchema(fallback);
       } else {
+        console.log('[HddFieldsImproved] Using primary schema. Custom fields:', primary.customFields?.map(f => ({ id: f.id, label: f.field_label })));
         setSchema(primary);
       }
       } catch (error) {
@@ -153,6 +155,8 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
   }, [loadSchema]);
 
   const isSeagate = hddKey.includes("seagate");
+  const [dateCodeValidation, setDateCodeValidation] = React.useState(null);
+  const [dateCodeError, setDateCodeError] = React.useState(null);
 
   const handleFieldChange = (field, value) => {
     setForm((prev) => ({
@@ -160,28 +164,45 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
       [field]: value,
     }));
 
-    // Auto parse Seagate date code
+    // Auto parse Seagate date code with validation
     if (field === "date_code" && isSeagate) {
-      parseDateCode(value);
+      validateAndParseDateCode(value);
     }
   };
 
-  const parseDateCode = (code) => {
-    if (!code || !isSeagate) return;
+  const validateAndParseDateCode = async (code) => {
+    if (!code || !isSeagate) {
+      setDateCodeValidation(null);
+      setDateCodeError(null);
+      return;
+    }
 
-    const yr = parseInt(code.substring(0, 2));
-    const wk = parseInt(code.substring(2, 4));
-
-    if (!isNaN(yr) && !isNaN(wk)) {
-      const d = new Date(2000 + yr, 0, 1 + (wk - 1) * 7);
-      setForm((prev) => ({
-        ...prev,
-        manufacture_date: d.toISOString().split("T")[0],
-      }));
+    try {
+      const response = await fetch(`/api/cases/validate/seagate-date-code?dateCode=${encodeURIComponent(code)}`);
+      const validation = await response.json();
+      
+      if (validation.isValid) {
+        setDateCodeValidation(validation);
+        setDateCodeError(null);
+        // Auto-fill manufacture_date with perfect date
+        if (validation.perfectDate) {
+          setForm((prev) => ({
+            ...prev,
+            manufacture_date: validation.perfectDate,
+          }));
+        }
+      } else {
+        setDateCodeValidation(null);
+        setDateCodeError(validation.error || 'Invalid date code format');
+      }
+    } catch (err) {
+      console.error('Date code validation error:', err);
+      setDateCodeError('Validation service unavailable');
     }
   };
 
   const handleCustomFieldChange = (fieldId, value) => {
+    console.log(`[HddFieldsImproved] Custom field change: ${fieldId} = ${value}`);
     setCustomFieldValues((prev) => ({
       ...prev,
       [fieldId]: value,
@@ -282,6 +303,31 @@ function HddFieldsImproved({ hddKey, form, setForm, customFieldValues, setCustom
                   }
                   required={isMandatory}
                 />
+              ) : field.field_key === "date_code" && isSeagate ? (
+                <>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Format: YYWWD, YYWD, or YWD"
+                      value={form[field.field_key] || ""}
+                      onChange={(e) =>
+                        handleFieldChange(field.field_key, e.target.value)
+                      }
+                      required={isMandatory}
+                      style={{
+                        borderColor: dateCodeError ? 'var(--danger)' : (dateCodeValidation?.isValid ? 'var(--status-success)' : 'var(--border-default)'),
+                        borderWidth: dateCodeError || dateCodeValidation?.isValid ? '2px' : '1px'
+                      }}
+                    />
+                  </div>
+                  {dateCodeError && (
+                    <div style={{ color: 'var(--danger)', fontSize: '0.78rem', marginTop: 4 }}>⚠️ {dateCodeError}</div>
+                  )}
+                  {dateCodeValidation?.isValid && (
+                    <div style={{ color: 'var(--status-success)', fontSize: '0.78rem', marginTop: 4 }}>✓ Format: {dateCodeValidation.format} | Date: {dateCodeValidation.perfectDate}</div>
+                  )}
+                </>
               ) : field.field_type === "textarea" ? (
                 <textarea
                   className="form-textarea"

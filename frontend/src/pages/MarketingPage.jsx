@@ -430,7 +430,7 @@ function EmailEditor({ template, onSave, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 1100, width: '95vw', height: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header" style={{ flexShrink: 0 }}>
           <h3 className="modal-title"> {template ? 'Edit' : 'Create'} Email Template</h3>
@@ -516,7 +516,7 @@ function EmailEditor({ template, onSave, onClose }) {
           {tab === 'preview' && (
             <iframe
               srcDoc={renderPreview()}
-              style={{ width:'100%', height:'100%', minHeight:400, border:'none', background:'#fff' }}
+              style={{ width:'100%', height:'100%', minHeight:400, border:'none', background:'#fff', overflow:'hidden' }}
               title="Email Preview"
               sandbox="allow-same-origin"
             />
@@ -585,7 +585,7 @@ function WaEditor({ template, onSave, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 900, width: '95vw' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title"> {template ? 'Edit' : 'Create'} WhatsApp Template</h3>
@@ -827,7 +827,7 @@ function CampaignWizard({ onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth:800 }}>
         <div className="modal-header">
           <h3 className="modal-title"> New Campaign — Step {step} of 4</h3>
@@ -1412,7 +1412,7 @@ function FlowEditor({ flow, emailTemplates, waTemplates, smsTemplates, onSave, o
   const triggerDef = TRIGGERS.find(t => t.key === form.trigger);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 1000, width: '96vw', height: '92vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header" style={{ flexShrink: 0 }}>
           <h3 className="modal-title"> {flow?.id ? 'Edit' : 'Create'} Automation Flow</h3>
@@ -2019,7 +2019,8 @@ function AutomationsTab({ emailTemplates, waTemplates, smsTemplates }) {
 //  Main Marketing Page 
 export default function MarketingPage() {
   const { isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState('email_templates');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_Marketing') || 'email_templates');
+  useEffect(() => { sessionStorage.setItem('activeTab_Marketing', activeTab); }, [activeTab]);
   const [emailTemplates, setEmailTemplates] = useState(() => ls.get('crm_email_templates', DEFAULT_EMAIL_TEMPLATES));
   const [waTemplates, setWaTemplates] = useState(() => ls.get('crm_wa_templates', DEFAULT_WA_TEMPLATES));
   const [smsTemplates, setSmsTemplates] = useState(() => ls.get('crm_sms_templates', DEFAULT_SMS_TEMPLATES));
@@ -2029,11 +2030,58 @@ export default function MarketingPage() {
   const [showCampaign, setShowCampaign] = useState(false);
   const [tplSearch, setTplSearch] = useState('');
   const [campSearch, setCampSearch] = useState('');
+  const [campPage, setCampPage] = useState(1);
+
+  // Load campaigns from backend on mount with retry
+  React.useEffect(() => {
+    let retries = 0;
+    const maxRetries = 3;
+    
+    const loadCampaigns = async () => {
+      try {
+        const data = await marketingApi.listCampaigns();
+        if (data && data.campaigns && Array.isArray(data.campaigns)) {
+          setCampaigns(data.campaigns);
+          ls.set('crm_campaigns', data.campaigns);
+          return true; // Success
+        } else if (data && Array.isArray(data)) {
+          // API returned array directly (not wrapped in campaigns object)
+          setCampaigns(data);
+          ls.set('crm_campaigns', data);
+          return true;
+        }
+      } catch (err) {
+        console.error('Failed to load campaigns from backend:', err);
+        retries++;
+        if (retries < maxRetries) {
+          // Retry after 1 second
+          setTimeout(loadCampaigns, 1000);
+          return false;
+        }
+      }
+      // Final fallback to localStorage
+      setCampaigns(ls.get('crm_campaigns', []));
+      return false;
+    };
+    
+    loadCampaigns();
+  }, []);
 
   const saveEmailTemplates = (t) => { setEmailTemplates(t); ls.set('crm_email_templates', t); };
   const saveWaTemplates    = (t) => { setWaTemplates(t);    ls.set('crm_wa_templates', t); };
   const saveSmsTemplates   = (t) => { setSmsTemplates(t);   ls.set('crm_sms_templates', t); };
-  const reloadCampaigns    = ()  => setCampaigns(ls.get('crm_campaigns', []));
+  const reloadCampaigns    = async () => {
+    try {
+      const data = await marketingApi.listCampaigns();
+      if (data && data.campaigns && Array.isArray(data.campaigns)) {
+        setCampaigns(data.campaigns);
+        ls.set('crm_campaigns', data.campaigns);
+      }
+    } catch (err) {
+      console.error('Failed to reload campaigns:', err);
+      setCampaigns(ls.get('crm_campaigns', []));
+    }
+  };
 
   const TABS = [
     { key: 'email_templates',  label: ' Email Templates',    count: emailTemplates.length },
@@ -2274,8 +2322,11 @@ export default function MarketingPage() {
       {/*  Campaigns  */}
       {activeTab === 'campaigns' && (
         <div>
-          <div style={{ display:'flex', gap:10, marginBottom:16 }}>
+          <div style={{ display:'flex', gap:10, marginBottom:16, alignItems:'center' }}>
             <input className="form-input" value={campSearch} onChange={e => setCampSearch(e.target.value)} placeholder=" Search campaigns..." style={{ maxWidth:280 }} />
+            <button className="btn btn-secondary btn-sm" onClick={reloadCampaigns} title="Reload campaigns from server">
+              🔄 Reload
+            </button>
             <div style={{ flex:1 }} />
             <button className="btn btn-primary" onClick={() => setShowCampaign(true)}
               style={{ background:'linear-gradient(135deg,#7c3aed,#3b82f6)' }}>
@@ -2291,65 +2342,101 @@ export default function MarketingPage() {
               <button className="btn btn-primary" onClick={() => setShowCampaign(true)}>Launch Your First Campaign</button>
             </div>
           ) : (
-            <div style={{ border:'1px solid var(--border-subtle)', borderRadius:12, overflow:'hidden' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                <thead>
-                  <tr style={{ background:'var(--bg-elevated)' }}>
-                    {['CAMPAIGN', 'CHANNEL', 'STATUS', 'RECIPIENTS', 'OPEN RATE', 'CLICK RATE', 'DATE', ''].map(h => (
-                      <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:'0.68rem', color:'var(--text-muted)', fontWeight:700, whiteSpace:'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {campaigns.filter(c => c.name?.toLowerCase().includes(campSearch.toLowerCase())).map(c => {
-                    const openR = c.audience_count ? Math.round((c.opened || Math.floor(Math.random()*c.audience_count*0.4)) / c.audience_count * 100) : 0;
-                    const clickR = c.audience_count ? Math.round((c.clicked || Math.floor(Math.random()*c.audience_count*0.08)) / c.audience_count * 100) : 0;
-                    const statusColor = STATUS_COLORS[c.status] || '#64748b';
-                    return (
-                      <tr key={c.id} style={{ borderTop:'1px solid var(--border-subtle)' }}>
-                        <td style={{ padding:'12px 14px' }}>
-                          <div style={{ fontWeight:700, fontSize:'0.85rem', color:'var(--text-primary)' }}>{c.name}</div>
-                          <div style={{ fontSize:'0.68rem', color:'var(--text-muted)' }}>{c.template_id}</div>
-                        </td>
-                        <td style={{ padding:'12px 14px', fontSize:'0.85rem' }}>
-                          {c.channel === 'email' ? ' Email' : c.channel === 'whatsapp' ? ' WhatsApp' : ' SMS'}
-                        </td>
-                        <td style={{ padding:'12px 14px' }}>
-                          <span style={{ fontSize:'0.72rem', padding:'3px 10px', borderRadius:99, background:`${statusColor}18`, color:statusColor, fontWeight:700, border:`1px solid ${statusColor}30` }}>
-                            {c.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td style={{ padding:'12px 14px', fontSize:'0.85rem', color:'var(--text-primary)', fontWeight:600 }}>{c.audience_count || 0}</td>
-                        <td style={{ padding:'12px 14px' }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <div style={{ width:40, height:4, background:'var(--bg-base)', borderRadius:99, overflow:'hidden' }}>
-                              <div style={{ width:`${Math.min(openR, 100)}%`, height:'100%', background:'#10b981', borderRadius:99 }} />
-                            </div>
-                            <span style={{ fontSize:'0.78rem', color:'var(--text-primary)', fontWeight:700 }}>{openR}%</span>
-                          </div>
-                        </td>
-                        <td style={{ padding:'12px 14px' }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <div style={{ width:40, height:4, background:'var(--bg-base)', borderRadius:99, overflow:'hidden' }}>
-                              <div style={{ width:`${Math.min(clickR, 100)}%`, height:'100%', background:'#3b82f6', borderRadius:99 }} />
-                            </div>
-                            <span style={{ fontSize:'0.78rem', color:'var(--text-primary)', fontWeight:700 }}>{clickR}%</span>
-                          </div>
-                        </td>
-                        <td style={{ padding:'12px 14px', fontSize:'0.72rem', color:'var(--text-muted)' }}>
-                          {new Date(c.sentAt || c.createdAt).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'})}
-                        </td>
-                        <td style={{ padding:'12px 14px' }}>
-                          {isAdmin && (
-                            <button className="btn btn-sm btn-ghost" style={{ color:'#ef4444' }} title="Delete campaign"
-                              onClick={() => { if (window.confirm('Delete this campaign?')) { ls.set('crm_campaigns', campaigns.filter(x => x.id !== c.id)); reloadCampaigns(); } }}></button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div>
+              <div style={{ border:'1px solid var(--border-subtle)', borderRadius:12, overflow:'hidden', marginBottom:16 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr style={{ background:'var(--bg-elevated)' }}>
+                      {['CAMPAIGN', 'CHANNEL', 'STATUS', 'RECIPIENTS', 'OPEN RATE', 'CLICK RATE', 'DATE', ''].map(h => (
+                        <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:'0.68rem', color:'var(--text-muted)', fontWeight:700, whiteSpace:'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const filtered = campaigns.filter(c => c.name?.toLowerCase().includes(campSearch.toLowerCase()));
+                      const PER_PAGE = 25;
+                      const total = Math.ceil(filtered.length / PER_PAGE);
+                      const start = (campPage - 1) * PER_PAGE;
+                      const paginated = filtered.slice(start, start + PER_PAGE);
+                      
+                      return paginated.map(c => {
+                        const channel = c.channel || c.type || 'unknown';
+                        const getChannelLabel = (ch) => {
+                          if (ch === 'email') return '📧 Email';
+                          if (ch === 'whatsapp' || ch === 'wa') return '💬 WhatsApp';
+                          if (ch === 'sms') return '📱 SMS';
+                          return '❓ ' + (ch || 'Unknown');
+                        };
+                        const openR = c.audience_count ? Math.round((c.opened || Math.floor(Math.random()*c.audience_count*0.4)) / c.audience_count * 100) : 0;
+                        const clickR = c.audience_count ? Math.round((c.clicked || Math.floor(Math.random()*c.audience_count*0.08)) / c.audience_count * 100) : 0;
+                        const statusColor = STATUS_COLORS[c.status] || '#64748b';
+                        const dateStr = c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'}) : '—';
+                        return (
+                          <tr key={c.id} style={{ borderTop:'1px solid var(--border-subtle)' }}>
+                            <td style={{ padding:'12px 14px' }}>
+                              <div style={{ fontWeight:700, fontSize:'0.85rem', color:'var(--text-primary)' }}>{c.name}</div>
+                              <div style={{ fontSize:'0.68rem', color:'var(--text-muted)' }}>{c.template_id || c.id}</div>
+                            </td>
+                            <td style={{ padding:'12px 14px', fontSize:'0.85rem' }}>
+                              {getChannelLabel(channel)}
+                            </td>
+                            <td style={{ padding:'12px 14px' }}>
+                              <span style={{ fontSize:'0.72rem', padding:'3px 10px', borderRadius:99, background:`${statusColor}18`, color:statusColor, fontWeight:700, border:`1px solid ${statusColor}30` }}>
+                                {(c.status || 'draft').toUpperCase()}
+                              </span>
+                            </td>
+                            <td style={{ padding:'12px 14px', fontSize:'0.85rem', color:'var(--text-primary)', fontWeight:600 }}>{c.audience_count || 0}</td>
+                            <td style={{ padding:'12px 14px' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                <div style={{ width:40, height:4, background:'var(--bg-base)', borderRadius:99, overflow:'hidden' }}>
+                                  <div style={{ width:`${Math.min(openR, 100)}%`, height:'100%', background:'#10b981', borderRadius:99 }} />
+                                </div>
+                                <span style={{ fontSize:'0.78rem', color:'var(--text-primary)', fontWeight:700 }}>{openR}%</span>
+                              </div>
+                            </td>
+                            <td style={{ padding:'12px 14px' }}>
+                              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                <div style={{ width:40, height:4, background:'var(--bg-base)', borderRadius:99, overflow:'hidden' }}>
+                                  <div style={{ width:`${Math.min(clickR, 100)}%`, height:'100%', background:'#3b82f6', borderRadius:99 }} />
+                                </div>
+                                <span style={{ fontSize:'0.78rem', color:'var(--text-primary)', fontWeight:700 }}>{clickR}%</span>
+                              </div>
+                            </td>
+                            <td style={{ padding:'12px 14px', fontSize:'0.72rem', color:'var(--text-muted)' }}>
+                              {dateStr}
+                            </td>
+                            <td style={{ padding:'12px 14px' }}>
+                              {isAdmin && (
+                                <button className="btn btn-sm btn-ghost" style={{ color:'#ef4444' }} title="Delete campaign"
+                                  onClick={() => { if (window.confirm('Delete this campaign?')) { ls.set('crm_campaigns', campaigns.filter(x => x.id !== c.id)); reloadCampaigns(); } }}></button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              
+              {/* Pagination */}
+              {(() => {
+                const filtered = campaigns.filter(c => c.name?.toLowerCase().includes(campSearch.toLowerCase()));
+                const PER_PAGE = 25;
+                const total = Math.ceil(filtered.length / PER_PAGE);
+                if (total <= 1) return null;
+                
+                return (
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, marginTop:16 }}>
+                    <button className="btn btn-sm btn-secondary" onClick={() => setCampPage(p => Math.max(1, p-1))} disabled={campPage === 1}>← Prev</button>
+                    <div style={{ fontSize:'0.82rem', color:'var(--text-muted)', minWidth:100, textAlign:'center' }}>
+                      Page <strong>{campPage}</strong> of <strong>{total}</strong>
+                    </div>
+                    <button className="btn btn-sm btn-secondary" onClick={() => setCampPage(p => Math.min(total, p+1))} disabled={campPage === total}>Next →</button>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>

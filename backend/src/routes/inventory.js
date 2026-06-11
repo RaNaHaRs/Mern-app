@@ -1080,7 +1080,7 @@ router.post('/:id/transfer', requireMinRole('junior_engineer'), auditLog('transf
     }
 
     await query(
-      `UPDATE inventory_items SET status='transferred', is_available=false, updated_at=NOW()
+      `UPDATE inventory_items SET status='transferred', is_available=false, is_transferred_to_client=true, updated_at=NOW()
        WHERE id=$1 AND deleted_at IS NULL` + (!isSuperAdmin(req.user) ? ' AND tenant_id = $2' : ''),
       !isSuperAdmin(req.user) ? [itemId, tenantAdminId(req.user)] : [itemId]
     );

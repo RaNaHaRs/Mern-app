@@ -9,7 +9,8 @@ export default function FloatingChat() {
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('focused');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_FloatingChat') || 'focused');
+  useEffect(() => { sessionStorage.setItem('activeTab_FloatingChat', activeTab); }, [activeTab]);
   const [newMessageText, setNewMessageText] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
 

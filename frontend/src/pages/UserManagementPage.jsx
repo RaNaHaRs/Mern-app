@@ -149,7 +149,7 @@ function RoleModal({ role, restrictedPerms, modules = PERMISSION_MODULES, roleAp
   const COLORS = ['#6366f1', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#64748b'];
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 780 }}>
         <div className="modal-header">
           <h3 className="modal-title">{isNew ? '+ Create New Role' : ` Edit Role — ${role.name}`}</h3>
@@ -280,7 +280,7 @@ function UserModal({ editUser, roles, staffRoles, adminUsers, maxUsers, currentC
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 800 }}>
         <div className="modal-header">
           <h3 className="modal-title">{isNew ? '+ Add Team Member' : ` Edit — ${editUser.full_name}`}</h3>
@@ -462,7 +462,8 @@ export default function UserManagementPage() {
   const [roles, setRoles] = useState([]);
   const [staffRoles, setStaffRoles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_UserMgmt') || 'users');
+  useEffect(() => { sessionStorage.setItem('activeTab_UserMgmt', activeTab); }, [activeTab]);
   const [showUserModal, setShowUserModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [newUserAssignedAdminId, setNewUserAssignedAdminId] = useState('');
@@ -787,7 +788,7 @@ export default function UserManagementPage() {
         />
       )}
       {viewPermissions && (
-        <div className="modal-overlay" onClick={() => setViewPermissions(null)}>
+        <div className="modal-overlay">
           <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 680 }}>
             <div className="modal-header">
               <h3 className="modal-title"> Permissions — {viewPermissions.full_name}</h3>

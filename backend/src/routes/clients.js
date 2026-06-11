@@ -372,7 +372,7 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       return res.status(404).json({ error: 'Client not found' });
     }
 
-    const { case_selections, notes } = req.body;
+    const { case_selections, notes, is_100_percent_discount = false } = req.body;
     if (!Array.isArray(case_selections) || case_selections.length === 0) {
       return res.status(400).json({ error: 'case_selections array is required with at least one entry' });
     }
@@ -427,10 +427,14 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
         return res.status(400).json({ error: `Case ${sel.case_id} has no pending amount or does not belong to this client` });
       }
       const amount = parseFloat(sel.amount);
-      if (isNaN(amount) || amount <= 0) {
+      // Allow amount = 0 only if is_100_percent_discount flag is set
+      if (isNaN(amount) || amount < 0) {
         return res.status(400).json({ error: `Invalid amount for case ${sel.case_id}` });
       }
-      if (amount > pendingMap[sel.case_id].pending_amount) {
+      if (amount === 0 && !is_100_percent_discount) {
+        return res.status(400).json({ error: `Amount must be greater than 0 for case ${sel.case_id}, or set is_100_percent_discount=true` });
+      }
+      if (amount > 0 && amount > pendingMap[sel.case_id].pending_amount) {
         return res.status(400).json({
           error: `Amount (${amount}) exceeds pending amount (${pendingMap[sel.case_id].pending_amount}) for case ${sel.case_id}`
         });
@@ -438,8 +442,9 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
       totalRequested += amount;
     }
 
-    if (totalRequested <= 0) {
-      return res.status(400).json({ error: 'Total amount to collect must be greater than zero' });
+    // Only require positive total if not 100% discount
+    if (totalRequested < 0) {
+      return res.status(400).json({ error: 'Amount cannot be negative' });
     }
 
     // Process selections inside a transaction
@@ -452,9 +457,9 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
         const pay = parseFloat(sel.amount);
 
         await client.query(
-          `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by)
-           VALUES ($1, $2, $3, 'paid', 'Client Collect', $4, NOW(), $5)`,
-          [row.case_id, row.quotation_id || null, pay, notes || 'Collected from Clients page', req.user.id]
+          `INSERT INTO payments (case_id, quotation_id, amount, status, method, notes, paid_at, recorded_by, is_100_percent_discount)
+           VALUES ($1, $2, $3, 'paid', $4, $5, NOW(), $6, $7)`,
+          [row.case_id, row.quotation_id || null, pay, is_100_percent_discount ? '100% Discount' : 'Client Collect', notes || 'Collected from Clients page', req.user.id, is_100_percent_discount]
         );
 
         allocationDetails.push({
@@ -482,7 +487,9 @@ router.post('/:id/collect-pending', requireMinRole('staff'), auditLog('collect_c
 
     res.json({
       ok: true,
-      message: `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`,
+      message: is_100_percent_discount 
+        ? `Recorded 100% discount for ${result.updatedCases} case(s) successfully.`
+        : `Collected ₹${result.collected.toLocaleString('en-IN')} successfully.`,
       collected_amount: result.collected,
       updated_cases: result.updatedCases,
       allocation_details: result.allocationDetails || []

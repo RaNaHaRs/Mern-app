@@ -34,6 +34,8 @@ export function FormField({
   );
 }
 
+const noop = () => {};
+
 /**
  * Autocomplete - Smart autocomplete component with debouncing
  */
@@ -49,7 +51,7 @@ export function Autocomplete({
   className = '',
   disabled = false,
   maxSuggestions = 10,
-  onError = () => {}
+  onError = noop
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [isOpen, setIsOpen] = useState(false);

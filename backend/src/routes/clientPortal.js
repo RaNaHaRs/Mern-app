@@ -5,32 +5,38 @@ const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 // Public endpoints (no auth) + some authenticated endpoints
 
-// GET /api/client-portal/case?case_number=...&phone=... OR case_id=...
+// GET /api/client-portal/case?case_number=...&phone_or_email=... OR case_id=...
 router.get('/case', async (req, res) => {
-  const { case_number, phone, case_id } = req.query;
-  
-  // Support both case_number lookup and direct case_id lookup (from email links)
+  const { case_number, phone, phone_or_email, case_id } = req.query;
+  // Support legacy `phone` param and new unified `phone_or_email` param
+  const credential = (phone_or_email || phone || '').trim();
+
   let queryStr, params;
-  
+
   if (case_id?.trim()) {
     // Direct lookup by case_id (from email portal link)
     queryStr = `SELECT c.id, c.case_number, c.stage, c.priority, c.failure_type,
-                       c.device_brand, c.device_model, c.created_at, c.recovery_progress_pct,
-                       c.client_id
-                FROM cases c
-                WHERE c.id = $1
-                  AND c.deleted_at IS NULL`;
+                      c.device_brand, c.device_model, c.created_at, c.recovery_progress_pct,
+                      c.client_id,
+                      u.full_name as engineer_name, u.email as engineer_email
+               FROM cases c
+               LEFT JOIN users u ON c.assigned_engineer = u.id
+               WHERE c.id = $1
+                 AND c.deleted_at IS NULL`;
     params = [case_id.trim()];
   } else if (case_number?.trim()) {
     // Traditional lookup by case_number (from manual search)
     queryStr = `SELECT c.id, c.case_number, c.stage, c.priority, c.failure_type,
-                       c.device_brand, c.device_model, c.created_at, c.recovery_progress_pct,
-                       c.client_id,
-                       cl.phone AS client_phone
-                FROM cases c
-                LEFT JOIN clients cl ON c.client_id = cl.id
-                WHERE UPPER(c.case_number) = $1
-                  AND c.deleted_at IS NULL`;
+                      c.device_brand, c.device_model, c.created_at, c.recovery_progress_pct,
+                      c.client_id,
+                      cl.phone AS client_phone,
+                      cl.email AS client_email,
+                      u.full_name as engineer_name, u.email as engineer_email
+               FROM cases c
+               LEFT JOIN clients cl ON c.client_id = cl.id
+               LEFT JOIN users u ON c.assigned_engineer = u.id
+               WHERE UPPER(c.case_number) = $1
+                 AND c.deleted_at IS NULL`;
     params = [case_number.trim().toUpperCase()];
   } else {
     return res.status(400).json({ error: 'Case number or case ID is required' });
@@ -45,12 +51,22 @@ router.get('/case', async (req, res) => {
 
     const row = result.rows[0];
 
-    // Optional phone verification — last 4 digits must match if both are present (only for case_number lookup)
-    if (case_number && phone?.trim()) {
-      const last4Input = phone.trim().replace(/\D/g, '').slice(-4);
-      const last4Stored = (row.client_phone || '').replace(/\D/g, '').slice(-4);
-      if (last4Input && last4Stored && last4Input !== last4Stored) {
-        return res.status(403).json({ error: 'Phone number does not match our records. Please verify and try again.' });
+    // Verify credential (full phone number OR email) if provided for case_number lookup
+    if (case_number && credential) {
+      const isEmail = credential.includes('@');
+      if (isEmail) {
+        // Email verification — must match exactly (case-insensitive)
+        const storedEmail = (row.client_email || '').trim().toLowerCase();
+        if (storedEmail && credential.toLowerCase() !== storedEmail) {
+          return res.status(403).json({ error: 'Email address does not match our records. Please verify and try again.' });
+        }
+      } else {
+        // Full phone number verification — normalize digits and compare full number
+        const inputDigits = credential.replace(/\D/g, '');
+        const storedDigits = (row.client_phone || '').replace(/\D/g, '');
+        if (inputDigits && storedDigits && inputDigits !== storedDigits) {
+          return res.status(403).json({ error: 'Phone number does not match our records. Please enter your full registered phone number.' });
+        }
       }
     }
 
@@ -66,6 +82,8 @@ router.get('/case', async (req, res) => {
       created_at: row.created_at,
       recovery_progress_pct: row.recovery_progress_pct,
       client_id: row.client_id,
+      engineer_name: row.engineer_name || null,
+      engineer_email: row.engineer_email || null,
     });
   } catch (err) {
     console.error('Client portal case lookup error:', err.message);
@@ -76,7 +94,7 @@ router.get('/case', async (req, res) => {
 // GET /api/client-portal/messages/:case_id — public endpoint to get portal messages for a case
 router.get('/messages/:case_id', async (req, res) => {
   const { case_id } = req.params;
-  
+
   try {
     // Verify case exists (public access, no auth required)
     const caseRes = await query(

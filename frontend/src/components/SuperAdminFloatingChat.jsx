@@ -10,7 +10,8 @@ export default function SuperAdminFloatingChat() {
   const [chats, setChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('focused');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_SAFloatingChat') || 'focused');
+  useEffect(() => { sessionStorage.setItem('activeTab_SAFloatingChat', activeTab); }, [activeTab]);
   const [newMessageText, setNewMessageText] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
 

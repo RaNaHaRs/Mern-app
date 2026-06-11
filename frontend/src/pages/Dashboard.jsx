@@ -22,11 +22,11 @@ const StatCard = ({ label, value, color, onClick, compact }) => (
 );
 
 const KPIStatCard = ({ label, value, color, icon, onClick }) => (
-  <div className="card" onClick={onClick} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, padding: '16px' }}>
+  <div className="card dashboard-kpi-card" onClick={onClick} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, padding: '16px' }}>
     <div style={{ padding: 10, borderRadius: 'var(--radius-md)', background: `${color}15`, color: color }}>{icon}</div>
     <div>
-      <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{value}</div>
-      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+      <div style={{ fontSize: '1.25rem', fontWeight: 850 }}>{value}</div>
+      <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
     </div>
   </div>
 );
@@ -85,9 +85,7 @@ export default function Dashboard() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h2 style={{ fontSize: '1.3rem', marginBottom: 2 }}>Dashboard</h2>
-          <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
+         
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           {canAccess('staff') && hasPermission('cases', 'create') && (
@@ -101,7 +99,7 @@ export default function Dashboard() {
 
       {/* Stats Grid */}
       {hasPermission('cases', 'view') && (
-        <div className="stats-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+        <div className="stats-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, minHeight: 120 }}>
           <KPIStatCard label="Active Cases" value={c.active} color="#22d3ee" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>} onClick={() => navigate('/cases?status=active')} />
           <KPIStatCard label="Critical Priority" value={c.critical} color="#ef4444" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>} onClick={() => navigate('/cases?priority=1')} />
           <KPIStatCard label="Completed (Lifetime)" value={c.completed} color="#22c55e" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>} onClick={() => navigate('/cases?stage=completed')} />

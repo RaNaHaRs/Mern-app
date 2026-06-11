@@ -444,7 +444,7 @@ router.post('/invoices/:id/restore', requireMinRole('staff'), async (req, res) =
   try {
     const result = await query(
       `UPDATE accounting_invoices SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NOT NULL RETURNING *`,
-      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      !isSuperAdmin(req.user) ? [req.params.id, req.user.id] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found in recycle bin' });
     res.json({ message: 'Invoice restored', invoice: result.rows[0] });
@@ -536,7 +536,7 @@ router.delete('/invoices/:id', requireMinRole('staff'), auditLog('delete_invoice
   try {
     const result = await query(
       `UPDATE accounting_invoices SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NULL RETURNING id`,
-      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      !isSuperAdmin(req.user) ? [req.params.id, req.user.id] : [req.params.id]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Invoice not found' });
     res.json({ message: 'Invoice moved to recycle bin' });
@@ -655,8 +655,9 @@ router.get('/expenses', async (req, res) => {
     const conditions = ['deleted_at IS NULL'];
     let pi = 1;
     if (!isSuperAdmin(req.user)) {
-      conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`);
-      params.push(req.user.id);
+      const tid = tenantAdminId(req.user);
+      conditions.push(`(created_by = $${pi} OR tenant_id = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`);
+      params.push(tid);
       pi++;
     }
     if (search) {
@@ -677,7 +678,12 @@ router.get('/expenses/recycle-bin', requireMinRole('staff'), async (req, res) =>
     const conditions = ['deleted_at IS NOT NULL'];
     const params = [];
     let pi = 1;
-    if (!isSuperAdmin(req.user)) { conditions.push(`(created_by = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`); params.push(req.user.id); pi++; }
+    if (!isSuperAdmin(req.user)) {
+      const tid = tenantAdminId(req.user);
+      conditions.push(`(created_by = $${pi} OR tenant_id = $${pi} OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $${pi}))`);
+      params.push(tid);
+      pi++;
+    }
     const where = 'WHERE ' + conditions.join(' AND ');
     const result = await query(`SELECT * FROM accounting_expenses ${where} ORDER BY deleted_at DESC`, params);
     res.json({ expenses: result.rows });
@@ -686,11 +692,17 @@ router.get('/expenses/recycle-bin', requireMinRole('staff'), async (req, res) =>
 
 router.post('/expenses/:id/restore', requireMinRole('staff'), async (req, res) => {
   try {
+    let authClause = '';
+    let authParams = [];
+    if (!isSuperAdmin(req.user)) {
+      authClause = ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))`;
+      authParams = [req.user.id];
+    }
     const result = await query(
-      `UPDATE accounting_expenses SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NOT NULL RETURNING *`,
-      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      `UPDATE accounting_expenses SET deleted_at = NULL WHERE id=$1${authClause} AND deleted_at IS NOT NULL RETURNING *`,
+      [req.params.id, ...authParams]
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found in recycle bin' });
+    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found in recycle bin or access denied' });
     res.json({ message: 'Expense restored', expense: result.rows[0] });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -726,25 +738,40 @@ router.put('/expenses/:id', requireMinRole('staff'), auditLog('update_expense', 
       if (caseRes.rows.length) case_id = caseRes.rows[0].id;
     }
 
+    // Build authorization clause
+    let authClause = '';
+    let authParams = [];
+    if (!isSuperAdmin(req.user)) {
+      const tid = tenantAdminId(req.user);
+      authClause = ` AND (created_by = $12 OR tenant_id = $12 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $12))`;
+      authParams = [tid];
+    }
+
     const result = await query(
       `UPDATE accounting_expenses SET date=$1, category=$2, description=$3, vendor=$4, amount=$5, tax_amt=$6, total=$7,
        receipt_note=$8, case_id=$9, case_number=$10, updated_at=NOW()
-       WHERE id=$11${!isSuperAdmin(req.user) ? ` AND (created_by = $12 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $12))` : ''} RETURNING *`,
+       WHERE id=$11${authClause} RETURNING *`,
       [date, category, description, vendor, amount, tax_amt || 0, total, receipt_note,
-       case_id || null, case_number || null, req.params.id, ...(!isSuperAdmin(req.user) ? [tenantAdminId(req.user)] : [])]
+       case_id || null, case_number || null, req.params.id, ...authParams]
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found' });
+    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found or access denied' });
     res.json(result.rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.delete('/expenses/:id', requireMinRole('staff'), auditLog('delete_expense', 'accounting'), async (req, res) => {
   try {
+    let authClause = '';
+    let authParams = [];
+    if (!isSuperAdmin(req.user)) {
+      authClause = ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))`;
+      authParams = [req.user.id];
+    }
     const result = await query(
-      `UPDATE accounting_expenses SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NULL RETURNING id`,
-      !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+      `UPDATE accounting_expenses SET deleted_at = NOW() WHERE id=$1${authClause} AND deleted_at IS NULL RETURNING id`,
+      [req.params.id, ...authParams]
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found' });
+    if (!result.rows.length) return res.status(404).json({ error: 'Expense not found or access denied' });
     res.json({ message: 'Expense moved to recycle bin' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -797,7 +824,7 @@ router.post('/purchases/:id/restore', requireMinRole('staff'), async (req, res) 
     await transaction(async (client) => {
       const r = await client.query(
         `UPDATE accounting_purchases SET deleted_at = NULL WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NOT NULL RETURNING *`,
-        !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+        !isSuperAdmin(req.user) ? [req.params.id, req.user.id] : [req.params.id]
       );
       if (!r.rows.length) throw Object.assign(new Error('Purchase not found in recycle bin'), { status: 404 });
       // Restore linked expense too
@@ -894,18 +921,25 @@ router.delete('/purchases/:id', requireMinRole('staff'), auditLog('delete_purcha
   try {
     await transaction(async (client) => {
       // Soft-delete the linked expense too
-      await client.query(
-        `UPDATE accounting_expenses SET deleted_at = NOW() WHERE purchase_id=$1 AND deleted_at IS NULL`,
-        [req.params.id]
-      );
+      try {
+        await client.query(
+          `UPDATE accounting_expenses SET deleted_at = NOW() WHERE purchase_id=$1 AND deleted_at IS NULL`,
+          [req.params.id]
+        );
+      } catch (e) {
+        console.log('No linked expenses found:', e.message);
+      }
       const result = await client.query(
         `UPDATE accounting_purchases SET deleted_at = NOW() WHERE id=$1${!isSuperAdmin(req.user) ? ` AND (created_by = $2 OR EXISTS (SELECT 1 FROM users cu WHERE cu.id = created_by AND cu.tenant_owner_id = $2))` : ''} AND deleted_at IS NULL RETURNING id`,
-        !isSuperAdmin(req.user) ? [req.params.id, tenantAdminId(req.user)] : [req.params.id]
+        !isSuperAdmin(req.user) ? [req.params.id, req.user.id] : [req.params.id]
       );
       if (!result.rows.length) throw new Error('Purchase not found');
     });
-    res.json({ message: 'Purchase moved to recycle bin' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    res.status(200).json({ message: 'Purchase moved to recycle bin' });
+  } catch (err) { 
+    console.error('Delete purchase error:', err.message);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 module.exports = router;

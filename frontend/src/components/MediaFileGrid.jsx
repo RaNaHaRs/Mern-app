@@ -59,7 +59,7 @@ export default function MediaFileGrid({
                   </div>
                   {canDelete && onDelete && (
                     <button type="button" className="btn btn-ghost btn-icon" style={{ width: 24, height: 24, fontSize: '0.7rem' }}
-                      onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}></button>
+                      onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}>✕</button>
                   )}
                 </div>
                 {isImageItem(item) && (
@@ -95,7 +95,7 @@ export default function MediaFileGrid({
                   <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.7)', background: 'rgba(0,0,0,0.6)', padding: '2px 5px', borderRadius: 4, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatFileSize(item.size)}</span>
                   {canDelete && onDelete && (
                     <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
-                      style={{ background: 'rgba(239,68,68,0.8)', border: 'none', borderRadius: 4, color: '#fff', width: 20, height: 20, fontSize: '0.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}></button>
+                      style={{ background: 'rgba(239,68,68,0.8)', border: 'none', borderRadius: 4, color: '#fff', width: 20, height: 20, fontSize: '0.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                   )}
                 </div>
               </div>
@@ -120,7 +120,7 @@ export default function MediaFileGrid({
               <div style={{ padding: '6px 8px', fontSize: '0.68rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
               {canDelete && onDelete && (
                 <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(item.id); }}
-                  style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.9)', border: 'none', color: '#fff', fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}></button>
+                  style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', background: 'rgba(239,68,68,0.9)', border: 'none', color: '#fff', fontSize: '0.75rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
               )}
             </div>
           );

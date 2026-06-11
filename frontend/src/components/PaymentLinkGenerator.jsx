@@ -59,7 +59,7 @@ export function PaymentLinkGenerator({ plan, months, customerEmail, customerName
 
   if (generated) {
     return (
-      <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-overlay">
         <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
           <div className="modal-header">
             <h3 className="modal-title">✅ Payment Link Generated</h3>
@@ -67,6 +67,52 @@ export function PaymentLinkGenerator({ plan, months, customerEmail, customerName
           </div>
 
           <div style={{ padding: '20px' }}>
+            {/* Email Status Feedback */}
+            {generated.customer_email && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '12px',
+                background: generated.email_sent 
+                  ? 'rgba(16,185,129,0.1)' 
+                  : generated.email_error 
+                    ? 'rgba(239,68,68,0.1)'
+                    : 'rgba(100,116,139,0.05)',
+                border: generated.email_sent 
+                  ? '1px solid rgba(16,185,129,0.3)'
+                  : generated.email_error
+                    ? '1px solid rgba(239,68,68,0.3)'
+                    : '1px solid var(--border)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.85rem',
+              }}>
+                {generated.email_sent ? (
+                  <>
+                    <div style={{ color: '#10b981', fontWeight: 600, marginBottom: '4px' }}>
+                      ✓ Email sent successfully
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      Payment link has been sent to <strong>{generated.customer_email}</strong>
+                    </div>
+                  </>
+                ) : generated.email_error ? (
+                  <>
+                    <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: '4px' }}>
+                      ⚠ Email could not be sent
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {generated.email_error}. The payment link is still active and can be shared manually.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ color: 'var(--text-muted)', fontWeight: 600 }}>
+                      📧 Preparing to send email...
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="card" style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', marginBottom: '16px' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#22c55e', marginBottom: '8px' }}>PAYMENT LINK GENERATED</div>
               
@@ -151,7 +197,7 @@ export function PaymentLinkGenerator({ plan, months, customerEmail, customerName
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Generate Payment Link</h3>

@@ -11,7 +11,7 @@ import UserAvatar from '../components/UserAvatar';
 // ── Confirmation Modal ────────────────────────────────────────────
 function ConfirmDeleteModal({ title, message, itemName, onConfirm, onCancel }) {
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">⚠️ {title}</h3>
@@ -126,12 +126,22 @@ function InvCategorySettings({ deviceFamily }) {
     });
   };
 
-  const addCustomField = () => {
+  const addCustomField = async () => {
     if (!newFieldLabel.trim()) return;
     const key = newFieldLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     if (fields.find(f => f.key === key)) return;
-    persist([...fields, { key, label: newFieldLabel.trim(), type: 'text', options: [], custom: true, status: 'optional' }]);
-    setNewFieldLabel('');
+    
+    try {
+      // Call backend API to persist custom field to database
+      await fieldConfigApi.addCustomField(deviceFamily, newFieldLabel.trim(), 'text', false);
+      
+      // Also save to localStorage
+      persist([...fields, { key, label: newFieldLabel.trim(), type: 'text', options: [], custom: true, status: 'optional' }]);
+      setNewFieldLabel('');
+    } catch (err) {
+      console.error('Failed to create custom field:', err);
+      alert('Error creating custom field: ' + (err.message || 'Unknown error'));
+    }
   };
 
   const removeField = (fieldIdx) => {
@@ -152,7 +162,7 @@ function InvCategorySettings({ deviceFamily }) {
     });
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (confirmDelete.type === 'option') {
       const { fieldIdx, optIdx } = confirmDelete;
       const newFields = [...fields];
@@ -160,6 +170,15 @@ function InvCategorySettings({ deviceFamily }) {
       persist(newFields);
     } else if (confirmDelete.type === 'field') {
       if (confirmDelete.isCustom) {
+        // Delete from backend if custom
+        const fieldId = fields[confirmDelete.fieldIdx]?.id;
+        if (fieldId) {
+          try {
+            await fieldConfigApi.deleteCustomField(fieldId);
+          } catch (err) {
+            console.warn('Failed to delete custom field from backend:', err);
+          }
+        }
         persist(fields.filter((_, i) => i !== confirmDelete.fieldIdx));
       } else {
         const newFields = [...fields];
@@ -351,7 +370,7 @@ function CreateUserModal({ onClose, onCreated }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title"> Create New User</h3>
@@ -1326,7 +1345,8 @@ function PlanManagementPanel() {
 
 export default function SettingsPage() {
   const { user, setUser, canAccess, isSuperAdmin, isOwner } = useAuth();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_Settings') || 'profile');
+  useEffect(() => { sessionStorage.setItem('activeTab_Settings', activeTab); }, [activeTab]);
   const [expandedGroups, setExpandedGroups] = useState(() => ({ 'profile_group': true }));
   const [activeDropdown, setActiveDropdown] = useState(null);
 
@@ -1347,7 +1367,9 @@ export default function SettingsPage() {
     email: user?.email || '',
     phone: user?.phone || '',
     bio: user?.bio || '',
-    avatar: user?.avatar || ''
+    avatar: user?.avatar || '',
+    specializations: user?.specializations || '',
+    notes: user?.notes || ''
   });
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -1500,6 +1522,11 @@ export default function SettingsPage() {
   const handleLogoUpload = async (file) => {
     try { const r = await companyApi.uploadLogo(file); setCompany(c => ({ ...c, logo_data: r.logo_data })); }
     catch (e) { alert(e.message); }
+  };
+
+  const handleRemoveLogo = () => {
+    if (!confirm('Remove the company logo?')) return;
+    setCompany(c => ({ ...c, logo_data: '' }));
   };
 
 
@@ -1821,8 +1848,10 @@ export default function SettingsPage() {
             color: var(--text-primary);
           }
           .settings-nav-btn.active {
-            background: var(--accent-glow);
+            background: var(--accent-glow-strong);
             color: var(--accent-primary);
+            font-weight: 700;
+            border-bottom: 2px solid var(--accent-primary);
           }
           .settings-dropdown {
             position: absolute;
@@ -1882,8 +1911,8 @@ export default function SettingsPage() {
           .settings-dropdown-item.active {
             background: var(--accent-glow-strong);
             color: var(--accent-primary);
-            font-weight: 600;
-          }
+            font-weight: 700;
+            border-left: 3px solid var(--accent-primary);
           .settings-page-content-horizontal {
             width: 100%;
             min-width: 0;
@@ -2024,56 +2053,46 @@ export default function SettingsPage() {
               ) : (
                 /* Edit Mode */
                 <>
-                  {/* Avatar Upload */}
-                  <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap:'wrap' }}>
-                    <div 
-                      className="avatar-upload-ring" 
-                      onClick={() => avatarRef.current?.click()} 
-                      style={{ 
-                        position: 'relative',
-                        width: 100, 
-                        height: 100, 
-                        borderRadius: '50%',
-                        flexShrink: 0, 
-                        boxShadow: 'var(--shadow-md)',
-                        cursor: 'pointer',
-                        border: '3px solid var(--border-default)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <UserAvatar
-                        name={profileForm.fullName || user?.username}
-                        avatarUrl={profileForm.avatar || null}
-                        size={100}
-                        style={{ border: 'none', boxShadow: 'none' }}
-                      />
-                      {uploadingAvatar && (
-                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' }}>
-                          <div className="spinner" style={{ width: 24, height: 24 }} />
+                    {/* Avatar Upload */}
+                    <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap:'wrap' }}>
+                      <div
+                        className="avatar-upload-ring"
+                        onClick={() => avatarRef.current?.click()}
+                      >
+                        <UserAvatar
+                          name={profileForm.fullName || user?.username}
+                          avatarUrl={profileForm.avatar || null}
+                          size={100}
+                          style={{ border: 'none', boxShadow: 'none' }}
+                        />
+                        {uploadingAvatar && (
+                          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', zIndex: 2 }}>
+                            <div className="spinner" style={{ width: 24, height: 24 }} />
+                          </div>
+                        )}
+                        <div className="avatar-overlay">
+                          <svg viewBox="0 0 24 24"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+                          Upload Photo
                         </div>
-                      )}
-                      <div className="avatar-overlay" style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s', fontSize: '0.75rem', color: '#fff', borderRadius: '50%' }}>
-                         Change
+                      </div>
+                      <input ref={avatarRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleAvatarUpload(e.target.files[0]); }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>Profile Picture</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                          Click the avatar to upload a new profile picture. Recommended: Square image, at least 200×200px.
+                        </div>
+                        {profileForm.avatar && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={() => setProfileForm(f => ({ ...f, avatar: '' }))}
+                            style={{ marginTop: 8 }}
+                          >
+                            Remove Picture
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <input ref={avatarRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleAvatarUpload(e.target.files[0]); }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 8 }}>Profile Picture</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 8 }}>
-                        Click the avatar to upload a new profile picture. Recommended: Square image, at least 200×200px.
-                      </div>
-                      {profileForm.avatar && (
-                        <button 
-                          type="button" 
-                          className="btn btn-sm btn-danger" 
-                          onClick={() => setProfileForm(f => ({ ...f, avatar: '' }))}
-                          style={{ marginTop: 8 }}
-                        >
-                          Remove Picture
-                        </button>
-                      )}
-                    </div>
-                  </div>
 
                   {/* Profile Form Fields */}
                   <div className="form-row form-row-2">
@@ -2124,7 +2143,7 @@ export default function SettingsPage() {
 
                   <div className="form-group">
                     <label className="form-label">Specializations (comma-separated)</label>
-                    <input className="form-input" value={profileForm.specializations} onChange={e => setProfileForm(f => ({ ...f, specializations: e.target.value }))} placeholder="e.g. HDD, SSD, RAID" />
+                    <input className="form-input" value={profileForm.specializations || ''} onChange={e => setProfileForm(f => ({ ...f, specializations: e.target.value }))} placeholder="e.g. HDD, SSD, RAID" />
                   </div>
 
                   <div className="form-group">
@@ -2141,7 +2160,7 @@ export default function SettingsPage() {
 
                   <div className="form-group">
                     <label className="form-label">Notes</label>
-                    <textarea className="form-textarea" style={{ minHeight: 60 }} value={profileForm.notes} onChange={e => setProfileForm(f => ({ ...f, notes: e.target.value }))} />
+                    <textarea className="form-textarea" style={{ minHeight: 60 }} value={profileForm.notes || ''} onChange={e => setProfileForm(f => ({ ...f, notes: e.target.value }))} />
                   </div>
                 </>
               )}
@@ -2311,7 +2330,10 @@ export default function SettingsPage() {
                     {company.logo_data ? <img src={company.logo_data} alt="logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : <span style={{ fontSize: '2rem' }}></span>}
                   </div>
                   <div>
-                    <button className="btn btn-secondary btn-sm" onClick={() => logoRef.current?.click()}> Upload Logo</button>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => logoRef.current?.click()}> Upload Logo</button>
+                      {company.logo_data && <button className="btn btn-danger btn-sm" onClick={handleRemoveLogo}> Remove</button>}
+                    </div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>PNG, JPG — appears on invoices and quotes</div>
                   </div>
                   <input ref={logoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleLogoUpload(e.target.files[0]); }} />
@@ -2332,10 +2354,25 @@ export default function SettingsPage() {
                 </div>
                 <div className="form-group"><label className="form-label">Address</label><textarea className="form-textarea" style={{ minHeight: 70 }} value={company.address || ''} onChange={e => setCompany(c => ({ ...c, address: e.target.value }))} /></div>
                 <div className="form-group">
-                  <label className="form-label">Subscription Expiry Date</label>
-                  <input type="date" className="form-input" value={company?.subscription_expiry || ''} onChange={e => setCompany(c => ({ ...c, subscription_expiry: e.target.value }))} />
-                  <div style={{ fontSize:'0.72rem', color: company?.subscription_expiry && new Date(company.subscription_expiry) < new Date() ? 'var(--status-danger)' : 'var(--text-muted)', marginTop:4 }}>
-                    {company?.subscription_expiry ? (new Date(company.subscription_expiry) < new Date() ? ' Subscription expired! Renew to continue.' : ` Active until ${new Date(company.subscription_expiry).toLocaleDateString('en-IN')}`) : 'No expiry date set'}
+                  <label className="form-label">Subscription Plan</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                        {(() => { const keys = { starter:'Starter', professional:'Professional', business:'Business', enterprise:'Enterprise' }; return keys[user?.subscriptionPlan] || user?.subscriptionPlan || 'Professional'; })()}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                        {user?.subscriptionExpiry
+                          ? (new Date(user.subscriptionExpiry) < new Date()
+                            ? <span style={{ color:'var(--status-danger)' }}>Expired — {new Date(user.subscriptionExpiry).toLocaleDateString('en-IN')}</span>
+                            : <>Active until {new Date(user.subscriptionExpiry).toLocaleDateString('en-IN')}</>)
+                          : 'No expiry date set'}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '0.72rem', whiteSpace:'nowrap' }}>
+                      {user?.subscriptionStatus === 'active' && (!user?.subscriptionExpiry || new Date(user.subscriptionExpiry) >= new Date())
+                        ? <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:999, background:'rgba(16,185,129,0.12)', color:'var(--status-success)', fontWeight:700, fontSize:'0.7rem' }}> ACTIVE</span>
+                        : <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:999, background:'rgba(239,68,68,0.12)', color:'var(--status-danger)', fontWeight:700, fontSize:'0.7rem' }}> EXPIRED</span>}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -45,7 +45,7 @@ function MessagesTimeline({ caseId, clientId }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14, maxHeight: 300, overflowY: 'auto', paddingRight: 6 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14, maxHeight: '100%', minHeight: 200, overflowY: 'auto', paddingRight: 8, borderRadius: 8, background: 'var(--bg-elevated)', padding: '12px' }}>
       {messages.map(msg => {
         const isClientMessage = msg.type === 'portal_message';
         const isReply = msg.type === 'portal_reply';
@@ -54,19 +54,19 @@ function MessagesTimeline({ caseId, clientId }) {
           <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {/* Original message or reply */}
             <div style={{
-              padding: '10px 12px',
-              background: isClientMessage ? 'rgba(99,102,241,0.1)' : 'rgba(139,92,246,0.1)',
-              border: `1px solid ${isClientMessage ? 'rgba(99,102,241,0.25)' : 'rgba(139,92,246,0.25)'}`,
+              padding: '12px 14px',
+              background: isClientMessage ? 'rgba(99,102,241,0.08)' : 'rgba(139,92,246,0.08)',
+              border: `2px solid ${isClientMessage ? 'rgba(99,102,241,0.25)' : 'rgba(139,92,246,0.25)'}`,
               borderRadius: 8,
-              color: isClientMessage ? '#c7d2fe' : '#d8b4fe'
+              color: isClientMessage ? 'rgba(99,102,241,0.8)' : 'rgba(139,92,246,0.8)'
             }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: 600, marginBottom: 4 }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: 6, color: isClientMessage ? 'rgba(99,102,241,1)' : 'rgba(139,92,246,1)' }}>
                 {isClientMessage ? '👤 You' : '👨‍💼 Engineer Reply'}
               </div>
-              <div style={{ fontSize: '0.78rem', lineHeight: 1.5 }}>
+              <div style={{ fontSize: '0.82rem', lineHeight: 1.6, color: 'var(--text-primary)' }}>
                 {msg.summary?.replace(/^\[.*?\]\s*/, '')}
               </div>
-              <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: 4 }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 6 }}>
                 {new Date(msg.created_at).toLocaleString('en-IN')}
               </div>
             </div>
@@ -74,16 +74,16 @@ function MessagesTimeline({ caseId, clientId }) {
             {/* Show which message the reply is for */}
             {isReply && msg.reply_to_summary && (
               <div style={{
-                marginLeft: 16,
-                padding: '8px 10px',
+                marginLeft: 24,
+                padding: '10px 12px',
                 background: 'rgba(99,102,241,0.05)',
-                border: '1px solid rgba(99,102,241,0.15)',
-                borderRadius: 6,
-                borderLeft: '3px solid rgba(99,102,241,0.5)'
+                border: '2px solid rgba(99,102,241,0.2)',
+                borderLeft: '4px solid rgba(99,102,241,0.6)',
+                borderRadius: 6
               }}>
-                <div style={{ fontSize: '0.65rem', color: '#64748b', marginBottom: 2 }}>↩ This was replying to:</div>
-                <div style={{ fontSize: '0.75rem', color: '#94a3b8', lineHeight: 1.4 }}>
-                  {msg.reply_to_summary?.replace(/^\[.*?\]\s*/, '')}
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'rgba(99,102,241,0.8)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>↩ Replying to your message:</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, background: 'var(--bg-elevated)', padding: '8px 10px', borderRadius: 4 }}>
+                  "{msg.reply_to_summary?.replace(/^\[.*?\]\s*/, '')}"
                 </div>
               </div>
             )}
@@ -97,7 +97,7 @@ function MessagesTimeline({ caseId, clientId }) {
 export default function ClientPortalPage() {
   const navigate = useNavigate();
   const [caseNum, setCaseNum] = useState('');
-  const [phone, setPhone] = useState('');
+  const [credential, setCredential] = useState(''); // full phone number OR email
   const [caseData, setCaseData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -184,7 +184,7 @@ export default function ClientPortalPage() {
       let res;
       try {
         res = await fetch(
-          `${BASE_URL}/client-portal/case?case_number=${encodeURIComponent(caseNum.trim())}&phone=${encodeURIComponent(phone.trim())}`
+          `${BASE_URL}/client-portal/case?case_number=${encodeURIComponent(caseNum.trim())}&phone_or_email=${encodeURIComponent(credential.trim())}`
         );
       } catch {
         throw new Error('Unable to reach server. Please try again shortly.');
@@ -212,7 +212,7 @@ export default function ClientPortalPage() {
           case_id: caseData.id, 
           case_number: caseData.case_number, 
           message: message.trim(), 
-          phone 
+          phone: credential 
         }),
       });
       const data = await res.json();
@@ -247,25 +247,25 @@ export default function ClientPortalPage() {
       {/* Logo / Header */}
       <div style={{ textAlign: 'center', marginBottom: 40 }}>
         <div style={{ fontSize: '3rem', marginBottom: 8 }}>💾</div>
-        <h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', margin: '0 0 4px' }}>
+        <h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 4px' }}>
           {company.name || 'RecoverLab'}
         </h1>
-        <p style={{ color: '#94a3b8', fontSize: '0.88rem', margin: 0 }}>Client Case Tracking Portal</p>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: 0 }}>Client Case Tracking Portal</p>
       </div>
 
       {/* Search Card - hide if case already loaded from URL */}
       {!caseData && (
         <div style={{ width: '100%', maxWidth: 520, background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 28, marginBottom: 24 }}>
-          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: '#e2e8f0', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
             🔍 Track Your Case
           </h2>
           <form onSubmit={handleSearch}>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Case Number *
               </label>
               <input
-                style={{ width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', fontFamily: 'monospace', boxSizing: 'border-box', outline: 'none' }}
+                style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.9rem', fontFamily: 'monospace', boxSizing: 'border-box', outline: 'none' }}
                 value={caseNum}
                 onChange={e => setCaseNum(e.target.value.toUpperCase())}
                 placeholder="e.g. DR-2026-00001"
@@ -274,27 +274,32 @@ export default function ClientPortalPage() {
               />
             </div>
             <div style={{ marginBottom: 20 }}>
-              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Registered Phone / Last 4 digits
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Phone Number or Email <span style={{ color: 'var(--status-danger,#ef4444)', marginLeft: 2 }}>*</span>
               </label>
               <input
-                style={{ width: '100%', padding: '10px 14px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none' }}
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="e.g. 9876 or 9876543210"
+                style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.9rem', boxSizing: 'border-box', outline: 'none' }}
+                value={credential}
+                onChange={e => setCredential(e.target.value)}
+                placeholder="e.g. 9876543210 or you@email.com"
+                type="text"
+                required
               />
+              <div style={{ marginTop: 5, fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                Enter your full registered phone number or email address
+              </div>
             </div>
             <button
               type="submit"
-              disabled={loading || !caseNum.trim()}
-              style={{ width: '100%', padding: '11px 0', background: loading ? '#1e3a5f' : 'var(--accent-primary)', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+              disabled={loading || !caseNum.trim() || !credential.trim()}
+              style={{ width: '100%', padding: '11px 0', background: loading ? 'var(--bg-elevated)' : 'var(--accent-primary)', border: 'none', borderRadius: 8, color: loading ? 'var(--text-muted)' : '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
             >
               {loading ? '⌛ Searching...' : '🔎 Track Case'}
             </button>
           </form>
 
           {error && (
-            <div style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, color: '#fca5a5', fontSize: '0.8rem' }}>
+            <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--status-error-bg)', border: '1px solid var(--status-error-border)', borderRadius: 8, color: 'var(--status-error-text)', fontSize: '0.8rem' }}>
               ⚠ {error}
             </div>
           )}
@@ -311,26 +316,26 @@ export default function ClientPortalPage() {
               onClick={() => {
                 setCaseData(null);
                 setCaseNum('');
-                setPhone('');
+                setCredential('');
                 setError('');
                 setMessage('');
                 setMessageSent(false);
                 window.history.replaceState({}, document.title, window.location.pathname);
               }}
-              style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, color: '#94a3b8', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
+              style={{ padding: '8px 16px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 6, color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
             >
               🔍 Search for Different Case
             </button>
           </div>
 
           {/* Case Header */}
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 24, backdropFilter: 'blur(12px)' }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 24, backdropFilter: 'blur(12px)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
               <div>
-                <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: '#94a3b8', marginBottom: 4 }}>CASE NUMBER</div>
-                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#00d4ff', fontFamily: 'monospace' }}>{caseData.case_number}</div>
+                <div style={{ fontFamily: 'monospace', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 4 }}>CASE NUMBER</div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--accent-primary)', fontFamily: 'monospace' }}>{caseData.case_number}</div>
               </div>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 99, background: `${STAGE_COLORS[caseData.stage] || '#64748b'}20`, border: `1px solid ${STAGE_COLORS[caseData.stage] || '#64748b'}40`, color: STAGE_COLORS[caseData.stage] || '#94a3b8', fontWeight: 700, fontSize: '0.82rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 99, background: `${STAGE_COLORS[caseData.stage] || '#64748b'}20`, border: `1px solid ${STAGE_COLORS[caseData.stage] || '#64748b'}40`, color: STAGE_COLORS[caseData.stage] || 'var(--text-muted)', fontWeight: 700, fontSize: '0.82rem' }}>
                 {STAGE_ICONS[caseData.stage] || '📋'} {caseData.stage?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
               </span>
             </div>
@@ -338,11 +343,11 @@ export default function ClientPortalPage() {
             {/* Progress Bar */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Recovery Progress</span>
-                <span style={{ fontSize: '0.72rem', color: '#00d4ff', fontWeight: 700, fontFamily: 'monospace' }}>{progress}%</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Recovery Progress</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--accent-primary)', fontWeight: 700, fontFamily: 'monospace' }}>{progress}%</span>
               </div>
-              <div style={{ height: 8, background: 'rgba(255,255,255,0.06)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #0070f3, #00d4ff)', borderRadius: 4, transition: 'width 1.2s ease' }} />
+              <div style={{ height: 8, background: 'var(--bg-elevated)', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, var(--accent-primary), var(--accent-secondary))', borderRadius: 4, transition: 'width 1.2s ease' }} />
               </div>
             </div>
 
@@ -354,9 +359,9 @@ export default function ClientPortalPage() {
                 { label: 'Priority', value: ['', 'Critical', 'High', 'Medium', 'Low', 'Minimal'][caseData.priority] || 'Normal' },
                 { label: 'Date Received', value: caseData.created_at ? new Date(caseData.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—' },
               ].map(f => (
-                <div key={f.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 12px' }}>
-                  <div style={{ fontSize: '0.65rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{f.label}</div>
-                  <div style={{ fontSize: '0.82rem', color: '#e2e8f0', fontWeight: 600 }}>{f.value}</div>
+                <div key={f.label} style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>{f.label}</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontWeight: 600 }}>{f.value}</div>
                 </div>
               ))}
             </div>
@@ -364,35 +369,56 @@ export default function ClientPortalPage() {
 
           {/* What's happening */}
           {stageInfo && (
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
-              <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: 14, fontSize: '0.88rem' }}>📋 What's Happening</div>
-              <div style={{ padding: '12px 14px', background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.15)', borderRadius: 8, color: '#94a3b8', fontSize: '0.82rem', lineHeight: 1.7 }}>
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, fontSize: '0.88rem' }}>📋 What's Happening</div>
+              <div style={{ padding: '12px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-secondary)', fontSize: '0.82rem', lineHeight: 1.7 }}>
                 {stageInfo.msg}
               </div>
               {stageInfo.next && (
-                <div style={{ marginTop: 10, fontSize: '0.75rem', color: '#64748b' }}>
-                  ⟶ Next step: <span style={{ color: '#00d4ff' }}>{stageInfo.next}</span>
+                <div style={{ marginTop: 10, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  ⟶ Next step: <span style={{ color: 'var(--accent-primary)' }}>{stageInfo.next}</span>
                 </div>
               )}
             </div>
           )}
 
+          {/* Assigned Engineer */}
+          {caseData.engineer_name && (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, fontSize: '0.88rem' }}>🔧 Assigned Engineer</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>Engineer Name</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontWeight: 600 }}>{caseData.engineer_name}</div>
+                </div>
+                {caseData.engineer_email && (
+                  <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '10px 12px' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>Contact</div>
+                    <div style={{ fontSize: '0.82rem', color: 'var(--accent-primary)', fontWeight: 600 }}>
+                      <a href={`mailto:${caseData.engineer_email}`} style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>{caseData.engineer_email}</a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Send Message */}
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
-            <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: 14, fontSize: '0.88rem' }}>💬 Messages & Replies</div>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 14, fontSize: '0.88rem' }}>💬 Messages & Replies</div>
             
             {/* Messages History */}
             {caseData?.id ? (
               <MessagesTimeline caseId={caseData.id} />
             ) : (
-              <div style={{ fontSize: '0.75rem', color: '#64748b', padding: '8px 0' }}>Unable to load messages</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '8px 0' }}>Unable to load messages</div>
             )}
             
             {/* Send Message Form */}
-            <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ fontWeight: 600, color: '#e2e8f0', marginBottom: 12, fontSize: '0.8rem' }}>Send a New Message</div>
+            <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12, fontSize: '0.8rem' }}>Send a New Message</div>
               {messageSent && (
-                <div style={{ marginBottom: 12, padding: '10px 12px', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 8, color: '#6ee7b7', fontSize: '0.8rem' }}>
+                <div style={{ marginBottom: 12, padding: '10px 12px', background: 'var(--status-success-bg)', border: '1px solid var(--status-success-border)', borderRadius: 8, color: 'var(--status-success-text)', fontSize: '0.8rem' }}>
                   ✅ Your message has been sent! Our team will respond soon.
                 </div>
               )}
@@ -400,14 +426,14 @@ export default function ClientPortalPage() {
                 value={message}
                 onChange={e => setMessage(e.target.value)}
                 placeholder="Type your question or message… e.g. 'What is the estimated recovery time?' or 'Has the quote been sent?'"
-                style={{ width: '100%', minHeight: 90, padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e2e8f0', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
+                style={{ width: '100%', minHeight: 90, padding: '10px 12px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-primary)', fontSize: '0.82rem', resize: 'vertical', boxSizing: 'border-box', outline: 'none', fontFamily: 'inherit' }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                <span style={{ fontSize: '0.72rem', color: '#475569' }}>{message.length}/2000</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{message.length}/2000</span>
                 <button
                   onClick={handleSendMessage}
                   disabled={sendingMsg || !message.trim()}
-                  style={{ padding: '9px 20px', background: message.trim() ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, color: message.trim() ? '#fff' : '#64748b', fontWeight: 700, fontSize: '0.82rem', cursor: message.trim() ? 'pointer' : 'not-allowed' }}
+                  style={{ padding: '9px 20px', background: message.trim() ? 'var(--accent-primary)' : 'var(--bg-elevated)', border: 'none', borderRadius: 8, color: message.trim() ? '#fff' : 'var(--text-muted)', fontWeight: 700, fontSize: '0.82rem', cursor: message.trim() ? 'pointer' : 'not-allowed' }}
                 >
                   {sendingMsg ? '⌛ Sending...' : '📩 Send Message'}
                 </button>
@@ -416,11 +442,11 @@ export default function ClientPortalPage() {
           </div>
 
           {/* Contact Info */}
-          <div style={{ textAlign: 'center', padding: '16px 0', color: '#64748b', fontSize: '0.75rem' }}>
+          <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
             <div style={{ marginBottom: 6 }}>Need urgent help? Contact us directly:</div>
             <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
-              {company.phone && <span style={{ color: '#94a3b8' }}>📞 {company.phone}</span>}
-              {company.email && <span style={{ color: '#94a3b8' }}>✉️ {company.email}</span>}
+              {company.phone && <span style={{ color: 'var(--text-secondary)' }}>📞 {company.phone}</span>}
+              {company.email && <span style={{ color: 'var(--text-secondary)' }}>✉️ {company.email}</span>}
               {!company.phone && !company.email && <span>Contact your data recovery center</span>}
             </div>
           </div>
@@ -428,11 +454,11 @@ export default function ClientPortalPage() {
       )}
 
       {/* Footer */}
-      <div style={{ marginTop: 'auto', paddingTop: 40, textAlign: 'center', color: '#374151', fontSize: '0.7rem' }}>
-        <div>Powered by <strong style={{ color: '#64748b' }}>RecoverLab CRM</strong></div>
+      <div style={{ marginTop: 'auto', paddingTop: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+        <div>Powered by <strong style={{ color: 'var(--text-secondary)' }}>RecoverLab CRM</strong></div>
         <div style={{ marginTop: 4 }}>Your data privacy is our top priority — we never share your information.</div>
-        <footer style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid #e5e7eb' }}>
-          <span style={{ fontSize: '0.68rem', color: '#6b7280' }}>&copy; {new Date().getFullYear()} RecoverLab. All rights reserved.</span>
+        <footer style={{ marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+          <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>&copy; {new Date().getFullYear()} RecoverLab. All rights reserved.</span>
         </footer>
       </div>
     </div>

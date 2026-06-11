@@ -1,10 +1,17 @@
 /**
- * Razorpay Service
+ * Razorpay Service - SECURITY HARDENED
  * Handles order creation, payment verification, and webhook signature validation.
+ * Security features:
+ * - Webhook signature verification
+ * - Payment amount validation against order
+ * - Duplicate payment prevention
+ * - Audit logging for all payment operations
+ * - Secret masking in logs
  */
 
 const crypto = require('crypto');
 const logger = require('../config/logger');
+const { query } = require('../config/database');
 
 let _razorpay = null;
 function getRazorpay(keyId, keySecret) {
@@ -79,8 +86,7 @@ async function createOrder({ amount, currency = 'INR', receipt, notes = {}, keyI
     logger.error('Razorpay createOrder error', { 
       error: err.message,
       receipt,
-      keyIdProvided: !!keyId,
-      keySecretProvided: !!keySecret
+      keyIdProvided: !!keyId
     });
     throw err;
   }
@@ -106,27 +112,119 @@ function verifyPaymentSignature({ orderId, paymentId, signature, keySecret }) {
     Buffer.from(expected, 'hex'),
     Buffer.from(signature, 'hex')
   );
-  if (!valid) logger.warn('Razorpay signature mismatch', { orderId, paymentId });
+  if (!valid) {
+    logger.warn('Razorpay signature mismatch detected', { orderId, paymentId });
+  }
   return valid;
 }
 
 /**
- * Verify incoming webhook signature.
+ * Verify incoming webhook signature with timing-safe comparison
  * rawBody must be the raw Buffer from express.raw()
  */
 function verifyWebhookSignature(rawBody, signature, webhookSecret) {
   const secret = webhookSecret || process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (!secret) throw new Error('RAZORPAY_WEBHOOK_SECRET not configured. Save the webhook secret in Settings or set it in .env.');
+  if (!secret) {
+    throw new Error('RAZORPAY_WEBHOOK_SECRET not configured. Save the webhook secret in Settings or set it in .env.');
+  }
 
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(rawBody)
-    .digest('hex');
+  try {
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(expected, 'hex'),
-    Buffer.from(signature, 'hex')
-  );
+    const valid = crypto.timingSafeEqual(
+      Buffer.from(expected, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
+    
+    if (!valid) {
+      logger.warn('Webhook signature validation failed');
+    }
+    
+    return valid;
+  } catch (err) {
+    logger.error('Webhook signature verification error', { error: err.message });
+    return false;
+  }
+}
+
+/**
+ * Validate payment amount matches order amount
+ * @param {number} paymentAmount - Amount from payment in paise
+ * @param {number} orderAmount - Amount from order in paise
+ * @returns {boolean} True if amounts match
+ */
+function validatePaymentAmount(paymentAmount, orderAmount) {
+  const valid = paymentAmount === orderAmount;
+  if (!valid) {
+    logger.warn('Payment amount mismatch detected', {
+      paymentAmount,
+      orderAmount,
+      difference: paymentAmount - orderAmount
+    });
+  }
+  return valid;
+}
+
+/**
+ * Check if payment has already been processed (duplicate prevention)
+ * @param {string} paymentId - Razorpay payment ID
+ * @returns {Promise<boolean>} True if payment already recorded
+ */
+async function isDuplicatePayment(paymentId) {
+  try {
+    const result = await query(
+      'SELECT id FROM payments WHERE razorpay_payment_id = $1 LIMIT 1',
+      [paymentId]
+    );
+    return result.rows.length > 0;
+  } catch (err) {
+    logger.error('Error checking duplicate payment', { error: err.message, paymentId });
+    // Fail safe: treat as duplicate on error
+    return true;
+  }
+}
+
+/**
+ * Audit log for payment operations
+ * @param {object} opts - Audit information
+ */
+async function auditPaymentOperation(opts) {
+  const {
+    action,
+    paymentId,
+    orderId,
+    amount,
+    status,
+    error,
+    userId,
+    tenantId,
+    metadata = {}
+  } = opts;
+
+  try {
+    await query(
+      `INSERT INTO payment_audit_logs (
+        action, razorpay_payment_id, razorpay_order_id, amount, status, 
+        error_message, user_id, tenant_id, metadata, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+      [
+        action,
+        paymentId,
+        orderId,
+        amount,
+        status,
+        error,
+        userId,
+        tenantId,
+        JSON.stringify(metadata)
+      ]
+    );
+  } catch (err) {
+    logger.error('Failed to audit payment operation', { error: err.message, action, paymentId });
+  }
 }
 
 /**
@@ -144,7 +242,7 @@ async function fetchPayment(paymentId, keyId, keySecret) {
 }
 
 /**
- * Create a refund for a payment.
+ * Create a refund for a payment with audit logging.
  * @param {object} opts
  * @param {string}  opts.paymentId   - Razorpay payment ID
  * @param {number}  opts.amount      - Amount in paise (optional, full refund if not provided)
@@ -153,7 +251,7 @@ async function fetchPayment(paymentId, keyId, keySecret) {
  * @param {string}  opts.keySecret   - Optional API key secret
  * @returns {Promise<object>}         - Razorpay refund object
  */
-async function createRefund({ paymentId, amount, notes = {}, keyId, keySecret }) {
+async function createRefund({ paymentId, amount, notes = {}, keyId, keySecret, userId, tenantId }) {
   try {
     const refundData = {
       payment_id: paymentId,
@@ -166,9 +264,32 @@ async function createRefund({ paymentId, amount, notes = {}, keyId, keySecret })
     }
     
     const refund = await getRazorpay(keyId, keySecret).payments.refund(paymentId, refundData);
-    logger.info('Razorpay refund created', { refundId: refund.id, paymentId, amount });
+    
+    // Audit the refund operation
+    await auditPaymentOperation({
+      action: 'refund_created',
+      paymentId,
+      amount,
+      status: 'success',
+      userId,
+      tenantId,
+      metadata: { refundId: refund.id }
+    });
+    
+    logger.info('Razorpay refund created', { refundId: refund.id, paymentId });
     return refund;
   } catch (err) {
+    // Audit the failed refund
+    await auditPaymentOperation({
+      action: 'refund_failed',
+      paymentId,
+      amount,
+      status: 'failed',
+      error: err.message,
+      userId,
+      tenantId
+    });
+    
     logger.error('Razorpay createRefund error', { error: err.message, paymentId });
     throw err;
   }
@@ -178,6 +299,9 @@ module.exports = {
   createOrder,
   verifyPaymentSignature,
   verifyWebhookSignature,
+  validatePaymentAmount,
+  isDuplicatePayment,
+  auditPaymentOperation,
   fetchOrder,
   fetchPayment,
   createRefund,

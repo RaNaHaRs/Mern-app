@@ -268,4 +268,38 @@ router.get('/problems/categories', async (req, res) => {
   }
 });
 
+// ─── GET /api/suggestions/vendors ────────────────────────────────────────────
+router.get('/vendors', async (req, res) => {
+  try {
+    const { search = '', limit = 10 } = req.query;
+    const term = String(search).trim();
+
+    if (!term) {
+      return res.json([]);
+    }
+
+    const max = Math.min(parseInt(limit, 10) || 10, 20);
+    const contains = `%${term}%`;
+    const tenantCase = !isSuperAdmin(req.user) ? tenantCaseCondition(req.user, 'c', 2) : null;
+
+    const result = await query(
+      `SELECT DISTINCT ce.vendor_name AS text
+       FROM case_expenses ce
+       JOIN cases c ON ce.case_id = c.id
+       WHERE ce.vendor_name IS NOT NULL
+         AND TRIM(ce.vendor_name) <> ''
+         AND ce.vendor_name ILIKE $1
+         ${tenantCase ? `AND ${tenantCase.clause}` : ''}
+       ORDER BY ce.vendor_name
+       LIMIT $${tenantCase ? 3 : 2}`,
+      tenantCase ? [contains, ...tenantCase.params, max] : [contains, max]
+    );
+
+    res.json(result.rows);
+  } catch (e) {
+    console.error('Error fetching vendor suggestions:', e);
+    res.status(500).json({ error: 'Failed to fetch vendors' });
+  }
+});
+
 module.exports = router;

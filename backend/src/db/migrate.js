@@ -92,7 +92,12 @@ async function migrate() {
       { name: '052_add_charge_to_client_inventory', file: '052_add_charge_to_client_inventory.sql' },
       { name: '053_add_deleted_at_to_accounting_quotes', file: '053_add_deleted_at_to_accounting_quotes.sql' },
       { name: '054_update_case_financials_view', file: '054_update_case_financials_view.sql' },
-      { name: '055_add_reply_to_id_to_communications', file: '055_add_reply_to_id_to_communications.sql' }
+      { name: '055_add_reply_to_id_to_communications', file: '055_add_reply_to_id_to_communications.sql' },
+      { name: '056_change_interface_formfactor_to_varchar', file: '056_change_interface_formfactor_to_varchar.sql' },
+      { name: '061_refresh_tokens_security_hardening', file: '061_refresh_tokens_security_hardening.sql' },
+      { name: '054_create_payment_link_email_tracking', file: '054_create_payment_link_email_tracking.sql' },
+      { name: '055_add_discount_tracking_to_payments', file: '055_add_discount_tracking_to_payments.sql' },
+      { name: '056_allow_zero_amount_in_payments', file: '056_allow_zero_amount_in_payments.sql' }
     ];
 
     // Execute all SQL file migrations

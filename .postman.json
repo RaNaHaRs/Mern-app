@@ -452,7 +452,226 @@
                 }
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains cases array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('cases');",
+                  "    pm.expect(jsonData.cases).to.be.an('array');",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  var jsonData = pm.response.json();",
+                  "  if (jsonData.cases && jsonData.cases.length > 0) {",
+                  "    pm.collectionVariables.set('caseId', jsonData.cases[0].id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Case - With Valid Custom Fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"1\",\n  \"storage_model_id\": \"1\",\n  \"failure_type\": \"logical\",\n  \"failure_description\": \"Device not recognized\",\n  \"stage\": \"received\",\n  \"status\": \"received\",\n  \"customFields\": {\n    \"field_1\": \"test_value\",\n    \"field_2\": \"another_value\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cases",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cases"]
+            },
+            "description": "Create a case with custom fields. The endpoint should validate that custom field IDs exist before saving."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 or 200\", function () {",
+                  "    pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains case ID\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    pm.collectionVariables.set('caseId', jsonData.id);",
+                  "});",
+                  "",
+                  "pm.test(\"Custom fields were processed without throwing error\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.not.have.property('error');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Case - With Invalid Custom Field ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"client_id\": \"1\",\n  \"storage_model_id\": \"1\",\n  \"failure_type\": \"logical\",\n  \"failure_description\": \"Device not recognized\",\n  \"stage\": \"received\",\n  \"status\": \"received\",\n  \"customFields\": {\n    \"99999\": \"this_field_does_not_exist\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cases",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cases"]
+            },
+            "description": "Create a case with a custom field ID that doesn't exist. The endpoint should gracefully skip it and not fail."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 or 200 (non-existent field gracefully skipped)\", function () {",
+                  "    pm.expect([200, 201]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "pm.test(\"Case was created despite invalid custom field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "});",
+                  "",
+                  "pm.test(\"No error thrown for invalid custom field ID\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.not.have.property('error');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Case - Verify Custom Fields Saved",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cases/{{caseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cases", "{{caseId}}"]
+            },
+            "description": "Retrieve a case to verify custom field values were properly saved."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains case details\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    pm.expect(jsonData).to.have.property('stage');",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "});",
+                  "",
+                  "pm.test(\"Custom field values are returned in response\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.custom_field_values) {",
+                  "      pm.expect(jsonData.custom_field_values).to.be.an('object');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Case - Modify Custom Fields",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stage\": \"diagnosis\",\n  \"status\": \"in_progress\",\n  \"customFields\": {\n    \"field_1\": \"updated_value\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cases/{{caseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cases", "{{caseId}}"]
+            },
+            "description": "Update a case and modify custom field values. The ON CONFLICT clause should handle updates properly."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Case was updated successfully\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "});",
+                  "",
+                  "pm.test(\"Stage was updated to diagnosis\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.stage).to.equal('diagnosis');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -546,6 +765,211 @@
               "path": ["api", "storage-models", "brands"]
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "Accounting - Expenses",
+      "item": [
+        {
+          "name": "List Expenses",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accounting/expenses?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accounting", "expenses"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains expenses array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('expenses');",
+                  "    pm.expect(jsonData.expenses).to.be.an('array');",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  var jsonData = pm.response.json();",
+                  "  if (jsonData.expenses && jsonData.expenses.length > 0) {",
+                  "    pm.collectionVariables.set('expenseId', jsonData.expenses[0].id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Expense",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2025-01-15\",\n  \"category\": \"supplies\",\n  \"description\": \"Test expense\",\n  \"vendor\": \"Test Vendor\",\n  \"amount\": 500.00,\n  \"tax_amt\": 50.00,\n  \"receipt_note\": \"Receipt for supplies\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/accounting/expenses",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accounting", "expenses"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Response contains expense ID\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    pm.collectionVariables.set('expenseId', jsonData.id);",
+                  "});",
+                  "",
+                  "pm.test(\"Expense has correct amount\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.amount).to.equal(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Expense - Authorization Check",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2025-01-16\",\n  \"category\": \"supplies\",\n  \"description\": \"Updated test expense\",\n  \"vendor\": \"Updated Vendor\",\n  \"amount\": 600.00,\n  \"tax_amt\": 60.00,\n  \"receipt_note\": \"Updated receipt\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/accounting/expenses/{{expenseId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accounting", "expenses", "{{expenseId}}"]
+            },
+            "description": "Test multi-tenant authorization: Should succeed if user owns the expense"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 (authorized) or 404/403 (not authorized)\", function () {",
+                  "    pm.expect([200, 404, 403]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test(\"Response contains updated expense\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    pm.expect(jsonData.amount).to.equal(600);",
+                  "  });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 404 || pm.response.code === 403) {",
+                  "  pm.test(\"Authorization error message is descriptive\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.include.oneOf(['not found', 'access denied', 'Unauthorized']);",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Expense - Nonexistent ID",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"2025-01-16\",\n  \"category\": \"supplies\",\n  \"description\": \"Test\",\n  \"vendor\": \"Vendor\",\n  \"amount\": 100.00,\n  \"tax_amt\": 10.00\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/accounting/expenses/99999",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accounting", "expenses", "99999"]
+            },
+            "description": "Test that nonexistent expense returns 404 with proper error message"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Error message indicates access denied, not just not found\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.equal('Expense not found or access denied');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },

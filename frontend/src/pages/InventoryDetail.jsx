@@ -242,13 +242,16 @@ export default function InventoryDetail() {
   const [images, setImages] = useState([]);
   const [files, setFiles] = useState([]);
   const [history, setHistory] = useState([]);
+  const [usageHistory, setUsageHistory] = useState([]); // Usage logs from the API
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [caseUsage, setCaseUsage] = useState([]); // Track which cases use this item
 
   const compareWithCase = searchParams.get('compare');
-  const [activeTab, setActiveTab] = useState(() => compareWithCase ? 'compare' : 'overview');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_InventoryDetail') || (compareWithCase ? 'compare' : 'overview'));
+  useEffect(() => { sessionStorage.setItem('activeTab_InventoryDetail', activeTab); }, [activeTab]);
   
   const [savingEdit, setSavingEdit] = useState(false);
   const [noteEntries, setNoteEntries] = useState([]);
@@ -272,6 +275,19 @@ export default function InventoryDetail() {
       const imgRes = await fetch(`${BASE_URL}/inventory/${id}/images`, { headers: { Authorization: `Bearer ${getToken()}` } });
       const imgData = await imgRes.json();
       setImages(imgData.images || []);
+
+      // Load case usage history
+      try {
+        const usageRes = await fetch(`${BASE_URL}/inventory/${id}/usage-history`, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (usageRes.ok) {
+          const usageData = await usageRes.json();
+          setCaseUsage(usageData.cases || []);
+          // Extract usage logs from the API response
+          setUsageHistory(usageData.logs || []);
+        }
+      } catch (err) {
+        console.warn('Failed to load case usage history:', err);
+      }
     } catch (e) { console.error(e); } finally { setLoading(false); }
   }, [id]);
 
@@ -344,16 +360,11 @@ export default function InventoryDetail() {
   const handleDrop = e => { e.preventDefault(); uploadMedia(e.dataTransfer.files); };
 
   const handleTransferToClient = async () => {
-    const newStatus = !item.is_transferred_to_client;
-    const confirmMsg = newStatus 
-      ? 'Are you sure you want to transfer this item to the client?' 
-      : 'Are you sure you want to undo the transfer of this item to the client?';
-    if (!confirm(confirmMsg)) return;
+    if (!confirm(`Transfer "${item.stock_number || item.name}" to Client? This will move it out of inventory.`)) return;
     try {
-      const response = await inventoryApi.transferToClient(id, newStatus);
-      setItem(prev => ({ ...prev, is_transferred_to_client: newStatus }));
-      alert(`✅ Item status updated: Transferred to Client = ${newStatus ? 'Yes' : 'No'}`);
-    } catch(e){ alert(e.message || 'Failed to update transfer status'); }
+      await inventoryApi.transfer(id, 'Transferred to client');
+      navigate('/inventory');
+    } catch(e){ alert(e.message || 'Transfer failed'); }
   };
 
   if (loading) return <div style={{ display:'flex',justifyContent:'center',paddingTop:80 }}><div className="spinner" style={{ width:32,height:32,borderWidth:3 }} /></div>;
@@ -377,6 +388,7 @@ export default function InventoryDetail() {
   const TABS = [
     { key: 'overview', label: ' Overview' },
     { key: 'photos', label: ` Media (${images.length})` },
+    { key: 'used-in-cases', label: ` Used In Cases (${caseUsage.length})` },
     { key: 'usage-history', label: ' Usage History' },
     { key: 'history', label: ' Activity Log' },
     ...(compareWithCase ? [{ key: 'compare', label: '🔬 Comparison' }] : []),
@@ -456,9 +468,11 @@ export default function InventoryDetail() {
             </>
           )}
           <button className="btn btn-secondary" onClick={() => imgRef.current?.click()}>Add Media/Files</button>
-          <button className={`btn btn-sm ${item.is_transferred_to_client ? 'btn-success' : 'btn-secondary'}`} onClick={handleTransferToClient}>
-            {item.is_transferred_to_client ? '✓ Transferred to Client' : '🤝 Transfer to Client'}
-          </button>
+          {item.source_case_id && !item.is_transferred_to_client && (
+            <button className="btn btn-sm btn-secondary" onClick={handleTransferToClient}>
+              🤝 Transfer to Client
+            </button>
+          )}
           <input ref={imgRef} type="file" multiple style={{ display:'none' }} onChange={e => uploadMedia(e.target.files)} />
         </div>
       </div>
@@ -715,6 +729,94 @@ export default function InventoryDetail() {
         </div>
       )}
 
+      {/* Used In Cases Tab */}
+      {activeTab === 'used-in-cases' && (
+        <div className="card" style={{ padding: 16 }}>
+          <div className="card-title" style={{ marginBottom: 16 }}>📋 Cases Using This Item</div>
+          {caseUsage.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 8 }}>—</div>
+              <div>This inventory item is not used in any cases yet</div>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border-default)' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Case #</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700 }}>Stage</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700 }}>Type</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700 }}>Qty</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>Unit Cost</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 700 }}>Total Cost</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700 }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {caseUsage.map((use, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 600 }}>
+                        <button
+                          className="btn btn-link"
+                          onClick={() => navigate(`/cases/${use.case_id}`)}
+                          style={{ color: 'var(--accent-primary)', textDecoration: 'none', cursor: 'pointer' }}
+                        >
+                          {use.case_number}
+                        </button>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <span style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          background: 'rgba(100, 116, 139, 0.1)',
+                          color: '#64748b',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em'
+                        }}>
+                          {use.stage || '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <span style={{
+                          fontSize: '0.7rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          background: use.usage_type === 'TEMPORARY_TOOL' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                          color: use.usage_type === 'TEMPORARY_TOOL' ? '#3b82f6' : '#ef4444'
+                        }}>
+                          {use.usage_type === 'TEMPORARY_TOOL' ? 'Temp' : 'Used'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        {use.qty_allocated}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                        ₹{parseFloat(use.unit_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        ₹{parseFloat(use.total_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                        <button
+                          className="btn btn-link btn-sm"
+                          onClick={() => navigate(`/cases/${use.case_id}`)}
+                          style={{ color: 'var(--accent-primary)', fontSize: '0.75rem' }}
+                        >
+                          View →
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Usage History Tab */}
       {activeTab === 'usage-history' && (
         <div className="card">
@@ -725,21 +827,64 @@ export default function InventoryDetail() {
       {/* History Tab */}
       {activeTab === 'history' && (
         <div className="card">
-          <div className="card-title" style={{ marginBottom:14 }}> Stock Movement History</div>
-          {history.length === 0 ? (
-            <div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No history records yet</div></div>
+          <div className="card-title" style={{ marginBottom:14 }}> Usage Activity Log</div>
+          {usageHistory.length === 0 ? (
+            <div className="empty-state"><div className="empty-icon"></div><div className="empty-title">No activity yet</div><div className="empty-desc">Usage logs will appear when this item is added to cases</div></div>
           ) : (
-            <div style={{ display:'flex',flexDirection:'column',gap:8 }}>
-              {history.map((h, i) => (
-                <div key={i} style={{ display:'flex',gap:12,alignItems:'center',padding:'10px 0',borderBottom:'1px solid var(--border-subtle)' }}>
-                  <span style={{ fontSize:'1.2rem' }}>{h.type==='in'?'':h.type==='out'?'':h.type==='disposed'?'':''}</span>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:600,fontSize:'0.82rem' }}>{h.type?.toUpperCase()} — {h.quantity} unit(s)</div>
-                    <div style={{ fontSize:'0.72rem',color:'var(--text-muted)' }}>{h.notes}</div>
-                  </div>
-                  <div className="text-xs text-muted font-mono">{h.created_at ? new Date(h.created_at).toLocaleString('en-IN') : '—'}</div>
-                </div>
-              ))}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border-default)', background: 'var(--bg-elevated)' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Date/Time</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Case #</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Action</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 700 }}>Qty</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>User</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700 }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usageHistory.map((log, idx) => {
+                    const dateObj = new Date(log.created_at || log.timestamp);
+                    const dateStr = dateObj.toLocaleDateString('en-IN');
+                    const timeStr = dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                    return (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border-subtle)', background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                        <td style={{ padding: '10px 12px', fontFamily: 'var(--font-mono)', fontSize: '0.7rem' }}>
+                          <div style={{ fontWeight: 600 }}>{dateStr}</div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{timeStr}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--accent-primary)' }}>{log.case_number || log.case_id || '—'}</span>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            background: log.action === 'added' ? 'rgba(16,185,129,0.1)' : log.action === 'removed' ? 'rgba(239,68,68,0.1)' : 'rgba(100,116,139,0.1)',
+                            color: log.action === 'added' ? '#10b981' : log.action === 'removed' ? '#ef4444' : '#64748b',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em'
+                          }}>
+                            {log.action || 'Used'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'center', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                          {log.qty || log.qty_allocated || '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', fontSize: '0.75rem' }}>
+                          {log.user_name || log.username || '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', fontSize: '0.7rem', color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {log.description || log.usage_type || log.notes || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

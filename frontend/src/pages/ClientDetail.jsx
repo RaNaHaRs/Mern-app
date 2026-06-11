@@ -59,7 +59,7 @@ function CourierSlip({ client, company, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth:480 }} onClick={e => e.stopPropagation()}>
         <div className="modal-header"><h3 className="modal-title">📦 Print Courier Slip</h3><button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button></div>
         <div className="modal-body">
@@ -110,7 +110,7 @@ function EditClientModal({ client, onClose, onSaved }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header"><h3 className="modal-title">✏️ Edit Client — {client.first_name} {client.last_name}</h3><button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button></div>
         <div className="modal-body">
@@ -193,7 +193,7 @@ function AddCommModal({ clientId, caseId, onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <div className="modal-header"><h3 className="modal-title">💬 Add Communication</h3><button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button></div>
         <div className="modal-body">
@@ -347,7 +347,7 @@ export default function ClientDetail() {
             {cl.address && <div style={{ marginTop:12,fontSize:'0.8rem',color:'var(--text-secondary)',padding:'8px 10px',background:'var(--bg-elevated)',borderRadius:'var(--radius-sm)' }}>📍 {cl.address}</div>}
           </div>
           <div className="card">
-            <div className="card-title" style={{ marginBottom:14 }}>📊 Payment Summary</div>
+            <div className="card-title" style={{ marginBottom:14 }}> Payment Summary</div>
             <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12 }}>
               {[
                 { l:'Total Cases', v:cl.cases?.length||0, c:'var(--text-primary)' },
@@ -393,7 +393,7 @@ export default function ClientDetail() {
                           setShowCollectPayment(true);
                         }}
                       >
-                        💰 Collect
+                        Collect
                       </button>
                     ) : (
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>—</span>

@@ -297,7 +297,7 @@ function ManualPaymentModal({ tenants, onClose, onSuccess }) {
   ];
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
         <div className="modal-header">
           <h3 className="modal-title">Record Manual Payment</h3>
@@ -426,7 +426,7 @@ function RefundModal({ payment, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
         <div className="modal-header">
           <h3 className="modal-title">Process Refund</h3>

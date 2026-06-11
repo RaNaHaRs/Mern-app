@@ -38,7 +38,7 @@ function ConfirmRestoreModal({ item, onConfirm, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
         <div className="modal-header">
           <h3 className="modal-title">Restore Item</h3>
@@ -76,7 +76,7 @@ function ConfirmDeleteModal({ item, onConfirm, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 440, border: '1px solid rgba(239,68,68,0.3)' }}>
         <div className="modal-header" style={{ background: 'rgba(239,68,68,0.04)' }}>
           <h3 className="modal-title" style={{ color: 'var(--status-danger)' }}>Permanent Delete</h3>
@@ -125,7 +125,7 @@ function ConfirmDeleteModal({ item, onConfirm, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════
 function CaseDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520, maxHeight: '85vh', overflowY: 'auto' }}>
         <div className="modal-header">
           <h3 className="modal-title">Case Details</h3>
@@ -233,7 +233,7 @@ function CaseDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) 
 function InventoryDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) {
   const cat = getCategoryMeta(item.ui_category || item.category);
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }}>
         <div className="modal-header">
           <h3 className="modal-title">Inventory Item Details</h3>
@@ -324,7 +324,7 @@ function InventoryDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmi
 // ═══════════════════════════════════════════════════════════════════════
 function MediaDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin }) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480, maxHeight: '85vh', overflowY: 'auto' }}>
         <div className="modal-header">
           <h3 className="modal-title">Media File Details</h3>
@@ -390,7 +390,8 @@ function MediaDetailsModal({ item, onRestore, onDelete, onClose, isSuperAdmin })
 export default function RecycleBinPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [binTab, setBinTab] = useState('cases'); // cases | inventory | media
+  const [binTab, setBinTab] = useState(() => sessionStorage.getItem('activeTab_RecycleBin') || 'cases'); // cases | inventory | media
+  useEffect(() => { sessionStorage.setItem('activeTab_RecycleBin', binTab); }, [binTab]);
   const [items, setItems] = useState([]);
   const [invItems, setInvItems] = useState([]);
   const [mediaItems, setMediaItems] = useState([]);
@@ -398,6 +399,13 @@ export default function RecycleBinPage() {
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [detailsModal, setDetailsModal] = useState(null); // { type: 'cases'|'inventory'|'media', item: {...} }
+  
+  // Pagination states
+  const [casesPage, setCasesPage] = useState(1);
+  const [invPage, setInvPage] = useState(1);
+  const [mediaPage, setMediaPage] = useState(1);
+  const itemsPerPage = 15;
+  
   const isSuperAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const loadCases = useCallback(async () => {
@@ -557,91 +565,155 @@ export default function RecycleBinPage() {
           <div className="empty-desc">Deleted files from cases, solutions, and inventory appear here for recovery.</div>
         </div>
       ) : binTab === 'media' ? (
-        <div className="table-container">
-          <table>
-            <thead><tr><th>File</th><th>Type</th><th>Source</th><th>Location</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
-            <tbody>
-              {mediaItems.map(item => (
-                <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => showDetails(item, 'media')}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span>{fileTypeIcon(item)}</span>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.name}</div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{formatFileSize(item.size)}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1, minHeight: 0 }}>
+          <div className="table-container" style={{ flex: 1, overflowY: 'auto' }}>
+            <table>
+              <thead><tr><th>File</th><th>Type</th><th>Source</th><th>Location</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
+              <tbody>
+                {mediaItems.slice((mediaPage - 1) * itemsPerPage, mediaPage * itemsPerPage).map(item => (
+                  <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => showDetails(item, 'media')}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span>{fileTypeIcon(item)}</span>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>{item.name}</div>
+                          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{formatFileSize(item.size)}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="text-xs text-muted">{item.mime_type || '—'}</td>
-                  <td><span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)' }}>{item.source_label}</span></td>
-                  <td className="text-xs">{item.parent_label || item.parent_id}</td>
-                  <td className="text-xs text-muted">{item.deleted_by_name || '—'}</td>
-                  <td className="text-xs text-muted">{daysAgo(item.deleted_at)}</td>
-                  <td onClick={e => e.stopPropagation()}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'media')}>Restore</button>
-                      {isSuperAdmin && (
-                        <button type="button" className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'media')}>Delete Permanently</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : binTab === 'inventory' ? (
-        <div className="table-container">
-          <table>
-            <thead><tr><th>Stock ID</th><th>Category</th><th>Model</th><th>PCB #</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
-            <tbody>
-              {invItems.map(item => {
-                const cat = getCategoryMeta(item.ui_category || item.category);
-                return (
-                  <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => showDetails(item, 'inventory')}>
-                    <td className="font-mono text-xs">{item.stock_number || item.sku || '—'}</td>
-                    <td>{cat.icon} {cat.label}</td>
-                    <td>{item.model || item.name || '—'}</td>
-                    <td className="font-mono text-xs">{item.pcb_number || '—'}</td>
+                    </td>
+                    <td className="text-xs text-muted">{item.mime_type || '—'}</td>
+                    <td><span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)' }}>{item.source_label}</span></td>
+                    <td className="text-xs">{item.parent_label || item.parent_id}</td>
                     <td className="text-xs text-muted">{item.deleted_by_name || '—'}</td>
-                    <td className="text-xs text-muted">{item.deleted_at ? daysAgo(item.deleted_at) : '—'}</td>
+                    <td className="text-xs text-muted">{daysAgo(item.deleted_at)}</td>
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'inventory')}>Restore</button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'media')}>Restore</button>
                         {isSuperAdmin && (
-                          <button type="button" className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'inventory')}>Delete Permanently</button>
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'media')}>Delete Permanently</button>
                         )}
                       </div>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination */}
+          {mediaItems.length > itemsPerPage && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+              <button 
+                className="btn btn-sm btn-ghost" 
+                onClick={() => setMediaPage(p => Math.max(1, p - 1))} 
+                disabled={mediaPage === 1}
+              >← Previous</button>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Page {mediaPage} of {Math.ceil(mediaItems.length / itemsPerPage)} ({mediaItems.length} items)
+              </span>
+              <button 
+                className="btn btn-sm btn-ghost" 
+                onClick={() => setMediaPage(p => Math.min(Math.ceil(mediaItems.length / itemsPerPage), p + 1))} 
+                disabled={mediaPage >= Math.ceil(mediaItems.length / itemsPerPage)}
+              >Next →</button>
+            </div>
+          )}
+        </div>
+      ) : binTab === 'inventory' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1, minHeight: 0 }}>
+          <div className="table-container" style={{ flex: 1, overflowY: 'auto' }}>
+            <table>
+              <thead><tr><th>Stock ID</th><th>Category</th><th>Model</th><th>PCB #</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
+              <tbody>
+                {invItems.slice((invPage - 1) * itemsPerPage, invPage * itemsPerPage).map(item => {
+                  const cat = getCategoryMeta(item.ui_category || item.category);
+                  return (
+                    <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => showDetails(item, 'inventory')}>
+                      <td className="font-mono text-xs">{item.stock_number || item.sku || '—'}</td>
+                      <td>{cat.icon} {cat.label}</td>
+                      <td>{item.model || item.name || '—'}</td>
+                      <td className="font-mono text-xs">{item.pcb_number || '—'}</td>
+                      <td className="text-xs text-muted">{item.deleted_by_name || '—'}</td>
+                      <td className="text-xs text-muted">{item.deleted_at ? daysAgo(item.deleted_at) : '—'}</td>
+                      <td onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'inventory')}>Restore</button>
+                          {isSuperAdmin && (
+                            <button type="button" className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'inventory')}>Delete Permanently</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination */}
+          {invItems.length > itemsPerPage && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+              <button 
+                className="btn btn-sm btn-ghost" 
+                onClick={() => setInvPage(p => Math.max(1, p - 1))} 
+                disabled={invPage === 1}
+              >← Previous</button>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Page {invPage} of {Math.ceil(invItems.length / itemsPerPage)} ({invItems.length} items)
+              </span>
+              <button 
+                className="btn btn-sm btn-ghost" 
+                onClick={() => setInvPage(p => Math.min(Math.ceil(invItems.length / itemsPerPage), p + 1))} 
+                disabled={invPage >= Math.ceil(invItems.length / itemsPerPage)}
+              >Next →</button>
+            </div>
+          )}
         </div>
       ) : (
-        <div className="table-container">
-          <table>
-            <thead><tr><th>Case #</th><th>Client</th><th>Device</th><th>Status at Deletion</th><th>Deleted By</th><th>Deleted</th></tr></thead>
-            <tbody>
-              {items.map(item => (
-                <tr key={item.id} style={{ cursor: 'pointer', opacity: 0.85 }} onClick={() => showDetails(item, 'cases')}>
-                  <td><span className="font-mono text-xs" style={{ color:'var(--text-muted)' }}>{item.case_number}</span></td>
-                  <td><div style={{ fontWeight:600 }}>{item.client_name}</div></td>
-                  <td className="text-xs">{[item.device_type,item.brand,item.model].filter(Boolean).join(' · ')}</td>
-                  <td><span style={{ fontSize:'0.68rem',padding:'2px 7px',borderRadius:999,background:'rgba(100,116,139,0.12)',color:'#94a3b8',fontFamily:'var(--font-mono)' }}>{item.status}</span></td>
-                  <td className="text-xs text-muted">{item.deleted_by_name || 'Admin'}</td>
-                  <td className="text-xs text-muted" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <span>{daysAgo(item.deleted_at)}</span>
-                    <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'cases')}> Restore</button>
-                      {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'cases')} style={{ fontSize: '0.72rem' }}> Delete</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1, minHeight: 0 }}>
+          <div className="table-container" style={{ flex: 1, overflowY: 'auto' }}>
+            <table>
+              <thead><tr><th>Case #</th><th>Client</th><th>Device</th><th>Stage</th><th>Status</th><th>Deleted By</th><th>Deleted</th><th>Actions</th></tr></thead>
+              <tbody>
+                {items.slice((casesPage - 1) * itemsPerPage, casesPage * itemsPerPage).map(item => (
+                  <tr key={item.id} style={{ cursor: 'pointer', opacity: 0.85 }} onClick={() => showDetails(item, 'cases')}>
+                    <td><span className="font-mono text-xs" style={{ color:'var(--text-muted)' }}>{item.case_number}</span></td>
+                    <td><div style={{ fontWeight:600 }}>{item.client_name}</div></td>
+                    <td className="text-xs">{[item.device_type,item.brand,item.model].filter(Boolean).join(' · ') || '—'}</td>
+                    <td><span style={{ fontSize:'0.68rem',padding:'2px 7px',borderRadius:999,background:'rgba(100,116,139,0.12)',color:'#94a3b8',fontFamily:'var(--font-mono)' }}>{item.stage || 'unknown'}</span></td>
+                    <td><span style={{ fontSize:'0.68rem',padding:'2px 7px',borderRadius:999,background:'rgba(100,116,139,0.12)',color:'#94a3b8',fontFamily:'var(--font-mono)' }}>{item.status || 'unknown'}</span></td>
+                    <td className="text-xs text-muted">{item.deleted_by_name || 'Admin'}</td>
+                    <td className="text-xs text-muted">{daysAgo(item.deleted_at)}</td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => triggerRestore(item, 'cases')}> Restore</button>
+                        {isSuperAdmin && <button className="btn btn-danger btn-sm" onClick={() => triggerDelete(item, 'cases')} style={{ fontSize: '0.72rem' }}> Delete</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination */}
+          {items.length > itemsPerPage && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, paddingTop: 12, borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+              <button 
+                className="btn btn-sm btn-ghost" 
+                onClick={() => setCasesPage(p => Math.max(1, p - 1))} 
+                disabled={casesPage === 1}
+              >← Previous</button>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                Page {casesPage} of {Math.ceil(items.length / itemsPerPage)} ({items.length} items)
+              </span>
+              <button 
+                className="btn btn-sm btn-ghost" 
+                onClick={() => setCasesPage(p => Math.min(Math.ceil(items.length / itemsPerPage), p + 1))} 
+                disabled={casesPage >= Math.ceil(items.length / itemsPerPage)}
+              >Next →</button>
+            </div>
+          )}
         </div>
       )}
 

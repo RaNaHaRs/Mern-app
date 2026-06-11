@@ -9,7 +9,8 @@ export default function InventoryUsageHistoryPanel({ itemId }) {
   const [cases, setCases] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('timeline');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_InvUsage') || 'timeline');
+  useEffect(() => { sessionStorage.setItem('activeTab_InvUsage', activeTab); }, [activeTab]);
 
   useEffect(() => {
     loadData();

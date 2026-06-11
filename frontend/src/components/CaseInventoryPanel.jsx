@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { casesApi, inventoryApi } from '../services/api';
+import { casesApi, inventoryApi, suggestionsApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
+import { Autocomplete, highlightMatch } from './FormComponents';
+import { useNavigate } from 'react-router-dom';
+import CaseExpensesPanel from './CaseExpensesPanel';
 
 const BASE_URL = '/api';
 const getToken = () => localStorage.getItem('accessToken');
@@ -29,33 +32,24 @@ const inputStyle = {
 };
 
 export default function CaseInventoryPanel({ caseId }) {
+  const navigate = useNavigate();
   const { isAdmin } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expenses, setExpenses] = useState(null);
   const [profit, setProfit] = useState(null);
   const [showAddItem, setShowAddItem] = useState(false);
-  const [showExpenseForm, setShowExpenseForm] = useState(false);
   const [selectedInventory, setSelectedInventory] = useState([]);
   const [editingCost, setEditingCost] = useState(null); // itemId being edited
   const [costForm, setCostForm] = useState({ unit_cost: '', discount: '', charge_to_client: false, client_charge_amount: '' });
   const [savingCost, setSavingCost] = useState(false);
   const [form, setForm] = useState({
     inventory_item_id: '',
-    qty_allocated: 1,
+    // qty_allocated removed per request
     usage_type: 'CONSUMED',
     unit_cost: '',
     notes: '',
     charge_to_client: false,
     client_charge_amount: '',
-  });
-  const [expenseForm, setExpenseForm] = useState({
-    expense_type: 'direct_purchase',
-    amount: '',
-    description: '',
-    category: '',
-    vendor_name: '',
-    notes: ''
   });
 
   useEffect(() => {
@@ -65,11 +59,8 @@ export default function CaseInventoryPanel({ caseId }) {
   const loadItems = async () => {
     try {
       setLoading(true);
-      const [itemsRes, expensesRes, profitRes] = await Promise.all([
+      const [itemsRes, profitRes] = await Promise.all([
         fetch(`${BASE_URL}/cases/${caseId}/inventory`, {
-          headers: { 'Authorization': `Bearer ${getToken()}` }
-        }),
-        fetch(`${BASE_URL}/cases/${caseId}/expenses`, {
           headers: { 'Authorization': `Bearer ${getToken()}` }
         }),
         fetch(`${BASE_URL}/cases/${caseId}/profit`, {
@@ -78,7 +69,6 @@ export default function CaseInventoryPanel({ caseId }) {
       ]);
 
       if (itemsRes.ok) setItems(await itemsRes.json());
-      if (expensesRes.ok) setExpenses(await expensesRes.json());
       if (profitRes.ok) setProfit(await profitRes.json());
     } catch (err) {
       console.error('Error loading case inventory:', err);
@@ -103,7 +93,6 @@ export default function CaseInventoryPanel({ caseId }) {
         },
         body: JSON.stringify({
           ...form,
-          qty_allocated: parseInt(form.qty_allocated),
           unit_cost: form.unit_cost ? parseFloat(form.unit_cost) : undefined,
           charge_to_client: form.charge_to_client,
           client_charge_amount: form.charge_to_client && form.client_charge_amount
@@ -119,7 +108,6 @@ export default function CaseInventoryPanel({ caseId }) {
       await loadItems();
       setForm({
         inventory_item_id: '',
-        qty_allocated: 1,
         usage_type: 'CONSUMED',
         unit_cost: '',
         notes: '',
@@ -132,45 +120,7 @@ export default function CaseInventoryPanel({ caseId }) {
     }
   };
 
-  const handleAddExpense = async (e) => {
-    e.preventDefault();
-    if (!expenseForm.amount || !expenseForm.description) {
-      alert('Please fill in all required fields');
-      return;
-    }
 
-    try {
-      const res = await fetch(`${BASE_URL}/cases/${caseId}/expenses`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getToken()}`
-        },
-        body: JSON.stringify({
-          ...expenseForm,
-          amount: parseFloat(expenseForm.amount)
-        })
-      });
-
-      if (!res.ok) {
-        alert(`Error: ${await parseErrorMsg(res)}`);
-        return;
-      }
-
-      await loadItems();
-      setExpenseForm({
-        expense_type: 'direct_purchase',
-        amount: '',
-        description: '',
-        category: '',
-        vendor_name: '',
-        notes: ''
-      });
-      setShowExpenseForm(false);
-    } catch (err) {
-      alert(`Error: ${err.message}`);
-    }
-  };
 
   const handleUpdateUsage = async (itemId, action) => {
     const qty = prompt(`Enter quantity to ${action}:`, '1');
@@ -224,7 +174,7 @@ export default function CaseInventoryPanel({ caseId }) {
 
   const handleOpenCostEdit = (item) => {
     setEditingCost(item.id);
-    const gross = parseFloat(item.unit_cost || 0) * item.qty_allocated;
+    const gross = parseFloat(item.unit_cost || 0);
     const discount = parseFloat(item.discount_amount || 0);
     const effective = Math.max(0, gross - discount);
     setCostForm({
@@ -288,55 +238,32 @@ export default function CaseInventoryPanel({ caseId }) {
               <div className="form-group">
                 <label>Select Inventory Item *</label>
                 <InventorySelector
-                  value={form.inventory_item_id}
-                    onChange={(id, item) => {
-                      setForm({ ...form, inventory_item_id: id, unit_cost: item.unit_cost });
-                      setSelectedInventory([...selectedInventory, item]);
-                    }}
+                  onSelect={(id, item) => {
+                    setForm({ ...form, inventory_item_id: id, unit_cost: item?.unit_cost || '' });
+                    setSelectedInventory([...selectedInventory, item]);
+                  }}
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div className="form-group">
-                  <label>Quantity *</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.qty_allocated}
-                    onChange={(e) => {
-                      const qty = e.target.value;
-                      const autoAmount = (parseFloat(form.unit_cost || 0) * parseFloat(qty || 1)).toFixed(2);
-                      setForm(f => ({
-                        ...f,
-                        qty_allocated: qty,
-                        client_charge_amount: f.charge_to_client ? autoAmount : f.client_charge_amount,
-                      }));
-                    }}
-                    style={inputStyle}
-                  />
+                    <label>Cost to Case (Amount)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.unit_cost}
+                      onChange={(e) => {
+                        const cost = e.target.value;
+                        const autoAmount = (parseFloat(cost || 0)).toFixed(2);
+                       setForm(f => ({
+                         ...f,
+                         unit_cost: cost,
+                         client_charge_amount: f.charge_to_client ? autoAmount : f.client_charge_amount,
+                       }));
+                      }}
+                      placeholder="Enter amount or apply discount"
+                      style={inputStyle}
+                    />
                 </div>
-
-                <div className="form-group">
-                  <label>Cost to Case (Amount) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.unit_cost}
-                    onChange={(e) => {
-                      const cost = e.target.value;
-                      const autoAmount = (parseFloat(cost || 0) * parseFloat(form.qty_allocated || 1)).toFixed(2);
-                      setForm(f => ({
-                        ...f,
-                        unit_cost: cost,
-                        client_charge_amount: f.charge_to_client ? autoAmount : f.client_charge_amount,
-                      }));
-                    }}
-                    placeholder="Enter amount or apply discount"
-                    style={inputStyle}
-                    required={form.usage_type === 'CONSUMED'}
-                  />
-                </div>
-              </div>
 
               <div className="form-group">
                 <label>Usage Type *</label>
@@ -372,12 +299,12 @@ export default function CaseInventoryPanel({ caseId }) {
                       checked={form.charge_to_client}
                       onChange={(e) => {
                         const checked = e.target.checked;
-                        const autoAmount = (parseFloat(form.unit_cost || 0) * parseInt(form.qty_allocated || 1)).toFixed(2);
-                        setForm({
-                          ...form,
-                          charge_to_client: checked,
-                          client_charge_amount: checked ? autoAmount : '',
-                        });
+                         const autoAmount = (parseFloat(form.unit_cost || 0)).toFixed(2);
+                         setForm({
+                           ...form,
+                           charge_to_client: checked,
+                           client_charge_amount: checked ? autoAmount : '',
+                         });
                       }}
                       style={{ width: 16, height: 16, accentColor: '#f59e0b', cursor: 'pointer' }}
                     />
@@ -397,7 +324,7 @@ export default function CaseInventoryPanel({ caseId }) {
                         value={form.client_charge_amount}
                         onChange={(e) => setForm({ ...form, client_charge_amount: e.target.value })}
                         style={{ ...inputStyle, width: 180 }}
-                        placeholder={`₹${(parseFloat(form.unit_cost || 0) * parseInt(form.qty_allocated || 1)).toFixed(2)}`}
+                        placeholder={`₹${(parseFloat(form.unit_cost || 0)).toFixed(2)}`}
                       />
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
                         This amount will be added to the client's pending balance for this case.
@@ -426,246 +353,34 @@ export default function CaseInventoryPanel({ caseId }) {
         )}
 
         {items.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '0.8rem'
-            }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                  <th style={{ padding: 8, textAlign: 'left' }}>Item</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Type</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Qty</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Unit Cost</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Discount</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Our Cost</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Client Charge</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Status</th>
-                  <th style={{ padding: 8, textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => {
-                  const isTemp = item.usage_type === 'TEMPORARY_TOOL';
-                  const isEditing = editingCost === item.id;
-                  const discountAmt = parseFloat(item.discount_amount || 0);
-                  // total_allocated_cost is generated (qty * unit_cost); effective = that minus discount
-                  const grossCost = parseFloat(item.total_allocated_cost || 0);
-                  const totalCost = isTemp ? 0 : Math.max(0, grossCost - discountAmt);
-                  return (
-                    <React.Fragment key={item.id}>
-                      <tr style={{ borderBottom: isEditing ? 'none' : '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: 8 }}>
-                          <div style={{ fontWeight: 600 }}>{item.name}</div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{item.sku}</div>
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'center' }}>
-                          <span style={{
-                            fontSize: '0.7rem',
-                            padding: '2px 6px',
-                            background: isTemp ? 'rgba(59, 130, 246, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                            color: isTemp ? '#3b82f6' : '#ef4444',
-                            borderRadius: 3,
-                            fontWeight: 600
-                          }}>
-                            {isTemp ? 'Temp Tool' : 'Consumed'}
-                          </span>
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'center' }}>{item.qty_allocated}</td>
-                        <td style={{ padding: 8, textAlign: 'right', color: isTemp ? 'var(--text-muted)' : 'inherit' }}>
-                          {isTemp ? '—' : `₹${parseFloat(item.unit_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'right', color: 'var(--text-muted)' }}>
-                          {isTemp || discountAmt === 0 ? '—' : `-₹${discountAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'right' }}>
-                          {isTemp ? (
-                            <span style={{ fontSize: '0.7rem', color: '#3b82f6', fontWeight: 600, padding: '2px 6px', background: 'rgba(59,130,246,0.08)', borderRadius: 3 }}>
-                              No charge
-                            </span>
-                          ) : (
-                            <span style={{ fontWeight: 600 }}>
-                              ₹{totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'right' }}>
-                          {item.charge_to_client ? (
-                            <span style={{
-                              fontSize: '0.75rem',
-                              fontWeight: 700,
-                              color: '#f59e0b',
-                              background: 'rgba(251,191,36,0.1)',
-                              border: '1px solid rgba(251,191,36,0.25)',
-                              padding: '2px 7px',
-                              borderRadius: 4,
-                              display: 'inline-block',
-                            }}>
-                              ₹{parseFloat(item.client_charge_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>—</span>
-                          )}
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'center' }}>
-                          <span style={{
-                            fontSize: '0.7rem',
-                            padding: '2px 6px',
-                            background: item.status === 'allocated' ? 'rgba(168, 85, 247, 0.1)' :
-                                      item.status === 'consumed' ? 'rgba(239, 68, 68, 0.1)' :
-                                      item.status === 'returned' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(107, 114, 128, 0.1)',
-                            color: item.status === 'allocated' ? '#a855f7' :
-                                   item.status === 'consumed' ? '#ef4444' :
-                                   item.status === 'returned' ? '#22c55e' : '#6b7280',
-                            borderRadius: 3,
-                            fontWeight: 600
-                          }}>
-                            {item.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
-                            {isTemp && (
-                              <button
-                                className="btn btn-sm btn-secondary"
-                                onClick={() => handleUpdateUsage(item.id, 'return')}
-                                style={{ fontSize: '0.65rem', padding: '2px 6px' }}
-                              >
-                                Return
-                              </button>
-                            )}
-                            {isAdmin && (
-                              <button
-                                className="btn btn-sm"
-                                onClick={() => isEditing ? setEditingCost(null) : handleOpenCostEdit(item)}
-                                style={{
-                                  fontSize: '0.65rem',
-                                  padding: '2px 6px',
-                                  background: isEditing ? 'rgba(239,68,68,0.15)' : 'rgba(251,191,36,0.12)',
-                                  color: isEditing ? '#ef4444' : '#f59e0b',
-                                  border: `1px solid ${isEditing ? 'rgba(239,68,68,0.3)' : 'rgba(251,191,36,0.3)'}`,
-                                  borderRadius: 4,
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                {isEditing ? '✕ Cancel' : '✎ Edit Cost'}
-                              </button>
-                            )}
-                            <button
-                              className="btn btn-sm btn-danger"
-                              onClick={() => handleRemoveItem(item.id)}
-                              style={{ fontSize: '0.65rem', padding: '2px 6px' }}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      {isEditing && (
-                        <tr style={{ borderBottom: '1px solid var(--border-subtle)', background: 'rgba(251,191,36,0.04)' }}>
-                          <td colSpan={9} style={{ padding: '10px 12px' }}>
-                            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                              <div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Unit Cost (₹)</div>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={costForm.unit_cost}
-                                  onChange={(e) => {
-                                    const uc = e.target.value;
-                                    const newTotal = Math.max(0, parseFloat(uc || 0) * item.qty_allocated - parseFloat(costForm.discount || 0));
-                                    setCostForm(f => ({
-                                      ...f,
-                                      unit_cost: uc,
-                                      client_charge_amount: f.charge_to_client ? newTotal.toFixed(2) : f.client_charge_amount,
-                                    }));
-                                  }}
-                                  style={{ ...inputStyle, width: 120 }}
-                                  disabled={isTemp}
-                                  placeholder="0.00"
-                                />
-                              </div>
-                              <div>
-                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 4 }}>Discount (₹)</div>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  value={costForm.discount}
-                                  onChange={(e) => {
-                                    const disc = e.target.value;
-                                    const newTotal = Math.max(0, parseFloat(costForm.unit_cost || 0) * item.qty_allocated - parseFloat(disc || 0));
-                                    setCostForm(f => ({
-                                      ...f,
-                                      discount: disc,
-                                      client_charge_amount: f.charge_to_client ? newTotal.toFixed(2) : f.client_charge_amount,
-                                    }));
-                                  }}
-                                  style={{ ...inputStyle, width: 120 }}
-                                  placeholder="0.00"
-                                />
-                              </div>
-                              {/* Charge to client toggle in edit form */}
-                              {!isTemp && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: '#f59e0b', userSelect: 'none' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={costForm.charge_to_client}
-                                      onChange={(e) => {
-                                        const checked = e.target.checked;
-                                        const effectiveTotal = Math.max(0, parseFloat(costForm.unit_cost || 0) * item.qty_allocated - parseFloat(costForm.discount || 0));
-                                        setCostForm(f => ({
-                                          ...f,
-                                          charge_to_client: checked,
-                                          client_charge_amount: checked ? effectiveTotal.toFixed(2) : '0',
-                                        }));
-                                      }}
-                                      style={{ width: 15, height: 15, accentColor: '#f59e0b' }}
-                                    />
-                                    Charge to client
-                                  </label>
-                                  {costForm.charge_to_client && (
-                                    <div>
-                                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: 3 }}>Client charge (₹)</div>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={costForm.client_charge_amount}
-                                        onChange={(e) => setCostForm(f => ({ ...f, client_charge_amount: e.target.value }))}
-                                        style={{ ...inputStyle, width: 120 }}
-                                        placeholder="0.00"
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingBottom: 4 }}>
-                                New Total: <strong style={{ color: 'var(--accent-primary)' }}>
-                                  ₹{Math.max(0, (parseFloat(costForm.unit_cost || 0) * item.qty_allocated) - parseFloat(costForm.discount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                </strong>
-                              </div>
-                              <button
-                                className="btn btn-primary btn-sm"
-                                onClick={() => handleSaveCost(item.id)}
-                                disabled={savingCost}
-                                style={{ fontSize: '0.72rem', padding: '4px 12px' }}
-                              >
-                                {savingCost ? 'Saving…' : 'Save'}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          {items.map((item) => {
+            const isTemp = item.usage_type === 'TEMPORARY_TOOL';
+            const totalCost = isTemp ? 0 : Math.max(0, (parseFloat(item.total_allocated_cost || 0) - parseFloat(item.discount_amount || 0)));
+            return (
+              <div key={item.id} onClick={() => navigate(`/inventory/${item.id}`)} style={{
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 8,
+                padding: 12,
+                background: isTemp ? 'rgba(59,130,246,0.05)' : 'var(--bg-primary)',
+                cursor: 'pointer',
+                transition: 'transform 0.1s',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+              }} onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.02)'} onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
+                <div style={{ fontWeight: 600 }}>{item.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.sku}</div>
+
+                <div style={{ marginTop: 4, fontSize: '0.85rem' }}>
+                  <span style={{ fontWeight: 600 }}>Cost:</span> {isTemp ? '—' : `₹${parseFloat(item.unit_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                </div>
+                <div style={{ marginTop: 4, fontSize: '0.85rem' }}>
+                  <span style={{ fontWeight: 600 }}>Total:</span> {isTemp ? (<span style={{ color: '#3b82f6' }}>No charge</span>) : (<span>₹{totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
         ) : (
           <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
             No inventory items added yet
@@ -717,173 +432,7 @@ export default function CaseInventoryPanel({ caseId }) {
         })()}
       </div>
 
-      {/* Expenses Section */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-header">
-          <div className="card-title">All Case Expenses</div>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowExpenseForm(!showExpenseForm)}>
-            {showExpenseForm ? '✕ Cancel' : '+ Add Expense'}
-          </button>
-        </div>
-
-        {showExpenseForm && (
-          <div className="card-body" style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', padding: 16, marginBottom: 16 }}>
-            <form onSubmit={handleAddExpense}>
-              <div className="form-group">
-                <label>Expense Type *</label>
-                <select
-                  value={expenseForm.expense_type}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, expense_type: e.target.value })}
-                  style={inputStyle}
-                >
-                  <option value="inventory">Inventory</option>
-                  <option value="direct_purchase">Direct Purchase</option>
-                  <option value="shipping">Shipping</option>
-                  <option value="vendor">Vendor</option>
-                  <option value="lab">Lab</option>
-                  <option value="misc">Miscellaneous</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div className="form-group">
-                  <label>Amount (₹) *</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={expenseForm.amount}
-                    onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-                    style={inputStyle}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Vendor Name (optional)</label>
-                  <input
-                    type="text"
-                    value={expenseForm.vendor_name}
-                    onChange={(e) => setExpenseForm({ ...expenseForm, vendor_name: e.target.value })}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Description *</label>
-                <input
-                  type="text"
-                  value={expenseForm.description}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
-                  placeholder="Briefly describe this expense..."
-                  style={inputStyle}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Category (optional)</label>
-                <input
-                  type="text"
-                  value={expenseForm.category}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-                  placeholder="e.g., PCB Repair, Parts, etc."
-                  style={inputStyle}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Notes (optional)</label>
-                <textarea
-                  value={expenseForm.notes}
-                  onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
-                  placeholder="Add additional notes..."
-                  style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }}
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button type="submit" className="btn btn-primary btn-sm">Add Expense</button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowExpenseForm(false)}>Cancel</button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {expenses && expenses.expenses.length > 0 ? (
-          <div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: '0.8rem'
-              }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-default)' }}>
-                    <th style={{ padding: 8, textAlign: 'left' }}>Description</th>
-                    <th style={{ padding: 8, textAlign: 'left' }}>Type</th>
-                    <th style={{ padding: 8, textAlign: 'left' }}>Category</th>
-                    <th style={{ padding: 8, textAlign: 'right' }}>Amount</th>
-                    <th style={{ padding: 8, textAlign: 'left' }}>Vendor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {expenses.expenses.map((exp) => (
-                    <tr key={exp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={{ padding: 8 }}>{exp.description}</td>
-                      <td style={{ padding: 8 }}>
-                        <span style={{
-                          fontSize: '0.7rem',
-                          padding: '2px 6px',
-                          background: 'rgba(168, 85, 247, 0.1)',
-                          color: '#a855f7',
-                          borderRadius: 3,
-                          fontWeight: 600
-                        }}>
-                          {exp.expense_type}
-                        </span>
-                      </td>
-                      <td style={{ padding: 8, color: 'var(--text-muted)' }}>{exp.category || '—'}</td>
-                      <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>
-                        ₹{parseFloat(exp.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td style={{ padding: 8, color: 'var(--text-muted)' }}>{exp.vendor_name || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{
-              padding: 12,
-              background: 'var(--bg-secondary)',
-              borderRadius: 'var(--radius-sm)',
-              marginTop: 16,
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 12
-            }}>
-              {Object.entries(expenses.totals || {}).map(([type, amount]) => (
-                <div key={type} style={{ fontSize: '0.85rem' }}>
-                  <div style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>{type.replace(/_/g, ' ')}</div>
-                  <div style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--accent-primary)' }}>
-                    ₹{parseFloat(amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              ))}
-              <div style={{ fontSize: '0.85rem', borderTop: '1px solid var(--border-default)', paddingTop: 12, gridColumn: '1 / -1' }}>
-                <div style={{ color: 'var(--text-muted)' }}>TOTAL EXPENSES</div>
-                <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#ef4444' }}>
-                  ₹{parseFloat(expenses.grand_total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-            No expenses recorded yet
-          </div>
-        )}
-      </div>
+      <CaseExpensesPanel caseId={caseId} onExpenseAdded={loadItems} />
 
       {/* Profit Summary */}
       {profit && (
@@ -955,40 +504,63 @@ export default function CaseInventoryPanel({ caseId }) {
   );
 }
 
-// Helper component: Inventory selector dropdown
-function InventorySelector({ value, onChange }) {
+// Helper component: Inventory selector dropdown (UNCONTROLLED)
+function InventorySelector({ onSelect }) {
   const [options, setOptions] = useState([]);
   const [search, setSearch] = useState('');
+  const [selectedName, setSelectedName] = useState('');
   const [open, setOpen] = useState(false);
+  const inputRef = React.useRef(null);
 
   useEffect(() => {
     if (!open) return;
 
     const loadOptions = async () => {
       try {
-        const res = await fetch(`${BASE_URL}/inventory?search=${encodeURIComponent(search)}&limit=20&min_quantity=1`, {
+        const res = await fetch(`${BASE_URL}/inventory?search=${encodeURIComponent(search)}&limit=20&min_quantity=1&status=available`, {
           headers: { 'Authorization': `Bearer ${getToken()}` }
         });
         if (res.ok) {
           const data = await res.json();
-          setOptions(data.items || []);
+          // Filter to only show available items (not transferred, not deleted)
+          const availableItems = (data.items || []).filter(item => 
+            item.status === 'available' && !item.is_transferred_to_client && !item.deleted_at
+          );
+          setOptions(availableItems);
         }
       } catch (err) {
         console.error('Error loading inventory:', err);
       }
     };
 
-    loadOptions();
+    const timer = setTimeout(loadOptions, 300);
+    return () => clearTimeout(timer);
   }, [search, open]);
+
+  const handleSelect = (item) => {
+    onSelect(item.id, item);
+    setSelectedName(item.name || `${item.company} ${item.model}`);
+    setSearch('');
+    setOpen(false);
+    if (inputRef.current) {
+      inputRef.current.value = item.name || `${item.company} ${item.model}` || item.stock_number || item.sku;
+    }
+  };
 
   return (
     <div style={{ position: 'relative', zIndex: open ? 1000 : 'auto' }}>
       <input
+        ref={inputRef}
         type="text"
-        placeholder="Search inventory..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        onFocus={() => setOpen(true)}
+        placeholder="Search available inventory by name or SKU..."
+        onChange={(e) => {
+          setSearch(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => {
+          setOpen(true);
+          setSearch('');
+        }}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         style={{
           width: '100%',
@@ -999,7 +571,8 @@ function InventorySelector({ value, onChange }) {
           borderRadius: open ? 'var(--radius-sm) var(--radius-sm) 0 0' : 'var(--radius-sm)',
           fontSize: '0.85rem',
           outline: 'none',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          transition: 'border-color 0.15s'
         }}
       />
       {open && options.length > 0 && (
@@ -1020,11 +593,7 @@ function InventorySelector({ value, onChange }) {
           {options.map((item) => (
             <div
               key={item.id}
-              onClick={() => {
-                onChange(item.id, item);
-                setSearch(item.name);
-                setOpen(false);
-              }}
+              onClick={() => handleSelect(item)}
               onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-elevated)'}
               onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
               style={{
@@ -1035,12 +604,52 @@ function InventorySelector({ value, onChange }) {
                 transition: 'background 0.15s'
               }}
             >
-              <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>{item.name} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({item.sku})</span></div>
+              <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>
+                {item.name || `${item.company || item.brand} ${item.model}`} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>({item.sku || item.stock_number})</span>
+              </div>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
                 Stock: {item.quantity} &nbsp;|&nbsp; Cost: ₹{parseFloat(item.unit_cost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {open && options.length === 0 && search && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--accent-primary)',
+          borderTop: 'none',
+          borderRadius: '0 0 var(--radius-sm) var(--radius-sm)',
+          padding: '12px',
+          textAlign: 'center',
+          fontSize: '0.8rem',
+          color: 'var(--text-muted)',
+          zIndex: 9999
+        }}>
+          No available inventory items found matching "{search}"
+        </div>
+      )}
+      {open && options.length === 0 && !search && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--accent-primary)',
+          borderTop: 'none',
+          borderRadius: '0 0 var(--radius-sm) var(--radius-sm)',
+          padding: '12px',
+          textAlign: 'center',
+          fontSize: '0.8rem',
+          color: 'var(--text-muted)',
+          zIndex: 9999
+        }}>
+          Type to search available inventory...
         </div>
       )}
     </div>

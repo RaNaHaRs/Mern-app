@@ -406,9 +406,10 @@ router.get('/campaigns', async (req, res) => {
     if (tenantCondition) { params.push(...tenantCondition.params); sql += ` AND ${tenantCondition.clause}`; }
     sql += ' ORDER BY c.created_at DESC';
     const result = await query(sql, params);
-    res.json(result.rows);
+    res.json({ campaigns: result.rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
 
 // POST /api/marketing/campaigns
 router.post('/campaigns', async (req, res) => {

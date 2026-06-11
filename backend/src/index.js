@@ -43,6 +43,7 @@ const encryptionRoutes = require('./routes/encryption');
 const securityRoutes = require('./routes/security');
 const twoFactorRoutes = require('./routes/twoFactor');
 const paymentLinkRoutes = require('./routes/payments-link');
+const exportRoutes = require('./routes/export');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -56,6 +57,29 @@ app.use(helmet({
       imgSrc: ["'self'", 'data:', 'blob:', `${process.env.FRONTEND_URL || 'http://localhost:5174'}`],
       mediaSrc: ["'self'", 'data:', 'blob:'],
     }
+  },
+  hsts: {
+    maxAge: 365 * 24 * 60 * 60, // 365 days in seconds
+    includeSubDomains: true,
+    preload: true
+  },
+  frameguard: {
+    action: 'deny' // X-Frame-Options: DENY
+  },
+  noSniff: true, // X-Content-Type-Options: nosniff
+  referrerPolicy: {
+    policy: 'strict-origin-when-cross-origin'
+  },
+  permissionsPolicy: {
+    accelerometer: [],
+    camera: [],
+    geolocation: [],
+    gyroscope: [],
+    magnetometer: [],
+    microphone: [],
+    payment: [],
+    usb: [],
+    xrSpatialTracking: []
   }
 }));
 
@@ -66,19 +90,84 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID']
 }));
 
-// Rate limiting
+// ─── Hardened Rate Limiting ─────────────────────────────────────
+let store = undefined;
+
+// Try to use Redis-based store for distributed rate limiting (optional)
+try {
+  const RedisStore = require('rate-limit-redis');
+  const redis = require('redis');
+  const redisClient = redis.createClient({
+    host: process.env.REDIS_HOST || 'localhost',
+    port: process.env.REDIS_PORT || 6379,
+    legacyMode: true,
+  });
+  redisClient.connect().catch(err => {
+    logger.warn('Redis connection failed, falling back to in-memory rate limit store', { error: err.message });
+  });
+  store = new RedisStore({
+    client: redisClient,
+    prefix: 'rl:',
+  });
+} catch (err) {
+  logger.debug('Redis store not available, using in-memory store', { error: err.message });
+}
+
+// Global rate limiter: 500 requests per 15 minutes
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,  // 15 minutes
+  store,
+  windowMs: 15 * 60 * 1000,
   max: 500,
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip || req.connection.remoteAddress,
 });
 
+// Auth rate limiter: 10 attempts per 15 minutes (strict - was 200 in dev)
 const authLimiter = rateLimit({
+  store,
   windowMs: 15 * 60 * 1000,
-  max: 200, // raised for dev; restore to 10 before production
+  max: 10,
   message: { error: 'Too many login attempts. Please wait 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Rate limit by username/email to prevent user enumeration attacks
+    const username = req.body?.username || req.body?.email || req.ip;
+    return `auth:${username}`;
+  },
+  skip: (req) => req.method !== 'POST', // Only count POST attempts
+});
+
+// Password reset rate limiter: 5 attempts per 24 hours per email
+const passwordResetLimiter = rateLimit({
+  store,
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 5,
+  message: { error: 'Too many password reset requests. Please try again tomorrow.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = req.body?.email || req.ip;
+    return `reset:${email.toLowerCase()}`;
+  },
+  skip: (req) => req.method !== 'POST',
+});
+
+// Login rate limiter by username: 5 attempts per 30 minutes
+const loginLimiter = rateLimit({
+  store,
+  windowMs: 30 * 60 * 1000, // 30 minutes
+  max: 5,
+  message: { error: 'Too many login attempts for this username. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const username = req.body?.username || req.ip;
+    return `login:${username.toLowerCase()}`;
+  },
+  skip: (req) => req.method !== 'POST',
 });
 
 app.use(globalLimiter);
@@ -138,6 +227,7 @@ app.use('/api/chat',        chatRoutes);
 app.use('/api/client-portal', clientPortalRoutes);
 app.use('/api/activity-logs', activityLogsRoutes);
 app.use('/api/payment-link', paymentLinkRoutes);
+app.use('/api/export', exportRoutes);
 
 // Serve uploaded branding files
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));

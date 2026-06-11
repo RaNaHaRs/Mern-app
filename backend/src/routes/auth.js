@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const { query } = require('../config/database');
 const { generateAccessToken, generateRefreshToken, authenticate, resolveUserPermissions, JWT_SECRET } = require('../middleware/auth');
@@ -176,14 +177,37 @@ router.post('/login',
         return res.json({ twoFactorRequired: true, tempToken, message: 'Two-factor authentication required' });
       }
 
-      const refreshToken = generateRefreshToken(user.id);
+      const { hashToken, generateToken } = require('../utils/encryption');
+      const refreshToken = generateToken(32); // Generate secure random token
+      const hashedRefreshToken = hashToken(refreshToken);
+      
+      const refreshTokenExpiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '30', 10);
 
-      // Store refresh token
-      await query(
-        `INSERT INTO refresh_tokens (user_id, token, expires_at) 
-         VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
-        [user.id, refreshToken]
+      // Store hashed refresh token (never store plaintext)
+      // Token rotation: issue new token on each refresh
+      const tokenRecord = await query(
+        `INSERT INTO refresh_tokens (user_id, token_hash, token_family, expires_at, created_at, is_active) 
+         VALUES ($1, $2, $3, NOW() + INTERVAL '${refreshTokenExpiryDays} days', NOW(), true)
+         RETURNING id`,
+        [user.id, hashedRefreshToken, crypto.randomUUID()]
       );
+
+      // Set secure HTTP-only cookie (optional, for better UX in web apps)
+      const maxAge = refreshTokenExpiryDays * 24 * 60 * 60 * 1000; // Convert days to milliseconds
+      const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.FORCE_SECURE_COOKIES === 'true' || process.env.NODE_ENV === 'production',
+        sameSite: process.env.SECURE_COOKIE_SAME_SITE || 'Strict',
+        maxAge: maxAge,
+        path: '/'
+      };
+
+      if (process.env.SECURE_COOKIE_DOMAIN) {
+        cookieOptions.domain = process.env.SECURE_COOKIE_DOMAIN;
+      }
+
+      // Set refresh token as HTTP-only cookie (cannot be accessed by JavaScript)
+      res.cookie('refreshToken', refreshToken, cookieOptions);
 
       // Update last_login
       await query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
@@ -269,7 +293,15 @@ router.post('/2fa/verify', [body('temp_token').notEmpty(), body('totp_code').not
 
     // Issue tokens
     const refreshToken = generateRefreshToken(user.id);
-    await query(`INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, NOW() + INTERVAL '30 days')`, [user.id, refreshToken]);
+    const { hashToken } = require('../utils/encryption');
+    const hashedRefreshToken = hashToken(refreshToken);
+    const refreshTokenExpiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '30', 10);
+    
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, token_family, expires_at, created_at, is_active) 
+       VALUES ($1, $2, $3, NOW() + INTERVAL '${refreshTokenExpiryDays} days', NOW(), true)`,
+      [user.id, hashedRefreshToken, crypto.randomUUID()]
+    );
     await query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
     const effectivePermissions = await resolveUserPermissions(user.id, user.role, user.permissions);
     const normalizedTenantId = normalizeTenantId(user);
@@ -298,6 +330,9 @@ router.post('/refresh', async (req, res) => {
 
   try {
     const jwt = require('jsonwebtoken');
+    const crypto = require('crypto');
+    const { hashToken } = require('../utils/encryption');
+    
     let decoded;
     try {
       decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || 'CHANGE_THIS_SECRET_IN_PRODUCTION');
@@ -305,31 +340,67 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
+    const hashedToken = hashToken(refreshToken);
+    const refreshTokenExpiryDays = parseInt(process.env.REFRESH_TOKEN_EXPIRY_DAYS || '30', 10);
+
     const result = await query(
       `SELECT rt.*, u.role, u.is_active, u.tenant_id, u.tenant_owner_id, u.permissions
        FROM refresh_tokens rt
        JOIN users u ON rt.user_id = u.id
-       WHERE rt.token = $1 AND rt.expires_at > NOW()`,
-      [refreshToken]
+       WHERE rt.token_hash = $1 AND rt.expires_at > NOW() AND rt.is_active = true`,
+      [hashedToken]
     );
 
     if (!result.rows.length) {
+      // Log potential token reuse attack
+      logger.warn('Invalid or expired refresh token used', { 
+        userId: decoded.userId,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent')
+      });
       return res.status(401).json({ error: 'Refresh token expired or invalid' });
     }
 
-    if (!result.rows[0].is_active) {
+    const tokenRecord = result.rows[0];
+    
+    if (!tokenRecord.is_active) {
       return res.status(401).json({ error: 'Account deactivated' });
     }
 
-    const effectivePermissions = await resolveUserPermissions(decoded.userId, result.rows[0].role, result.rows[0].permissions);
+    // Token rotation: Invalidate current token and issue new one
+    const newRefreshToken = generateRefreshToken(decoded.userId);
+    const newHashedToken = hashToken(newRefreshToken);
+    const tokenFamily = tokenRecord.token_family || crypto.randomUUID();
+
+    // Replace old token with new one (rotation)
+    await query(
+      `UPDATE refresh_tokens 
+       SET is_active = false, revoked_at = NOW()
+       WHERE id = $1`,
+      [tokenRecord.id]
+    );
+
+    // Issue new token with same family
+    await query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, token_family, expires_at, created_at, is_active)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '${refreshTokenExpiryDays} days', NOW(), true)`,
+      [decoded.userId, newHashedToken, tokenFamily]
+    );
+
+    const effectivePermissions = await resolveUserPermissions(decoded.userId, tokenRecord.role, tokenRecord.permissions);
     const newAccessToken = generateAccessToken({
       id: decoded.userId,
-      role: result.rows[0].role,
-      tenant_id: normalizeTenantId(result.rows[0]),
+      role: tokenRecord.role,
+      tenant_id: normalizeTenantId(tokenRecord),
       permissions: effectivePermissions,
     });
-    res.json({ accessToken: newAccessToken });
+    
+    res.json({ 
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken // Return new rotated token
+    });
   } catch (err) {
+    logger.error('Token refresh failed', { error: err.message });
     res.status(500).json({ error: 'Token refresh failed' });
   }
 });
@@ -337,27 +408,47 @@ router.post('/refresh', async (req, res) => {
 // ─── POST /api/auth/logout ────────────────────────────────────────
 router.post('/logout', authenticate, async (req, res) => {
   const { refreshToken } = req.body;
-  if (refreshToken) {
-    await query('DELETE FROM refresh_tokens WHERE token = $1 AND user_id = $2', [refreshToken, req.user.id]);
+  
+  try {
+    const { hashToken } = require('../utils/encryption');
+    
+    if (refreshToken) {
+      // Hash token to find and revoke it
+      const hashedToken = hashToken(refreshToken);
+      const result = await query(
+        `UPDATE refresh_tokens 
+         SET is_active = false, revoked_at = NOW()
+         WHERE token_hash = $1 AND user_id = $2
+         RETURNING id`,
+        [hashedToken, req.user.id]
+      );
+      
+      if (result.rows.length === 0) {
+        logger.warn('Logout attempt with invalid refresh token', { userId: req.user.id });
+      }
+    }
+
+    // Log logout activity
+    await query(
+      `INSERT INTO activity_logs (user_id, tenant_id, action, module, resource_type, title, description, ip_address, user_agent)
+       VALUES ($1, $2, 'user_logout', 'auth', 'session', 'User Logout', $3, $4, $5)`,
+      [req.user.id, req.user.tenant_id || req.user.tenant_owner_id || null, `${req.user.full_name || req.user.username} logged out`, req.ip, req.get('user-agent')]
+    ).catch(err => logger.error('Failed to log logout activity', { error: err.message }));
+
+    await recordLoginActivity({
+      tenantId: req.user.tenant_id || req.user.tenant_owner_id || null,
+      userId: req.user.id,
+      action: 'logout_success',
+      title: 'Logout successful',
+      description: `User ${req.user.username || req.user.email} logged out successfully`,
+      req,
+    });
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (err) {
+    logger.error('Logout error', { error: err.message });
+    res.status(500).json({ error: 'Logout failed' });
   }
-
-  // Log logout activity
-  await query(
-    `INSERT INTO activity_logs (user_id, tenant_id, action, module, resource_type, title, description, ip_address, user_agent)
-     VALUES ($1, $2, 'user_logout', 'auth', 'session', 'User Logout', $3, $4, $5)`,
-    [req.user.id, req.user.tenant_id || req.user.tenant_owner_id || null, `${req.user.full_name || req.user.username} logged out`, req.ip, req.get('user-agent')]
-  ).catch(err => logger.error('Failed to log logout activity', { error: err.message }));
-
-  await recordLoginActivity({
-    tenantId: req.user.tenant_id || req.user.tenant_owner_id || null,
-    userId: req.user.id,
-    action: 'logout_success',
-    title: 'Logout successful',
-    description: `User ${req.user.username || req.user.email} logged out successfully`,
-    req,
-  });
-
-  res.json({ message: 'Logged out successfully' });
 });
 
 // ─── GET /api/auth/me ─────────────────────────────────────────────
@@ -537,7 +628,7 @@ async function recordResetActivity({ tenantId = null, userId = null, action, tit
 }
 
 // ─── POST /api/auth/forgot-password ────────────────────────────────
-// Rate limit: max 5 reset requests per user account per calendar day.
+// Rate limit: max 5 reset requests per user account per 24 hours.
 router.post('/forgot-password',
   [
     body('email').isEmail().normalizeEmail().withMessage('Valid email is required')
@@ -608,15 +699,18 @@ router.post('/forgot-password',
 
       // ── Generate secure single-use token ──────────────────────────
       const crypto = require('crypto');
+      const { hashToken } = require('../utils/encryption');
       const token = crypto.randomBytes(32).toString('hex');
-      const expires = new Date(Date.now() + 60 * 60 * 1000); // 60 minutes
+      const tokenHash = hashToken(token);
+      const passwordResetExpiryMins = parseInt(process.env.PASSWORD_RESET_EXPIRY_MINS || '60', 10);
+      const expires = new Date(Date.now() + passwordResetExpiryMins * 60 * 1000);
 
       // Invalidate any previous unused token
       await query(
         `UPDATE users
-         SET reset_password_token = $1, reset_password_expires = $2, reset_token_used_at = NULL, updated_at = NOW()
+         SET reset_password_token_hash = $1, reset_password_expires = $2, reset_token_used_at = NULL, updated_at = NOW()
          WHERE id = $3`,
-        [token, expires, user.id]
+        [tokenHash, expires, user.id]
       );
 
       // ── Load SMTP config ───────────────────────────────────────────
@@ -711,9 +805,13 @@ router.post('/verify-reset-token',
 
     try {
       const { token } = req.body;
+      const { hashToken } = require('../utils/encryption');
+      const tokenHash = hashToken(token);
+      
       const result = await query(
-        `SELECT id, username, email, full_name, reset_password_expires, reset_token_used_at FROM users WHERE reset_password_token = $1`,
-        [token]
+        `SELECT id, username, email, full_name, reset_password_expires, reset_token_used_at FROM users 
+         WHERE reset_password_token_hash = $1`,
+        [tokenHash]
       );
 
       if (result.rows.length === 0) {
@@ -730,6 +828,7 @@ router.post('/verify-reset-token',
 
       // Check if token was already used (replay protection)
       if (user.reset_token_used_at) {
+        logger.warn('Reset token reuse attempt detected', { userId: user.id, ip: req.ip });
         return res.status(400).json({ error: 'Reset link is invalid or expired.' });
       }
 
@@ -738,15 +837,16 @@ router.post('/verify-reset-token',
         return res.status(400).json({ error: 'Reset link is invalid or expired.' });
       }
 
+      // Token is valid - return user info (without sensitive data)
       res.json({
-        valid: true,
+        message: 'Reset token verified',
+        userId: user.id,
         email: user.email,
-        fullName: user.full_name,
-        username: user.username,
+        fullName: user.full_name
       });
     } catch (err) {
-      logger.error('Verify token error', { error: err.message });
-      res.status(500).json({ error: 'Failed to verify reset token.' });
+      logger.error('Reset token verification error', { error: err.message });
+      res.status(500).json({ error: 'Reset verification failed' });
     }
   }
 );
@@ -767,11 +867,14 @@ router.post('/reset-password',
 
     try {
       const { token, newPassword } = req.body;
+      const { hashToken } = require('../utils/encryption');
+      const tokenHash = hashToken(token);
+      
       const result = await query(
         `SELECT id, username, email, full_name, role, tenant_id, tenant_owner_id,
                 reset_password_expires, reset_token_used_at
-         FROM users WHERE reset_password_token = $1`,
-        [token]
+         FROM users WHERE reset_password_token_hash = $1`,
+        [tokenHash]
       );
 
       if (result.rows.length === 0) {
@@ -786,8 +889,9 @@ router.post('/reset-password',
 
       const user = result.rows[0];
 
-      // Replay protection: token already used
+      // Replay protection: token already used (one-time use enforcement)
       if (user.reset_token_used_at) {
+        logger.warn('Reset token replay attempt detected', { userId: user.id, ip: req.ip });
         return res.status(400).json({ error: 'Reset link is invalid or expired.' });
       }
 
@@ -803,7 +907,7 @@ router.post('/reset-password',
       await query(
         `UPDATE users
          SET password_hash = $1,
-             reset_password_token = NULL,
+             reset_password_token_hash = NULL,
              reset_password_expires = NULL,
              reset_token_used_at = NOW(),
              updated_at = NOW()
@@ -811,8 +915,13 @@ router.post('/reset-password',
         [hash, user.id]
       );
 
-      // Invalidate all existing refresh tokens (forces re-login everywhere)
-      await query('DELETE FROM refresh_tokens WHERE user_id = $1', [user.id]);
+      // Invalidate all existing refresh tokens (forces re-login everywhere) - improved security
+      await query(
+        `UPDATE refresh_tokens 
+         SET is_active = false, revoked_at = NOW()
+         WHERE user_id = $1`,
+        [user.id]
+      );
 
       // Log activity
       const userTenantId = normalizeTenantId(user);
@@ -821,7 +930,7 @@ router.post('/reset-password',
         userId: user.id,
         action: 'password_reset_completed',
         title: 'Password reset completed',
-        description: `Password reset completed successfully for ${user.username || user.email}`,
+        description: `Password reset completed successfully for ${user.username || user.email}. All refresh tokens invalidated.`,
         req
       });
 

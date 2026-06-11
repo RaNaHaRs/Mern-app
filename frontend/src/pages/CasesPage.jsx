@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { casesApi } from '../services/api';
 import { fieldConfigApi } from '../services/fieldConfigApi';
+import { exportApi } from '../services/exportApi';
 import { useAuth } from '../store/AuthContext';
 import NewCaseModal from '../components/NewCaseModal';
 import KanbanBoard from './KanbanBoard';
@@ -24,7 +25,7 @@ function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
     try { await onConfirm(); } finally { setLoading(false); }
   };
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Move {selectedCount} case{selectedCount > 1 ? 's' : ''} to Recycle Bin</h3>
@@ -253,7 +254,7 @@ function EditCaseModal({ caseData, onClose, onSaved }) {
   ];
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 680, width: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Edit Case — {caseData.case_number}</h3>
@@ -395,6 +396,26 @@ export default function CasesPage() {
     return sortOrder === 'asc' ? ' ↑' : ' ↓';
   };
 
+  const handleExportCases = async () => {
+    try {
+      const blob = await exportApi.exportCases(
+        {
+          stage: filters.stage,
+          failure_type: filters.failure_type,
+          priority: filters.priority,
+          search: filters.search,
+          assigned_to: filters.assigned_to,
+          client_id: filters.client_id
+        }
+      );
+      const filename = `cases_export_${new Date().toISOString().split('T')[0]}.csv`;
+      exportApi.downloadFile(blob, filename);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export cases: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   const colCount = 1 + (canDeleteCases ? 1 : 0) + 9 + 1; // checkbox + cols + actions
 
   return (
@@ -413,6 +434,11 @@ export default function CasesPage() {
               <button className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Clear</button>
             </>
           )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn btn-secondary btn-sm" onClick={handleExportCases} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              Export
+            </button>
+          </div>
           <div style={{ display: 'flex', gap: 4, background: 'var(--bg-elevated)', borderRadius: 6, padding: 3, border: '1px solid var(--border-subtle)' }}>
             <button className={`btn btn-sm ${viewMode === 'list' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('list')}>List</button>
             <button className={`btn btn-sm ${viewMode === 'kanban' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '4px 12px', fontSize: '0.78rem' }} onClick={() => setViewMode('kanban')}>Kanban</button>
@@ -603,7 +629,7 @@ export default function CasesPage() {
       )}
       {/* Single-row delete confirm */}
       {singleDeleteId && (
-        <div className="modal-overlay" onClick={() => setSingleDeleteId(null)}>
+        <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Move to Recycle Bin</h3>

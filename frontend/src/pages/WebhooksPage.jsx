@@ -34,7 +34,8 @@ const loadLogs = () => {
 export default function WebhooksPage() {
   const [webhooks, setWebhooks] = useState(loadWebhooks);
   const [logs, setLogs] = useState(loadLogs);
-  const [activeTab, setActiveTab] = useState('webhooks');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_Webhooks') || 'webhooks');
+  useEffect(() => { sessionStorage.setItem('activeTab_Webhooks', activeTab); }, [activeTab]);
   const [showAdd, setShowAdd] = useState(false);
   const [testingId, setTestingId] = useState(null);
   const [logFilter, setLogFilter] = useState('all');
@@ -234,7 +235,7 @@ export default function WebhooksPage() {
 
       {/* ADD WEBHOOK MODAL */}
       {showAdd && (
-        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+        <div className="modal-overlay">
           <div className="modal modal-xl" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title"> Add New Webhook</h3>

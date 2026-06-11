@@ -309,7 +309,7 @@ export default function SuperAdminAutomation() {
 
       {/* ──── TEMPLATE MODAL ──── */}
       {templateModal && (
-        <div className="modal-overlay" onClick={() => setTemplateModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>
             <div className="modal-header"><h3 className="modal-title">{editingTemplate ? 'Edit' : 'Create'} Email Template</h3><button className="btn btn-ghost btn-icon" onClick={() => setTemplateModal(false)}></button></div>
             <div className="modal-body">
@@ -345,7 +345,7 @@ export default function SuperAdminAutomation() {
 
       {/* ──── TRIGGER MODAL ──── */}
       {triggerModal && (
-        <div className="modal-overlay" onClick={() => setTriggerModal(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
             <div className="modal-header"><h3 className="modal-title">{editingTrigger ? 'Edit' : 'Create'} Trigger</h3><button className="btn btn-ghost btn-icon" onClick={() => setTriggerModal(false)}></button></div>
             <div className="modal-body">

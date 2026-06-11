@@ -6,6 +6,38 @@ const { tenantAdminId } = require('../utils/tenantAccess');
 const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE_THIS_SECRET_IN_PRODUCTION';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
 
+// ─── JWT Secret Validation (Security Check) ─────────────────────
+function validateJWTSecret() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const shouldValidate = process.env.VALIDATE_JWT_SECRET === 'true' || isProduction;
+  
+  // Check if using hardcoded default
+  if (JWT_SECRET === 'CHANGE_THIS_SECRET_IN_PRODUCTION') {
+    const msg = 'CRITICAL SECURITY ISSUE: JWT_SECRET is using hardcoded default value. This MUST be changed in production.';
+    if (shouldValidate) {
+      logger.error(msg);
+      throw new Error(msg);
+    } else {
+      logger.warn(msg);
+    }
+  }
+  
+  // Check minimum length (64 characters recommended)
+  if (JWT_SECRET.length < 64) {
+    const msg = `JWT_SECRET is only ${JWT_SECRET.length} characters. Minimum 64 recommended for production.`;
+    if (shouldValidate) {
+      logger.warn(msg + ' In production, this will be enforced.');
+    } else {
+      logger.warn(msg);
+    }
+  }
+  
+  logger.info(`JWT authentication configured (secret length: ${JWT_SECRET.length} chars)`);
+}
+
+// Validate on module load
+validateJWTSecret();
+
 function normalizeTenantContext(user) {
   if (!user || user.role === 'super_admin') return null;
   return tenantAdminId(user);

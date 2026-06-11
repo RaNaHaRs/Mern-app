@@ -71,7 +71,7 @@ async function syncCaseToKnowledgeBase(caseId, user) {
   if (!c) return;
 
   let notesRes = await query(
-    `SELECT n.id, n.note_text, n.created_at, n.created_by, u.username AS created_by_name
+    `SELECT n.id, n.note_text, n.heading, n.created_at, n.created_by, u.username AS created_by_name
      FROM case_solution_notes n
      LEFT JOIN users u ON u.id = n.created_by
      WHERE n.case_id = $1
@@ -111,6 +111,7 @@ async function syncCaseToKnowledgeBase(caseId, user) {
   const noteHistory = notesRes.rows.map(n => ({
     id: n.id,
     text: n.note_text,
+    heading: n.heading,
     createdAt: n.created_at,
     createdBy: n.created_by,
     createdByName: n.created_by_name,

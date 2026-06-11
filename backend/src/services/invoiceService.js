@@ -203,12 +203,12 @@ async function generatePDF(purchase) {
     };
 
     row('Plan', `${purchase.plan_label || purchase.plan_key} × ${purchase.months || 1} month(s)`);
-    row('Subtotal', `₹${baseAmount.toLocaleString('en-IN')}`);
-    if (discount > 0) row('Discount', `- ₹${discount.toLocaleString('en-IN')}`);
-    row(`GST (${gstPct}%)`, `₹${gstAmount.toLocaleString('en-IN')}`);
+    row('Subtotal', `₹${Math.round(baseAmount).toLocaleString('en-IN')}`);
+    if (discount > 0) row('Discount', `- ₹${Math.round(discount).toLocaleString('en-IN')}`);
+    row(`GST (${gstPct}%)`, `₹${Math.round(gstAmount).toLocaleString('en-IN')}`);
     doc.moveTo(50, y + 2).lineTo(545, y + 2).strokeColor('#cccccc').stroke();
     y += 8;
-    row('Total Paid', `₹${totalAmount.toLocaleString('en-IN')}`, true);
+    row('Total Paid', `₹${Math.round(totalAmount).toLocaleString('en-IN')}`, true);
 
     // ── Payment Info ────────────────────────────────────────────
     y += 20;
@@ -342,7 +342,7 @@ async function sendEmail(purchase, pdfPath, invoiceNumber) {
           <table style="width: 100%; font-size: 13px; color: #444;">
             <tr><td>Invoice Number</td><td style="text-align:right; font-weight:700; color:#1a1a2e;">${invoiceNumber}</td></tr>
             <tr><td>Plan</td><td style="text-align:right;">${purchase.plan_label || purchase.plan_key}</td></tr>
-            <tr><td>Amount Paid</td><td style="text-align:right; font-weight:700;">₹${parseFloat(purchase.amount).toLocaleString('en-IN')}</td></tr>
+            <tr><td>Amount Paid</td><td style="text-align:right; font-weight:700;">₹${Math.round(parseFloat(purchase.amount)).toLocaleString('en-IN')}</td></tr>
             <tr><td>Payment ID</td><td style="text-align:right; font-family:monospace; font-size:12px;">${purchase.razorpay_payment_id || 'N/A'}</td></tr>
           </table>
         </div>

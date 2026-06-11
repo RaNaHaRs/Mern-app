@@ -48,3 +48,17 @@
 .kanban-card:active {
   cursor: grabbing;
 }
+
+@media (max-width: 768px) {
+  .kanban-column { width: 240px; min-width: 220px; padding: 10px; }
+}
+
+@media (max-width: 480px) {
+  .kanban-column { width: 200px; min-width: 180px; padding: 8px; }
+  .kanban-card { padding: 10px; }
+}
+
+@media (max-width: 360px) {
+  .kanban-column { width: 160px; min-width: 150px; padding: 6px; }
+  .kanban-card { padding: 8px; }
+}

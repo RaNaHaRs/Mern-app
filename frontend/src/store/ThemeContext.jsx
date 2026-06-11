@@ -1,7 +1,7 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 
 // ── Theme Context ──────────────────────────────────────────────
-const ThemeContext = createContext({ theme: 'dark', toggleTheme: () => {} });
+const ThemeContext = createContext({ theme: 'light', toggleTheme: () => {} });
 export const useTheme = () => useContext(ThemeContext);
 
 // ── Font Size Context ──────────────────────────────────────────
@@ -9,7 +9,7 @@ const FontSizeContext = createContext({ fontSize: 'default', setFontSize: () => 
 export const useFontSize = () => useContext(FontSizeContext);
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => localStorage.getItem('crm_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('crm_theme') || 'light');
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('crm_theme', theme);

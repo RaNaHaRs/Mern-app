@@ -27,18 +27,8 @@ BEGIN
     CREATE TYPE failure_type AS ENUM ('logical', 'firmware', 'electrical', 'mechanical', 'unknown');
   END IF;
 END$$;
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'device_interface') THEN
-    CREATE TYPE device_interface AS ENUM ('SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'mSATA', 'M2', 'eSATA');
-  END IF;
-END$$;
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'device_form_factor') THEN
-    CREATE TYPE device_form_factor AS ENUM ('3.5', '2.5', 'M.2', 'mSATA', 'U.2', 'PCIe_card');
-  END IF;
-END$$;
+-- Removed: device_interface and device_form_factor enums are no longer used
+-- These are now VARCHAR columns to support custom values
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'nand_type') THEN
@@ -221,8 +211,8 @@ CREATE TABLE cases (
   storage_model_id UUID REFERENCES storage_models(id),
   serial_number VARCHAR(100),
   capacity_gb INTEGER,
-  interface device_interface,
-  form_factor device_form_factor,
+  interface VARCHAR(50),
+  form_factor VARCHAR(50),
   -- Failure Info
   failure_type VARCHAR(100) DEFAULT 'unknown',
   symptoms TEXT[],
@@ -621,7 +611,9 @@ CREATE TABLE accounting_expenses (
   total DECIMAL(12,2),
   receipt_note TEXT,
   created_by UUID REFERENCES users(id),
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  deleted_at TIMESTAMPTZ
 );
 
 -- ============================================================

@@ -1,6 +1,7 @@
 const winston = require('winston');
 require('winston-daily-rotate-file');
 const path = require('path');
+const { wrapLogger } = require('../utils/logMasking');
 
 const logDir = path.join(__dirname, '../../logs');
 
@@ -42,5 +43,9 @@ const logger = winston.createLogger({
     })
   ]
 });
+
+// ─── Apply Sensitive Data Masking ───────────────────────────────
+// Wraps logger methods to automatically mask sensitive data before logging
+wrapLogger(logger);
 
 module.exports = logger;

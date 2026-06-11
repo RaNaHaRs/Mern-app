@@ -70,6 +70,17 @@ function writePdfContent(doc, caseData = {}) {
     doc.moveDown(0.5);
   }
 
+  if (caseData.engineer_name) {
+    doc.moveDown(0.5);
+    doc.font('Helvetica-Bold').text('Assigned Engineer', { underline: true });
+    doc.moveDown(0.3);
+    doc.font('Helvetica').text(`Engineer Name: ${normalizeText(caseData.engineer_name)}`);
+    if (caseData.engineer_email) {
+      doc.text(`Engineer Email: ${normalizeText(caseData.engineer_email)}`);
+    }
+    doc.moveDown(0.5);
+  }
+
   doc.font('Helvetica-Bold').text('Signature', { underline: true });
   doc.moveDown(1);
   doc.font('Helvetica').text('Customer Signature: _____________________________');
@@ -231,6 +242,20 @@ async function generateEmailSummaryPdf(caseData = {}) {
       // Table border
       doc.rect(50, tableTop, 260, doc.y - tableTop).strokeColor('#e2e8f0').stroke();
       doc.y += 8;
+      doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#e2e8f0').stroke();
+      doc.y += 10;
+    }
+
+    // ── Assigned Engineer ──
+    if (caseData.engineer_name) {
+      doc.fillColor('#1a365d').fontSize(9).font('Helvetica-Bold').text('ASSIGNED ENGINEER');
+      doc.y += 10;
+      doc.fillColor('#000000').fontSize(9).font('Helvetica');
+      doc.text(`Name: ${normalizeText(caseData.engineer_name)}`);
+      if (caseData.engineer_email) {
+        doc.text(`Email: ${normalizeText(caseData.engineer_email)}`);
+      }
+      doc.y += 6;
       doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#e2e8f0').stroke();
       doc.y += 10;
     }

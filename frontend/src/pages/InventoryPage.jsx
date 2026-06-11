@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { inventoryApi } from '../services/api';
+import { inventoryApi, transferredItemsApi } from '../services/api';
 import { useAuth } from '../store/AuthContext';
 import InventoryHddFields from '../components/InventoryHddFields';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
@@ -150,17 +150,17 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 700, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="modal-overlay">
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: '90vw', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h3 className="modal-title">{isEdit ? ' Edit Stock Item' : '+ Add Stock Item'}</h3>
-          <button className="btn btn-ghost btn-icon" onClick={onClose}></button>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
+        <div className="modal-body" style={{ overflowY: 'auto', flex: 1, padding: '20px' }}>
           {error && <div className="alert alert-danger" style={{ marginBottom: 16 }}><span className="alert-icon"></span> {error}</div>}
           <form onSubmit={handleSubmit}>
             {/* Category & Stock ID — required for all item types */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
               <InventoryFormField label="Category" field="category" required form={form} setForm={setForm}>
                 <select className="form-select" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, company: formCategories.find(c => c.key === e.target.value)?.brand || f.company }))}>
                   {formCategories.map(c => <option key={c.key} value={c.key}>{c.icon} {c.label}</option>)}
@@ -211,7 +211,7 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
             </div>
 
             {isPcb && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 12 }}>
                 <InventoryFormField label="Model" field="model" placeholder="Enter model" required form={form} setForm={setForm} />
                 <InventoryFormField label="PCB Name" field="name" placeholder="Enter PCB name" required form={form} setForm={setForm} />
                 <InventoryFormField label="PCB Number" field="pcb_number" placeholder="Enter PCB number" required form={form} setForm={setForm} />
@@ -222,7 +222,7 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
             )}
 
             {isSsd && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 12 }}>
                 <InventoryFormField label="SSD Name" field="name" placeholder="Enter SSD name" form={form} setForm={setForm} />
                 <InventoryFormField label="Serial No" field="serial_number" placeholder="Enter serial number" form={form} setForm={setForm} />
                 <InventoryFormField label="Model" field="model" placeholder="Enter model" form={form} setForm={setForm} />
@@ -257,7 +257,7 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
             />
 
             {isHDD && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 12 }}>
                 <InventoryFormField label="Company / Manufacturer" field="company" form={form} setForm={setForm}>
                   <select className="form-select" value={form.company || ''} onChange={e => setForm(f => ({ ...f, company: e.target.value, brand: e.target.value !== 'Other' ? e.target.value : f.brand }))}>
                     <option value="">Select Company…</option>
@@ -273,7 +273,7 @@ function NewItemModal({ onClose, onCreated, editItem, hddCompanies }) {
             )}
             {isEdit ? (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
                   <InventoryFormField label="Condition" field="condition" form={form} setForm={setForm}>
                     <select className="form-select" value={form.condition || 'used'} onChange={e => setForm(f => ({ ...f, condition: e.target.value }))}>
                       {[['new','New (Unused)'],['used','Used / Working'],['refurb','Refurbished'],['for_parts','For Parts / Faulty'],['untested','Untested']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
@@ -328,7 +328,7 @@ function AdjustStockModal({ item, onClose, onDone }) {
     catch (err) { alert(err.message); } finally { setLoading(false); }
   };
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title"> Stock Adjustment — {item.stock_number || item.name}</h3>
@@ -427,7 +427,7 @@ function ImportModal({ onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
         <div className="modal-header">
           <h3 className="modal-title"> Import Stock</h3>
@@ -568,7 +568,7 @@ function DeleteConfirmModal({ selectedCount, onConfirm, onCancel }) {
   const btnStyle = 'btn-secondary';
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">{title}</h3>
@@ -603,7 +603,7 @@ function PermanentDeleteModal({ selectedCount, onConfirm, onCancel }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420, border: '1px solid rgba(239,68,68,0.35)' }}>
         <div className="modal-header" style={{ background: 'rgba(239,68,68,0.06)' }}>
           <h3 className="modal-title" style={{ color: 'var(--status-danger)' }}> Delete Permanently</h3>
@@ -635,28 +635,32 @@ export default function InventoryPage() {
   const { activeBrandNames } = useInventoryConfig();
   const [items, setItems] = useState([]);
   const [recycleItems, setRecycleItems] = useState([]);
+  const [transferredItems, setTransferredItems] = useState([]);
   const [pagination, setPagination] = useState({});
   const [recyclePagination, setRecyclePagination] = useState({});
+  const [transferredPagination, setTransferredPagination] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [recyclePage, setRecyclePage] = useState(1);
+  const [transferredPage, setTransferredPage] = useState(1);
   const [showNew, setShowNew] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [adjustItem, setAdjustItem] = useState(null);
   const [showImport, setShowImport] = useState(false);
   const [lowStockAlerts, setLowStockAlerts] = useState(0);
-  const [viewMode, setViewMode] = useState('stock'); // 'stock' | 'recycle'
-  const [activeTab, setActiveTab] = useState('all');
+  const [viewMode, setViewMode] = useState('stock'); // 'stock' | 'recycle' | 'transferred'
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_Inventory') || 'all');
+  useEffect(() => { sessionStorage.setItem('activeTab_Inventory', activeTab); }, [activeTab]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPermanentDelete, setShowPermanentDelete] = useState(false);
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-  const displayList = viewMode === 'recycle' ? recycleItems : items;
-  const activePagination = viewMode === 'recycle' ? recyclePagination : pagination;
-  const activePage = viewMode === 'recycle' ? recyclePage : page;
-  const setActivePage = viewMode === 'recycle' ? setRecyclePage : setPage;
+  const displayList = viewMode === 'recycle' ? recycleItems : viewMode === 'transferred' ? transferredItems : items;
+  const activePagination = viewMode === 'recycle' ? recyclePagination : viewMode === 'transferred' ? transferredPagination : pagination;
+  const activePage = viewMode === 'recycle' ? recyclePage : viewMode === 'transferred' ? transferredPage : page;
+  const setActivePage = viewMode === 'recycle' ? setRecyclePage : viewMode === 'transferred' ? setTransferredPage : setPage;
 
   const loadStock = useCallback(async () => {
     setLoading(true);
@@ -668,6 +672,7 @@ export default function InventoryPage() {
       const d = await inventoryApi.list(params);
       let finalItems = d.items || [];
       if (activeTab === 'low_stock') finalItems = finalItems.filter(i => i.quantity <= (i.min_quantity || 1));
+      finalItems = finalItems.filter(i => i.status !== 'transferred');
       setItems(finalItems);
       setPagination(d.pagination || {});
       setLowStockAlerts(d.lowStockAlerts || 0);
@@ -685,10 +690,25 @@ export default function InventoryPage() {
     } catch { /* ignore */ } finally { setLoading(false); }
   }, [search, recyclePage]);
 
+  const loadTransferred = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { page: transferredPage, limit: 40 };
+      if (search) params.search = search;
+      const d = await transferredItemsApi.list(params);
+      setTransferredItems(d.items || []);
+      setTransferredPagination(d.pagination || {});
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [search, transferredPage]);
+
   const load = useCallback(async () => {
     if (viewMode === 'recycle') await loadRecycle();
-    else await loadStock();
-  }, [viewMode, loadStock, loadRecycle]);
+    else if (viewMode === 'transferred') await loadTransferred();
+    else {
+      await loadStock();
+      loadTransferred();
+    }
+  }, [viewMode, loadStock, loadRecycle, loadTransferred]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -707,10 +727,11 @@ export default function InventoryPage() {
 
   const handleTransfer = async (item) => {
     if (item.status === 'transferred') return;
-    if (!confirm(`Transfer "${item.stock_number || item.name}" to Transferred Items?`)) return;
+    if (!confirm(`Transfer "${item.stock_number || item.name}" to Client?`)) return;
     try {
-      await inventoryApi.transfer(item.id, 'Transferred from inventory stock');
+      await inventoryApi.transfer(item.id, 'Transferred to client');
       await loadStock();
+      await loadTransferred();
     } catch (err) {
       alert(`Transfer failed: ${err.message}`);
     }
@@ -782,7 +803,7 @@ export default function InventoryPage() {
       <div className="page-header">
         <div className="page-header-left">
           <h2>Inventory — Stock Management</h2>
-          <p>HDD, SSD, PCB &amp; other parts · {viewMode === 'stock' ? totalItems : recyclePagination.total || 0} {viewMode === 'stock' ? 'in stock' : 'in recycle bin'}</p>
+          <p>HDD, SSD, PCB &amp; other parts · {viewMode === 'stock' ? totalItems : viewMode === 'recycle' ? recyclePagination.total || 0 : transferredPagination.total || 0} {viewMode === 'stock' ? 'in stock' : viewMode === 'recycle' ? 'in recycle bin' : 'transferred'}</p>
         </div>
         <div className="inventory-toolbar">
           {selectedCount > 0 && viewMode === 'stock' && (
@@ -813,6 +834,7 @@ export default function InventoryPage() {
       <div className="tabs" style={{ flexShrink: 0 }}>
         <button type="button" className={`tab-btn ${viewMode === 'stock' ? 'active' : ''}`} onClick={() => { setViewMode('stock'); setSelectedIds(new Set()); setPage(1); }}> Stock</button>
         <button type="button" className={`tab-btn ${viewMode === 'recycle' ? 'active' : ''}`} onClick={() => { setViewMode('recycle'); setSelectedIds(new Set()); setRecyclePage(1); }}> Recycle Bin{recyclePagination.total ? ` (${recyclePagination.total})` : ''}</button>
+        <button type="button" className={`tab-btn ${viewMode === 'transferred' ? 'active' : ''}`} onClick={() => { setViewMode('transferred'); setSelectedIds(new Set()); setTransferredPage(1); }}> Transferred Items{transferredPagination.total !== undefined ? ` (${transferredPagination.total})` : ''}</button>
       </div>
 
       {viewMode === 'stock' && (
@@ -846,6 +868,7 @@ export default function InventoryPage() {
       </div>
       )}
 
+      {viewMode !== 'transferred' && (
       <div className="filters-bar" style={{ marginBottom: 0, flexShrink: 0 }}>
         <div className="search-bar">
           <span className="search-icon"></span>
@@ -853,6 +876,17 @@ export default function InventoryPage() {
             onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
       </div>
+      )}
+
+      {viewMode === 'transferred' && (
+      <div className="filters-bar" style={{ marginBottom: 0, flexShrink: 0 }}>
+        <div className="search-bar">
+          <span className="search-icon"></span>
+          <input className="search-input" placeholder="Search stock#, serial, case#, model…" value={search}
+            onChange={e => { setSearch(e.target.value); setTransferredPage(1); }} />
+        </div>
+      </div>
+      )}
 
       <div className="inventory-table-panel table-container">
         <div className="inventory-table-scroll">
@@ -860,7 +894,45 @@ export default function InventoryPage() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
               <div className="spinner" style={{ width: 28, height: 28, borderWidth: 3 }} />
             </div>
-          ) : (
+          ) : viewMode === 'transferred' ? (
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Stock #</th>
+                  <th>Case #</th>
+                  <th>Client</th>
+                  <th>Model</th>
+                  <th>Serial #</th>
+                  <th>Transferred By</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayList.map(item => (
+                  <tr key={item.id}>
+                    <td className="text-xs text-muted">{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '—'}</td>
+                    <td><span className="font-mono text-accent" style={{ fontSize:'0.78rem', fontWeight:700 }}>{item.stock_number || item.sku || '—'}</span></td>
+                    <td className="font-mono">{item.case_number || '—'}</td>
+                    <td>{item.client_name || '—'}</td>
+                    <td className="text-xs">{item.model || '—'}</td>
+                    <td className="text-xs font-mono text-muted">{item.serial_number || '—'}</td>
+                    <td className="text-xs">{item.transferred_by_name || '—'}</td>
+                    <td><StatusBadge status="transferred" /></td>
+                  </tr>
+                ))}
+                {!displayList.length && (
+                  <tr><td colSpan={8}>
+                    <div className="empty-state">
+                      <div className="empty-icon"></div>
+                      <div className="empty-title">No transferred items</div>
+                      <div className="empty-desc">Items transferred from inventory to clients appear here.</div>
+                    </div>
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+            ) : (
             <table>
               <thead>
                 <tr>
@@ -1016,7 +1088,7 @@ export default function InventoryPage() {
                 )}
               </tbody>
             </table>
-          )}
+            )}
         </div>
         {activePagination.pages > 1 && (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: 10, borderTop: '1px solid var(--border-subtle)', flexShrink: 0 }}>

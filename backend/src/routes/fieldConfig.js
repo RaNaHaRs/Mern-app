@@ -601,4 +601,77 @@ router.delete(
   }
 );
 
+// ─── POST /api/field-config/sync-to-db ──────────────────────────────
+// Sync custom fields from localStorage to database (for migration/sync purposes)
+router.post('/sync-to-db', requireMinRole('admin'), async (req, res) => {
+  try {
+    const { customFields } = req.body;
+    if (!Array.isArray(customFields)) {
+      return res.status(400).json({ error: 'customFields must be an array' });
+    }
+
+    const tenantId = isSuperAdmin(req.user) ? null : currentTenantId(req);
+    const syncedFields = [];
+    const errors = [];
+
+    for (const field of customFields) {
+      if (!field.hddType || !field.label) {
+        errors.push(`Skipped field: missing hddType or label`);
+        continue;
+      }
+
+      try {
+        const fieldKey = `cf_${field.label.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}`;
+        const result = await query(
+          `INSERT INTO custom_fields (tenant_id, hdd_type, field_key, field_label, field_type, is_mandatory, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, true)
+           ON CONFLICT (tenant_id, hdd_type, field_key) DO NOTHING
+           RETURNING *`,
+          [tenantId, field.hddType, fieldKey, field.label, field.type || 'text', field.isMandatory || false]
+        );
+
+        if (result.rows.length) {
+          syncedFields.push(result.rows[0]);
+        }
+      } catch (e) {
+        errors.push(`Failed to sync field "${field.label}": ${e.message}`);
+      }
+    }
+
+    res.json({
+      synced: syncedFields.length,
+      syncedFields,
+      errors
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /api/field-config/validate-custom-fields ───────────────────
+// Diagnostic endpoint to validate if custom fields are properly synced
+router.get('/validate-custom-fields', async (req, res) => {
+  try {
+    const tenantId = currentTenantId(req);
+    
+    // Get all custom fields for this tenant
+    const result = await query(
+      `SELECT id, hdd_type, field_key, field_label, field_type, is_mandatory, is_active, tenant_id, created_at
+       FROM custom_fields
+       WHERE is_active = true ${!isSuperAdmin(req.user) ? 'AND tenant_id = $1' : ''}
+       ORDER BY hdd_type, created_at`,
+      !isSuperAdmin(req.user) ? [tenantId] : []
+    );
+
+    res.json({
+      tenantId,
+      customFieldsCount: result.rows.length,
+      customFields: result.rows,
+      status: result.rows.length > 0 ? 'ok' : 'no_custom_fields'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

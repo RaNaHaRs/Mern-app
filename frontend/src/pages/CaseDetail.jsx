@@ -3,12 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { casesApi, paymentsApi, accountingApi } from '../services/api';
 import { fieldConfigApi } from '../services/fieldConfigApi';
 import { useAuth } from '../store/AuthContext';
-import { printInwardForm } from '../components/NewCaseModal';
+import { buildInwardFormHtml } from '../components/NewCaseModal';
 import { useInventoryConfig } from '../hooks/useInventoryConfig';
 import { openPrintPreviewWindow } from '../utils/printPreview';
 import { formatSolutionTime } from '../utils/solutionMedia';
 import MediaFileGrid from '../components/MediaFileGrid';
 import CaseInventoryPanel from '../components/CaseInventoryPanel';
+import CaseExpensesPanel from '../components/CaseExpensesPanel';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
@@ -130,173 +131,382 @@ function SolutionNotesTimeline({ notes }) {
 }
 
 // ─── Solution Panel ──────────────────────────────────────────────
-function SolutionPanel({ caseId, caseStage }) {
+function SolutionPanel({ caseId, caseStage, caseData }) {
   const { canAccess } = useAuth();
-  const [solution, setSolution] = useState({ textNote: '', notes: [], mediaFiles: [] });
+  const [notes, setNotes] = useState([]);
+  const [mediaFiles, setMediaFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [textNote, setTextNote] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [mediaOpen, setMediaOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedNote, setSelectedNote] = useState(null);
+  const [form, setForm] = useState({ heading: '', description: '', files: [] });
+  const fileInputRef = useRef(null);
+
+  const isSolved = ['completed', 'delivered'].includes(caseStage);
+  const canEdit = canAccess('junior_engineer');
 
   const load = useCallback(async () => {
     try {
       const d = await casesApi.getSolution(caseId);
-      const notes = d.notes?.length ? d.notes : (d.textNote ? [{ id: 'legacy', text: d.textNote, createdAt: null }] : []);
-      setSolution({ ...d, notes });
-      setTextNote('');
+      const parsedNotes = d.notes?.length
+        ? d.notes
+        : (d.textNote ? [{ id: 'legacy', text: d.textNote, heading: 'Solution Note', createdAt: null, createdByName: null }] : []);
+      setNotes(parsedNotes);
+      setMediaFiles(d.mediaFiles || []);
     } catch {} finally { setLoading(false); }
   }, [caseId]);
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSaveNote = async () => {
-    if (!textNote.trim()) return;
-    setSaving(true);
-    try {
-      await casesApi.saveSolutionNote(caseId, textNote.trim());
-      setTextNote('');
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      await load();
-    } catch (err) { alert(err.message); }
-    finally { setSaving(false); }
+  const handleFileSelect = (e) => {
+    const selected = Array.from(e.target.files);
+    setForm(f => ({ ...f, files: [...f.files, ...selected] }));
+    e.target.value = '';
   };
 
-  const handleUploadMedia = async (files) => {
-    setUploading(true);
+  const handleRemoveFile = (idx) => {
+    setForm(f => ({ ...f, files: f.files.filter((_, i) => i !== idx) }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!form.description.trim()) { alert('Description is required'); return; }
+    setSaving(true);
     try {
-      const fd = new FormData();
-      files.forEach(f => fd.append('files', f));
-      await casesApi.uploadSolutionMedia(caseId, fd);
+      const res = await casesApi.saveSolutionNote(caseId, form.description.trim(), form.heading.trim() || 'Solution Note');
+      if (form.files.length > 0) {
+        setUploading(true);
+        const fd = new FormData();
+        form.files.forEach(f => fd.append('files', f));
+        await casesApi.uploadSolutionMedia(caseId, fd);
+        setUploading(false);
+      }
+      setForm({ heading: '', description: '', files: [] });
+      setShowForm(false);
       await load();
-      setMediaOpen(true);
+      if (res?.note?.id) {
+        const d = await casesApi.getSolution(caseId);
+        const newNote = d.notes?.find(n => n.id === res.note.id);
+        if (newNote) setSelectedNote(newNote);
+      }
     } catch (err) { alert(err.message); }
-    finally { setUploading(false); }
+    finally { setSaving(false); setUploading(false); }
   };
 
   const handleDeleteMedia = async (fileId) => {
-    if (!confirm('Remove this file from the solution?')) return;
-    try {
-      await casesApi.deleteSolutionMedia(caseId, fileId);
-      await load();
-    } catch (err) { alert(err.message); }
+    if (!confirm('Remove this file?')) return;
+    try { await casesApi.deleteSolutionMedia(caseId, fileId); await load(); }
+    catch (err) { alert(err.message); }
   };
-
-  const isSolved = ['completed', 'delivered'].includes(caseStage);
-  const canEdit = canAccess('junior_engineer');
-  const savedNotes = solution.notes || [];
 
   if (loading) return <div style={{display:'flex',justifyContent:'center',padding:40}}><div className="spinner" style={{width:24,height:24}} /></div>;
 
+  const timelineNotes = [...notes].filter(n => n.createdAt).sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+  const deviceType = caseData?.device_type || 'HDD';
+  const category = caseData?.failure_type || deviceType;
+  const TYPE_ICONS = { HDD: '💽', SSD: '🖴', Phone: '📱', PCB: '📟', NAS: '🗄️', Server: '🖥️', 'Flash Drive': '🔌', RAID: '🏗️', Other: '⚙️' };
+  const tags = [];
+  if (caseData?.failure_type) tags.push(caseData.failure_type);
+  if (Array.isArray(caseData?.symptoms)) {
+    caseData.symptoms.slice(0, 5).forEach(s => { if (s && !tags.includes(s)) tags.push(s); });
+  }
+
   return (
     <div>
+      {/* Header bar */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20 }}>
+        <div>
+          <h3 style={{ margin:0, fontSize:'1.1rem', fontWeight:700, color:'var(--text-primary)' }}>
+            🏆 Solution Documentation
+          </h3>
+          <p style={{ margin:'4px 0 0', fontSize:'0.78rem', color:'var(--text-muted)' }}>
+            {notes.length > 0 ? `${notes.length} solution${notes.length > 1 ? 's' : ''} documented` : 'No solutions documented yet'}
+          </p>
+        </div>
+        {canEdit && (
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowForm(v => !v)}
+            style={{ display:'flex', alignItems:'center', gap:6 }}
+          >
+            {showForm ? '✕ Cancel' : '+ Add Solution'}
+          </button>
+        )}
+      </div>
+
       {!isSolved && (
         <div className="alert alert-warning" style={{marginBottom:20}}>
-          <span className="alert-icon"></span>
+          <span className="alert-icon">⚠️</span>
           <div>
             <div className="alert-title">Case not yet solved</div>
-            <div>Solution documentation is available for cases in <strong>Completed</strong> or <strong>Delivered</strong> stage. You can still add notes for reference.</div>
+            <div>Solution documentation is for cases in <strong>Completed</strong> or <strong>Delivered</strong> stage. You can still add notes for reference.</div>
           </div>
         </div>
       )}
 
-      {isSolved && (
-        <div className="alert alert-success" style={{marginBottom:20}}>
-          <span className="alert-icon"></span>
-          <div>
-            <div className="alert-title">Case Solved — Document the Solution</div>
-            <div>Add text notes, photos, and videos to document exactly how this case was recovered. This knowledge helps engineers handle similar cases in future.</div>
+      {/* Add Solution Form */}
+      {showForm && (
+        <div className="card" style={{ marginBottom:20, border:'1px solid var(--border-accent)', background:'var(--bg-elevated)' }}>
+          <div className="card-header" style={{ borderBottom:'1px solid var(--border-subtle)', paddingBottom:12, marginBottom:16 }}>
+            <div className="card-title" style={{ color:'var(--accent-primary)' }}>📝 New Solution Entry</div>
           </div>
-        </div>
-      )}
-
-      <div className="card" style={{marginBottom:16}}>
-        <div className="card-header">
-          <div className="card-title"> Solution Notes</div>
-          {canEdit && (
-            <button className={`btn btn-sm ${saved ? 'btn-secondary' : 'btn-primary'}`}
-              disabled={saving || !textNote.trim()} onClick={handleSaveNote}>
-              {saving ? <><div className="spinner" style={{width:12,height:12}} /> Saving…</> : saved ? '✓ Saved' : ' Save Note'}
-            </button>
-          )}
-        </div>
-
-        {savedNotes.length > 0 && <SolutionNotesTimeline notes={savedNotes} />}
-
-        {canEdit && (
-          <textarea
-            className="form-textarea"
-            style={{minHeight:120,fontFamily:'var(--font-sans)',lineHeight:1.7,marginBottom:12}}
-            placeholder="Describe the solution: root cause, tools, steps, tips for similar cases…"
-            value={textNote}
-            onChange={e=>setTextNote(e.target.value)}
-          />
-        )}
-
-        {savedNotes.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {savedNotes.map(note => (
-              <div key={note.id} className="card" style={{ padding: '12px 14px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.68rem', color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>
-                    {formatSolutionTime(note.createdAt)}
-                  </span>
-                  {note.createdByName && (
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>by {note.createdByName}</span>
-                  )}
-                </div>
-                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>{note.text}</pre>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>No solution notes added yet.</div>
-        )}
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            className={`btn btn-sm ${mediaOpen ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setMediaOpen(o => !o)}
-            aria-expanded={mediaOpen}
-          >
-             Solution Media
-            {(solution.mediaFiles?.length || 0) > 0 && (
-              <span style={{ marginLeft: 6, opacity: 0.85 }}>({solution.mediaFiles.length})</span>
-            )}
-            <span style={{ marginLeft: 6, fontSize: '0.65rem' }}>{mediaOpen ? '▲' : '▼'}</span>
-          </button>
-          {!mediaOpen && (solution.mediaFiles?.length || 0) > 0 && (
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              {solution.mediaFiles.length} file(s) attached
-            </span>
-          )}
-        </div>
-
-        {mediaOpen && (
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
-            {canEdit && (
-              <DropZoneUpload
-                onUpload={handleUploadMedia}
-                uploading={uploading}
-                accept="*/*"
-                label="Drop any file type — images, videos, PDFs, archives, documents, audio"
+          <form onSubmit={handleSubmit} style={{ padding:'0 4px' }}>
+            <div className="form-group" style={{ marginBottom:14 }}>
+              <label className="form-label">Heading</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. Head swap — Donor PCB swap successful"
+                value={form.heading}
+                onChange={e => setForm(f => ({ ...f, heading: e.target.value }))}
+                maxLength={200}
               />
-            )}
-            {solution.mediaFiles?.length > 0 ? (
-              <MediaFileGrid items={solution.mediaFiles} onDelete={handleDeleteMedia} canDelete={canEdit} variant="card" />
-            ) : (
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: canEdit ? 12 : 0 }}>
-                {canEdit ? 'No files uploaded yet.' : 'No media attached to this solution.'}
+            </div>
+
+            <div className="form-group" style={{ marginBottom:14 }}>
+              <label className="form-label">Description <span style={{color:'var(--status-danger)'}}>*</span></label>
+              <textarea
+                className="form-textarea"
+                placeholder="Describe the solution: root cause, tools used, steps taken, tips for similar cases…"
+                value={form.description}
+                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                style={{ minHeight: 130, lineHeight: 1.7 }}
+              />
+            </div>
+
+            {/* Media upload */}
+            <div className="form-group" style={{ marginBottom:18 }}>
+              <label className="form-label">Attach Media (optional)</label>
+              <div
+                style={{
+                  border: '2px dashed var(--border-default)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '16px 20px',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  background: 'var(--bg-secondary)',
+                  transition: 'border-color 0.2s',
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files); setForm(f => ({ ...f, files: [...f.files, ...files] })); }}
+              >
+                <div style={{ fontSize:'1.4rem', marginBottom:4 }}>📎</div>
+                <div style={{ fontSize:'0.8rem', color:'var(--text-muted)' }}>Click or drag files — images, videos, PDFs</div>
+                <input ref={fileInputRef} type="file" multiple style={{ display:'none' }} onChange={handleFileSelect} />
               </div>
-            )}
+              {form.files.length > 0 && (
+                <div style={{ marginTop:10, display:'flex', flexWrap:'wrap', gap:8 }}>
+                  {form.files.map((f, i) => (
+                    <div key={i} style={{
+                      display:'flex', alignItems:'center', gap:6,
+                      padding:'4px 10px', background:'rgba(0,212,255,0.08)',
+                      border:'1px solid rgba(0,212,255,0.2)', borderRadius: 20,
+                      fontSize:'0.75rem', color:'var(--text-secondary)'
+                    }}>
+                      📄 {f.name}
+                      <button type="button" onClick={() => handleRemoveFile(i)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', padding:0, lineHeight:1 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display:'flex', gap:8 }}>
+              <button type="submit" className="btn btn-primary" disabled={saving || uploading}>
+                {saving ? <><div className="spinner" style={{width:13,height:13}} /> Saving…</> : uploading ? <><div className="spinner" style={{width:13,height:13}} /> Uploading…</> : '✓ Save Solution'}
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => { setShowForm(false); setForm({ heading:'', description:'', files:[] }); }}>
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Horizontal Timeline */}
+      {timelineNotes.length > 0 && (
+        <div style={{ marginBottom: 30, background: 'var(--bg-elevated)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', padding: '20px 0', overflow: 'hidden' }}>
+          <div style={{ padding: '0 20px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 10 }}>Solution Timeline</div>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', padding: '40px 20px', overflowX: 'auto', minHeight: 180, gap: 150 }}>
+            {/* Thick gray bar */}
+            <div style={{ position: 'absolute', left: 0, right: 0, top: '50%', height: 16, background: '#e5e7eb', transform: 'translateY(-50%)', zIndex: 0 }} />
+            {/* Triangle end of gray bar */}
+            <div style={{ position: 'absolute', right: 0, top: '50%', width: 0, height: 0, borderTop: '16px solid transparent', borderBottom: '16px solid transparent', borderLeft: '16px solid #e5e7eb', transform: 'translateY(-50%)', zIndex: 1 }} />
+            
+            {timelineNotes.map((note, i) => {
+              const isTop = i % 2 === 0;
+              const color = ['#ec4899', '#3b82f6', '#f97316', '#eab308', '#8b5cf6', '#10b981'][i % 6];
+              return (
+                <div 
+                  key={note.id} 
+                  style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', minWidth: 2, cursor: 'pointer', transition: 'transform 0.2s' }}
+                  onClick={() => setSelectedNote(note)}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+                >
+                  <div style={{ 
+                    width: 2, height: 50, background: color, 
+                    transform: isTop ? 'translateY(-25px)' : 'translateY(25px)',
+                    position: 'relative'
+                  }}>
+                    {/* Dot on the gray bar */}
+                    <div style={{ position: 'absolute', [isTop ? 'bottom' : 'top']: -5, left: -5, width: 12, height: 12, borderRadius: '50%', background: color }} />
+                    
+                    {/* Map Pin */}
+                    <div style={{ 
+                      position: 'absolute', [isTop ? 'top' : 'bottom']: -20, left: -12, 
+                      width: 24, height: 24, borderRadius: '50% 50% 50% 0',
+                      border: `4px solid ${color}`, background: '#fff',
+                      transform: isTop ? 'rotate(-45deg)' : 'rotate(135deg)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                      <div style={{ width: 6, height: 6, background: color, borderRadius: '50%', transform: isTop ? 'translate(2px, -2px)' : 'translate(-2px, 2px)' }} />
+                    </div>
+
+                    {/* Text block */}
+                    <div style={{ 
+                      position: 'absolute', left: 20, 
+                      [isTop ? 'top' : 'bottom']: -16, 
+                      width: 150 
+                    }}>
+                      <div style={{ color, fontWeight: 700, fontSize: '0.85rem', marginBottom: 2 }}>
+                        {new Date(note.createdAt).toLocaleString('en-IN', { month:'short', day:'numeric', year:'numeric' })}
+                      </div>
+                      <div style={{ color, fontWeight: 600, fontSize: '0.75rem', marginBottom: 4 }}>
+                        {new Date(note.createdAt).toLocaleString('en-IN', { hour:'2-digit', minute:'2-digit' })}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', lineHeight: 1.3 }}>
+                        {note.heading || 'Solution Note'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Solution Cards */}
+      {notes.length > 0 ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 16 }}>
+          {notes.map((note, idx) => {
+            const heading = note.heading || 'Solution Note';
+
+            return (
+              <div
+                key={note.id}
+                className="card"
+                style={{ cursor: 'pointer', transition: 'all 0.15s' }}
+                onClick={() => setSelectedNote(note)}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-primary)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+              >
+                {/* Header (always visible, styled like KB card) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                  <span style={{ fontSize: '1.5rem' }}>{TYPE_ICONS[deviceType] || '💽'}</span>
+                  <span style={{ fontSize: '0.68rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>
+                    {category}
+                  </span>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 6, lineHeight: 1.4 }}>
+                  {caseData?.device_brand} {caseData?.device_model} — {caseData?.case_number}
+                </div>
+                {heading && (
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {heading}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
+                  {tags.slice(0, 3).map(t => (
+                    <span key={t} style={{ padding: '2px 6px', borderRadius: 999, fontSize: '0.62rem', background: 'rgba(124,58,237,0.1)', color: '#a78bfa', fontFamily: 'var(--font-mono)', textTransform: 'capitalize' }}>
+                      {t.replace(/_/g, ' ')}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  <span>1 case</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {note.createdAt && <span>{new Date(note.createdAt).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</span>}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        !showForm && (
+          <div style={{
+            display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+            padding:'60px 20px', color:'var(--text-muted)', textAlign:'center',
+          }}>
+            <div style={{ fontSize:'3rem', marginBottom:12, opacity:0.4 }}>🏆</div>
+            <div style={{ fontWeight:600, fontSize:'1rem', marginBottom:6, color:'var(--text-secondary)' }}>No solutions documented yet</div>
+            <div style={{ fontSize:'0.8rem' }}>
+              {canEdit ? 'Click "Add Solution" to document how this case was resolved.' : 'No solution has been documented for this case yet.'}
+            </div>
+          </div>
+        )
+      )}
+
+      {/* Selected Note Modal */}
+      {selectedNote && (
+        <div className="modal-overlay" style={{ animation: 'fadeIn 0.2s ease' }} onClick={() => setSelectedNote(null)}>
+          <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            <div className="modal-header">
+              <div>
+                <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: '1.4rem' }}>{TYPE_ICONS[deviceType]}</span>
+                  {selectedNote.heading || 'Solution Note'}
+                </h3>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  {caseData?.device_brand} {caseData?.device_model} — {caseData?.case_number}
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-icon" onClick={() => setSelectedNote(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                <span style={{ padding: '3px 8px', borderRadius: 999, fontSize: '0.68rem', background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)' }}>
+                  {category}
+                </span>
+                {tags.map(t => (
+                  <span key={t} style={{ padding: '3px 8px', borderRadius: 999, fontSize: '0.68rem', background: 'rgba(124,58,237,0.12)', color: '#a78bfa', fontFamily: 'var(--font-mono)', textTransform: 'capitalize' }}>
+                    {t.replace(/_/g, ' ')}
+                  </span>
+                ))}
+              </div>
+
+              <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius-md)', padding: 16, border: '1px solid var(--border-subtle)' }}>
+                <pre style={{
+                  whiteSpace:'pre-wrap', fontFamily:'var(--font-sans)', fontSize:'0.9rem',
+                  color:'var(--text-primary)', lineHeight:1.7, margin:0, padding:0,
+                }}>
+                  {selectedNote.text}
+                </pre>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+                  {selectedNote.createdByName && <div style={{ fontSize: '0.75rem', color:'var(--text-muted)' }}>👤 Documented by {selectedNote.createdByName}</div>}
+                  {selectedNote.createdAt && <div style={{ fontSize: '0.75rem', color:'var(--text-muted)' }}>🕐 {new Date(selectedNote.createdAt).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</div>}
+                </div>
+              </div>
+
+              {notes.findIndex(n => n.id === selectedNote.id) === 0 && mediaFiles.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div className="card-title" style={{ marginBottom: 12 }}>📎 Attached Media ({mediaFiles.length})</div>
+                  <MediaFileGrid items={mediaFiles} onDelete={handleDeleteMedia} canDelete={canEdit} variant="gallery" />
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setSelectedNote(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -628,7 +838,7 @@ function PdfViewerModal({ invoice, companyData, caseData, onClose }) {
   const handlePrint = () => window.print();
 
   return (
-    <div className="pdf-modal-overlay" onClick={onClose}>
+    <div className="pdf-modal-overlay">
       <div className="pdf-modal" onClick={e => e.stopPropagation()}>
         <div className="pdf-modal-header">
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -887,7 +1097,8 @@ export default function CaseDetail() {
   const { user, canAccess } = useAuth();
   const [caseData, setCaseData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_CaseDetail') || 'overview');
+  useEffect(() => { sessionStorage.setItem('activeTab_CaseDetail', activeTab); }, [activeTab]);
   const [showTransition, setShowTransition] = useState(false);
   const [transitionForm, setTransitionForm] = useState({ stage:'', notes:'', timeSpentMinutes:0 });
   const [transitioning, setTransitioning] = useState(false);
@@ -905,6 +1116,8 @@ export default function CaseDetail() {
   const [editingLogId, setEditingLogId] = useState(null);
   const [editLogText, setEditLogText] = useState('');
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [solutionNotes, setSolutionNotes] = useState([]);
+  const [expandedTimelineSolutions, setExpandedTimelineSolutions] = useState({});
 
   const companyData = (() => { try { return JSON.parse(localStorage.getItem('crm_company')) || {}; } catch { return {}; }})();
 
@@ -975,6 +1188,13 @@ export default function CaseDetail() {
       .then(d => {
         setCaseData(d);
         setEditForm(d);
+        // Load solution notes for timeline
+        casesApi.getSolution(id).then(sol => {
+          const parsed = sol.notes?.length
+            ? sol.notes
+            : (sol.textNote ? [{ id: 'legacy', text: sol.textNote, heading: 'Solution Note', createdAt: null }] : []);
+          setSolutionNotes(parsed);
+        }).catch(() => {});
         // Load invoices for this case using case_id
         fetch(`${BASE_URL}/accounting/invoices?case_id=${encodeURIComponent(id)}`, {
           headers: { Authorization: `Bearer ${getToken()}` }
@@ -991,11 +1211,12 @@ export default function CaseDetail() {
     if (!timelineNote.trim()) return;
     setSavingNote(true);
     try {
-      await fetch(`${BASE_URL}/cases/${id}/timeline-notes`, {
+      const res = await fetch(`${BASE_URL}/cases/${id}/timeline-notes`, {
         method:'POST',
         headers:{ Authorization:`Bearer ${getToken()}`, 'Content-Type':'application/json' },
         body: JSON.stringify({ notes: timelineNote }),
       });
+      if (!res.ok) throw new Error('Failed to add timeline note');
       const updated = await casesApi.get(id);
       setCaseData(updated);
       setTimelineNote('');
@@ -1119,158 +1340,12 @@ export default function CaseDetail() {
   };
 
   const printInwardForm = () => {
-    const co = companyData;
-    const coName = co.name || 'RecoverLab CRM';
-    const coAddr = co.address || '';
-    const coPhone = co.phone || '';
-    const coEmail = co.email || '';
-    const coGstin = co.gstin || '';
-    const clientName = `${caseData.first_name} ${caseData.last_name}`;
-    const failureTypes = ((caseData.failure_types?.length) ? caseData.failure_types : (caseData.failure_type ? [caseData.failure_type] : [])).join(', ').toUpperCase() || '—';
-    const symptoms = (caseData.symptoms || []).join(', ') || '—';
-    const caseDate = caseData.created_at ? new Date(caseData.created_at).toLocaleString('en-IN') : new Date().toLocaleString('en-IN');
-    const savedTnc = co.tnc_image || '';
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Inward Form</title>
-    <style id="pageStyle">@page{size:A4 portrait;margin:0}</style>
-    <style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      @media print{
-        .controls,.cut-hint{display:none!important}
-        body{background:#fff;padding:0}
-        .page-wrap{padding:0}
-        .page1{page-break-after:always}
-        .page2{display:${savedTnc ? 'flex' : 'none'}!important;width:100vw;height:100vh;align-items:center;justify-content:center;page-break-before:always}
-        .page2 img{max-width:100%;max-height:100vh;object-fit:contain}
-        body{print-color-adjust:exact;-webkit-print-color-adjust:exact}
-      }
-      body{font-family:Arial,sans-serif;background:#e2e8f0;min-height:100vh}
-      .controls{background:#1e293b;color:#f8fafc;padding:10px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;position:sticky;top:0;z-index:99}
-      .controls strong{font-size:13px;color:#00d4ff}
-      .controls label{display:flex;align-items:center;gap:5px;color:#cbd5e1;white-space:nowrap}
-      .controls select{background:#334155;color:#f1f5f9;border:1px solid #475569;padding:5px 8px;border-radius:4px;font-size:11px;cursor:pointer}
-      .tnc-label{background:#334155;color:#94a3b8;border:1px solid #475569;padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;white-space:nowrap}
-      .tnc-label:hover{background:#475569;color:#f1f5f9}
-      .btn-print{background:#00d4ff;color:#0f172a;border:none;padding:7px 18px;border-radius:5px;font-weight:800;font-size:12px;cursor:pointer;margin-left:auto}
-      .btn-close{background:rgba(255,255,255,0.08);color:#94a3b8;border:1px solid #475569;padding:6px 12px;border-radius:5px;font-size:11px;cursor:pointer}
-      .btn-clear{background:rgba(239,68,68,0.18);color:#f87171;border:1px solid rgba(239,68,68,0.3);padding:5px 9px;border-radius:4px;font-size:11px;cursor:pointer}
-      .tnc-badge{font-size:10px;color:#34d399;font-weight:700;white-space:nowrap}
-      .page-wrap{padding:20px;display:flex;flex-direction:column;align-items:center;gap:20px}
-      .page1{background:#fff;width:794px;max-width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.15);padding:36px 44px}
-      .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #0284c7;padding-bottom:14px;margin-bottom:20px}
-      .co-name{font-size:21px;font-weight:900;color:#0284c7}
-      .co-meta{font-size:10px;color:#64748b;margin-top:3px;line-height:1.5}
-      .form-title{font-size:17px;font-weight:900;text-transform:uppercase;text-align:right;color:#111;letter-spacing:0.04em}
-      .case-ref{font-size:13px;font-weight:800;text-align:right;margin-top:5px;font-family:'Courier New',monospace;color:#0284c7}
-      .form-date{font-size:10px;color:#64748b;text-align:right;margin-top:3px}
-      .sec-title{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:0.12em;background:#0f172a;color:#00d4ff;padding:3px 10px;display:inline-block;border-radius:3px;margin:14px 0 8px}
-      table{width:100%;border-collapse:collapse;margin-bottom:4px}
-      th,td{border:1px solid #ddd;padding:7px 11px;font-size:11px;text-align:left}
-      th{background:#f1f5f9;font-weight:700;width:30%;color:#334155;font-size:10px;text-transform:uppercase;letter-spacing:0.04em}
-      .disclaimer{font-size:9px;color:#64748b;line-height:1.5;margin-top:16px;padding:8px 10px;background:#f8fafc;border-left:3px solid #0284c7;border-radius:3px}
-      .sig-row{display:flex;gap:20px;margin-top:28px}
-      .sig-box{flex:1;text-align:center;font-size:10px;font-weight:700;color:#334155}
-      .sig-line{border-top:1.5px solid #334155;margin-top:44px;padding-top:6px}
-      .page2-screen{background:#fff;width:794px;max-width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.15);min-height:200px;display:flex;align-items:center;justify-content:center;border:2px dashed #cbd5e1}
-      .page2-screen img{max-width:100%;max-height:600px;object-fit:contain}
-      .no-tnc{color:#94a3b8;font-size:13px;padding:40px;text-align:center}
-      .cut-hint{text-align:center;font-size:10px;color:#94a3b8;margin-top:6px}
-      .page2{display:none}
-    </style></head>
-    <body>
-    <div class="controls">
-      <strong>🖨 Inward Form</strong>
-      <label>Paper:<select id="sz" onchange="upd()">
-        <option value="A4">A4</option><option value="A3">A3</option>
-        <option value="A5">A5</option><option value="letter">Letter</option>
-      </select></label>
-      <label>Orientation:<select id="or" onchange="upd()">
-        <option value="portrait">Portrait</option><option value="landscape">Landscape</option>
-      </select></label>
-      <label class="tnc-label" for="tncFile">📎 Upload T&amp;C Image (Page 2)</label>
-      <input type="file" id="tncFile" accept="image/*" style="display:none" onchange="loadTnc(this)">
-      <span class="tnc-badge" id="tncBadge" style="display:${savedTnc ? 'inline' : 'none'}">✓ T&amp;C loaded</span>
-      <button class="btn-clear" id="tncClearBtn" style="display:${savedTnc ? 'inline' : 'none'}" onclick="clearTnc()">✕ Clear T&amp;C</button>
-      <button class="btn-close" onclick="window.close()">✕ Close</button>
-      <button type="button" class="btn-print">🖨 Print</button>
-    </div>
-    <div class="page-wrap">
-      <div class="page1">
-        <div class="hdr">
-          <div>
-            <div class="co-name">${coName}</div>
-            <div class="co-meta">${coAddr}${coPhone ? ' | ' + coPhone : ''}${coEmail ? ' | ' + coEmail : ''}${coGstin ? ' | GSTIN: ' + coGstin : ''}</div>
-          </div>
-          <div>
-            <div class="form-title">📥 Inward Form / Receipt</div>
-            <div class="case-ref">Case # ${caseData.case_number}</div>
-            <div class="form-date">Date: ${caseDate}</div>
-          </div>
-        </div>
-        <div class="sec-title">Client Information</div>
-        <table><tbody>
-          <tr><th>Name</th><td>${clientName}</td><th>Phone</th><td>${caseData.phone || '—'}</td></tr>
-          <tr><th>Email</th><td colspan="3">${caseData.email || '—'}</td></tr>
-          ${caseData.company ? `<tr><th>Company</th><td colspan="3">${caseData.company}</td></tr>` : ''}
-        </tbody></table>
-        <div class="sec-title">Device Details</div>
-        <table><tbody>
-          <tr><th>Brand</th><td>${caseData.device_brand || '—'}</td><th>Model</th><td>${caseData.device_model || '—'}</td></tr>
-          <tr><th>Serial Number</th><td>${caseData.serial_number || '—'}</td><th>Capacity</th><td>${caseData.capacity_gb ? caseData.capacity_gb + ' GB' : '—'}</td></tr>
-          <tr><th>Interface</th><td>${caseData.interface || '—'}</td><th>Form Factor</th><td>${caseData.form_factor || '—'}</td></tr>
-        </tbody></table>
-        <div class="sec-title">Problem Description</div>
-        <table><tbody>
-          <tr><th>Failure Type(s)</th><td>${failureTypes}</td></tr>
-          <tr><th>Symptoms</th><td>${symptoms}</td></tr>
-          <tr><th>Initial Assessment</th><td>${caseData.initial_diagnosis || 'None provided'}</td></tr>
-        </tbody></table>
-        <div class="disclaimer"><strong>Disclaimer:</strong> This inward receipt acknowledges submission of the device for data recovery evaluation. All devices are handled in controlled environments. We bear no responsibility for prior data loss, tampering, or physical damage pre-existing at the time of submission.</div>
-        <div class="sig-row">
-          <div class="sig-box"><div class="sig-line">Client Signature</div></div>
-          <div class="sig-box"><div class="sig-line">Authorized Receiver</div></div>
-        </div>
-      </div>
-      <!-- T&C page preview on screen -->
-      <div class="page2-screen" id="tncScreen" style="display:${savedTnc ? 'flex' : 'none'}">
-        <img id="tncScreenImg" src="${savedTnc}" alt="Terms & Conditions"/>
-      </div>
-      <div class="no-tnc" id="noTncMsg" style="display:${savedTnc ? 'none' : 'block'}">
-        📄 Upload a T&amp;C image above → it will print as <strong>Page 2</strong>
-      </div>
-    </div>
-    <div class="cut-hint">Page 2 (T&amp;C) prints automatically if image is uploaded</div>
-    <!-- Print-only Page 2 -->
-    <div class="page2" id="tncPrint"><img id="tncPrintImg" src="${savedTnc}" alt="Terms and Conditions"/></div>
-    <script>
-      function upd(){var s=document.getElementById('sz').value,o=document.getElementById('or').value;document.getElementById('pageStyle').textContent='@page{size:'+s+' '+o+';margin:0}'}
-      function loadTnc(inp){
-        var f=inp.files[0]; if(!f)return;
-        var r=new FileReader();
-        r.onload=function(e){
-          var src=e.target.result;
-          document.getElementById('tncScreenImg').src=src;
-          document.getElementById('tncScreen').style.display='flex';
-          document.getElementById('noTncMsg').style.display='none';
-          document.getElementById('tncPrintImg').src=src;
-          document.getElementById('tncPrint').style.cssText='display:flex!important;width:100vw;height:100vh;align-items:center;justify-content:center;page-break-before:always';
-          document.getElementById('tncBadge').style.display='inline';
-          document.getElementById('tncClearBtn').style.display='inline';
-          try{var co=JSON.parse(localStorage.getItem('crm_company')||'{}');co.tnc_image=src;localStorage.setItem('crm_company',JSON.stringify(co));}catch(ex){}
-        };
-        r.readAsDataURL(f);
-      }
-      function clearTnc(){
-        document.getElementById('tncScreen').style.display='none';
-        document.getElementById('noTncMsg').style.display='block';
-        document.getElementById('tncPrint').style.display='none';
-        document.getElementById('tncBadge').style.display='none';
-        document.getElementById('tncClearBtn').style.display='none';
-        document.getElementById('tncPrintImg').src='';
-        document.getElementById('tncScreenImg').src='';
-        try{var co=JSON.parse(localStorage.getItem('crm_company')||'{}');delete co.tnc_image;localStorage.setItem('crm_company',JSON.stringify(co));}catch(ex){}
-      }
-    </script>
-    </body></html>`;
+    const mappedData = {
+      ...caseData,
+      quotation_amount: caseData.quotation_total || 0,
+      advance_amount: caseData.total_paid || 0,
+    };
+    const html = buildInwardFormHtml(mappedData, 'standard');
     openPrintPreviewWindow(html);
   };
 
@@ -1331,17 +1406,7 @@ export default function CaseDetail() {
         <option value="A5 landscape">A5 — Medium</option>
         <option value="A4 landscape">A4 — Large</option>
         <option value="A6 portrait">A6 — Small</option>
-        <option value="10cm 10cm">Square 10×10 cm</option>
-        <option value="15cm 15cm">Square 15×15 cm</option>
-        <option value="10cm 15cm">Postcard 10×15 cm</option>
-        <option value="letter landscape">Letter — Large</option>
-        <option value="custom">Custom…</option>
       </select></label>
-      <div class="custom-row" id="customRow">
-        W:<input type="number" id="cw" value="148" min="50" max="500">mm ×
-        H:<input type="number" id="ch" value="105" min="50" max="500">mm
-        <button onclick="updCustom()" style="background:#00d4ff;color:#0f172a;border:none;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer">Apply</button>
-      </div>
       <button class="btn-close" onclick="window.close()">✕ Close</button>
       <button type="button" class="btn-print">🖨 Print</button>
     </div>
@@ -1380,13 +1445,7 @@ export default function CaseDetail() {
     <script>
       function upd(){
         var v=document.getElementById('sz').value;
-        var cr=document.getElementById('customRow');
-        if(v==='custom'){cr.style.display='flex';}
-        else{cr.style.display='none';document.getElementById('pageStyle').textContent='@page{size:'+v+';margin:0}';}
-      }
-      function updCustom(){
-        var w=document.getElementById('cw').value,h=document.getElementById('ch').value;
-        document.getElementById('pageStyle').textContent='@page{size:'+w+'mm '+h+'mm;margin:0}';
+        document.getElementById('pageStyle').textContent='@page{size:'+v+';margin:0}';
       }
     </script>
     </body></html>`;
@@ -1612,7 +1671,7 @@ export default function CaseDetail() {
 
       {activeTab === 'photos' && <CasePhotosPanel caseId={id} />}
 
-      {activeTab === 'solution' && <SolutionPanel caseId={id} caseStage={caseData.stage} />}
+      {activeTab === 'solution' && <SolutionPanel caseId={id} caseStage={caseData.stage} caseData={caseData} />}
 
       {activeTab === 'smart-assist' && <SmartAssistPanel caseId={id} />}
 
@@ -1630,7 +1689,7 @@ export default function CaseDetail() {
 
       {activeTab === 'timeline' && (
         <div className="card">
-          <div className="card-title" style={{marginBottom:16}}> Workflow Timeline</div>
+          <div className="card-title" style={{marginBottom:16}}>⏱ Workflow Timeline</div>
           {/* Add manual note */}
           <div style={{ marginBottom:20, padding:'14px 16px', background:'var(--bg-elevated)', borderRadius:'var(--radius-md)', border:'1px solid var(--border-subtle)' }}>
             <div className="form-label" style={{ marginBottom:8 }}>Add Timeline Note</div>
@@ -1641,47 +1700,93 @@ export default function CaseDetail() {
               {savingNote?<><div className="spinner" style={{width:12,height:12}}/> Adding…</>:'Add Note'}
             </button>
           </div>
-          <div className="timeline">
-            {(caseData.workflowLogs||[]).map((log, i) => (
-              <div key={log.id} className="timeline-item">
-                <div className={`timeline-dot ${log.to_stage==='completed'||log.to_stage==='delivered'?'success':log.to_stage==='failed'?'danger':i===caseData.workflowLogs.length-1?'active':''}`}>
-                  {log.type==='note'?'📝':STAGE_ICONS[log.to_stage]||'📌'}
-                </div>
-                <div className="timeline-content" style={{flex:1}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                    <div>
-                      <div className="timeline-stage">{log.type==='note'?'Manual Note':log.to_stage?.replace(/_/g,' ')}</div>
-                      <div className="timeline-meta">
-                        {log.engineer_name && `by ${log.engineer_name}`}
-                        {log.time_spent_minutes > 0 && ` • ${log.time_spent_minutes}m`}
-                        {' • '}{new Date(log.created_at).toLocaleString('en-IN')}
+
+          {/* Merge workflow logs + solution notes into one sorted timeline */}
+          {(() => {
+            const workflowItems = (caseData.workflowLogs || []).map(log => ({ ...log, _type: 'workflow' }));
+            const solutionItems = solutionNotes.map(note => ({
+              id: note.id,
+              _type: 'solution',
+              created_at: note.createdAt,
+              heading: note.heading || 'Solution Note',
+              text: note.text,
+              createdByName: note.createdByName,
+            }));
+            const merged = [...workflowItems, ...solutionItems]
+              .filter(x => x.created_at)
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            if (!merged.length && !workflowItems.length) {
+              return <div className="empty-state" style={{padding:30}}><div className="empty-desc">No workflow events recorded yet</div></div>;
+            }
+            const allItems = merged.length ? merged : workflowItems;
+            return (
+              <div className="timeline">
+                {allItems.map((item, i) => {
+                  if (item._type === 'solution') {
+                    return (
+                      <div key={`sol-${item.id}`} className="timeline-item">
+                        <div className="timeline-dot success" style={{ background: 'rgba(0,212,255,0.15)', border:'1px solid rgba(0,212,255,0.4)', color:'var(--accent-primary)' }}>🏆</div>
+                        <div className="timeline-content" style={{flex:1}}>
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                            <div>
+                              <div className="timeline-stage" style={{ color:'var(--accent-primary)', display:'flex', alignItems:'center', gap:6 }}>
+                                {item.heading}
+                                <span style={{ fontSize:'0.6rem', padding:'1px 5px', background:'rgba(0,212,255,0.1)', border:'1px solid rgba(0,212,255,0.25)', borderRadius:999, color:'var(--accent-primary)' }}>Solution Documented</span>
+                              </div>
+                              <div className="timeline-meta">
+                                {item.createdByName && `by ${item.createdByName}`}
+                                {item.created_at && ` • ${new Date(item.created_at).toLocaleString('en-IN')}`}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  // Regular workflow log
+                  const log = item;
+                  return (
+                    <div key={log.id} className="timeline-item">
+                      <div className={`timeline-dot ${log.to_stage==='completed'||log.to_stage==='delivered'?'success':log.to_stage==='failed'?'danger':i===0?'active':''}`}>
+                        {(log.type==='note'||log.to_stage==='note')?'📝':STAGE_ICONS[log.to_stage]||'📌'}
+                      </div>
+                      <div className="timeline-content" style={{flex:1}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                          <div>
+                            <div className="timeline-stage">{(log.type==='note'||log.to_stage==='note')?'Manual Note':log.to_stage?.replace(/_/g,' ')}</div>
+                            <div className="timeline-meta">
+                              {log.engineer_name && `by ${log.engineer_name}`}
+                              {log.time_spent_minutes > 0 && ` • ${log.time_spent_minutes}m`}
+                              {' • '}{new Date(log.created_at).toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                          {log.notes && (
+                            <div style={{ display:'flex', gap:6, marginTop:4, justifyContent:'flex-end' }}>
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize:'0.65rem', padding:'2px 6px' }}
+                                onClick={() => handleEditLog(log.id, log.notes)}>✏️ Edit</button>
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize:'0.65rem', padding:'2px 6px', color:'var(--status-danger)' }}
+                                onClick={() => handleDeleteLog(log.id)}>🗑️</button>
+                            </div>
+                          )}
+                        </div>
+                        {editingLogId === log.id ? (
+                          <div style={{ marginTop:8, display:'flex', gap:6 }}>
+                            <textarea className="form-textarea" value={editLogText} onChange={e => setEditLogText(e.target.value)} style={{ flex:1, minHeight:60, fontSize:'0.78rem' }} />
+                            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                              <button className="btn btn-primary btn-sm" onClick={handleSaveLogEdit}>💾</button>
+                              <button className="btn btn-secondary btn-sm" onClick={() => setEditingLogId(null)}>✕</button>
+                            </div>
+                          </div>
+                        ) : (
+                          log.notes && <div className="timeline-notes">{log.notes}</div>
+                        )}
                       </div>
                     </div>
-                    {log.notes && (
-                      <div style={{ display:'flex', gap:6, marginTop:4, justifyContent:'flex-end' }}>
-                        <button className="btn btn-ghost btn-sm" style={{ fontSize:'0.65rem', padding:'2px 6px' }}
-                          onClick={() => handleEditLog(log.id, log.notes)}>✏️ Edit</button>
-                        <button className="btn btn-ghost btn-sm" style={{ fontSize:'0.65rem', padding:'2px 6px', color:'var(--status-danger)' }}
-                          onClick={() => handleDeleteLog(log.id)}>🗑️</button>
-                      </div>
-                    )}
-                  </div>
-                  {editingLogId === log.id ? (
-                    <div style={{ marginTop:8, display:'flex', gap:6 }}>
-                      <textarea className="form-textarea" value={editLogText} onChange={e => setEditLogText(e.target.value)} style={{ flex:1, minHeight:60, fontSize:'0.78rem' }} />
-                      <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                        <button className="btn btn-primary btn-sm" onClick={handleSaveLogEdit}>💾</button>
-                        <button className="btn btn-secondary btn-sm" onClick={() => setEditingLogId(null)}>✕</button>
-                      </div>
-                    </div>
-                  ) : (
-                    log.notes && <div className="timeline-notes">{log.notes}</div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-            ))}
-            {!caseData.workflowLogs?.length && <div className="empty-state" style={{padding:30}}><div className="empty-desc">No workflow events recorded yet</div></div>}
-          </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1776,7 +1881,7 @@ export default function CaseDetail() {
               ))}
             </div>
           )}
-          <div className="card">
+          <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{marginBottom:14}}> Payments</div>
             {caseData.payments?.length > 0 ? (
               <div style={{display:'flex',flexDirection:'column',gap:10}}>
@@ -1814,6 +1919,9 @@ export default function CaseDetail() {
             </div>
           )}
 
+          {/* Case Expenses Panel */}
+          <CaseExpensesPanel caseId={id} onExpenseAdded={() => casesApi.get(id).then(setCaseData)} />
+
           {/* Profit / Loss Summary */}
           {(caseData.total_purchase_cost > 0 || caseData.quotation_total > 0) && (
             <div className="card" style={{marginTop:16,border:'1px solid rgba(16,185,129,0.2)',background:'rgba(16,185,129,0.03)'}}>
@@ -1843,7 +1951,7 @@ export default function CaseDetail() {
 
       {/* Stage Transition Modal */}
       {showTransition && (
-        <div className="modal-overlay" onClick={() => setShowTransition(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Stages</h3>
@@ -1892,7 +2000,7 @@ export default function CaseDetail() {
 
       {/* Collect Payment Modal */}
       {showPayment && (
-        <div className="modal-overlay" onClick={() => setShowPayment(false)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header"><h3 className="modal-title"> Collect Payment — {caseData.case_number}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowPayment(false)}>✕</button></div>
             <div className="modal-body">
@@ -1909,7 +2017,7 @@ export default function CaseDetail() {
 
       {/* Edit Case Modal */}
       {showEditCase && (
-        <div className="modal-overlay" onClick={() => setShowEditCase(false)}>
+        <div className="modal-overlay">
           <div className="modal modal-xl" onClick={e => e.stopPropagation()}>
             <div className="modal-header"><h3 className="modal-title">✏️ Edit Case — {caseData.case_number}</h3><button className="btn btn-ghost btn-icon" onClick={() => setShowEditCase(false)}>✕</button></div>
             <div className="modal-body">
@@ -1957,7 +2065,7 @@ export default function CaseDetail() {
 
       {/* Transfer to Stock Modal */}
       {stockTransferItem !== null && (
-        <div className="modal-overlay" onClick={() => setStockTransferItem(null)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">🔄 Transfer Drive to Stock Inventory</h3>
@@ -2208,11 +2316,10 @@ function CommunicationLogPanel({ caseId, caseData }) {
                 <div style={{flex:1,minWidth:0}}>
                   {/* Show which message this reply is responding to */}
                   {entry.isReply && entry.replyToSummary && (
-                    <div style={{fontSize:'0.75rem',padding:'6px 10px',background:'rgba(139,92,246,0.08)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:6,marginBottom:8}}>
-                      <div style={{color:'#8b5cf6',fontWeight:600,marginBottom:2}}>↩ Replying to:</div>
-                      <div style={{color:'var(--text-secondary)',lineHeight:1.4}}>{entry.replyToSummary}</div>
-                      <div style={{fontSize:'0.65rem',color:'var(--text-muted)',marginTop:2}}>
-                        {new Date(entry.replyToCreatedAt).toLocaleString('en-IN')}
+                    <div style={{fontSize:'0.75rem',padding:'10px 12px',background:'rgba(139,92,246,0.15)',border:'2px solid rgba(139,92,246,0.35)',borderRadius:8,marginBottom:12}}>
+                      <div style={{color:'#d8b4fe',fontWeight:700,marginBottom:4,fontSize:'0.7rem',textTransform:'uppercase',letterSpacing:'0.5px'}}>↩ Replying to your message:</div>
+                      <div style={{color:'#e9d5ff',lineHeight:1.5,background:'rgba(0,0,0,0.2)',padding:'8px 10px',borderRadius:4,fontSize:'0.8rem'}}>
+                        "{entry.replyToSummary}"
                       </div>
                     </div>
                   )}
@@ -2333,9 +2440,6 @@ function CollectPaymentForm({ caseId, caseData, onClose, onDone }) {
     if (grossAmount < 0) {
       return 'Amount cannot be negative.';
     }
-    if (finalAmount <= 0) {
-      return 'Final collection amount must be greater than zero after discount.';
-    }
     if (finalAmount > remainingBalance) {
       return `Amount cannot exceed remaining balance of ${formatCurrency(remainingBalance)}.`;
     }
@@ -2349,16 +2453,32 @@ function CollectPaymentForm({ caseId, caseData, onClose, onDone }) {
 
     setLoading(true);
     try {
-      await fetch(`${BASE_URL}/cases/${caseId}/payments`, {
+      const discountPercentage = form.discount_type === 'percent' 
+        ? Math.min(parseFloat(form.discount_value) || 0, 100)
+        : form.discount_type === 'flat' && grossAmount > 0
+          ? (discountAmt / grossAmount * 100).toFixed(2)
+          : 0;
+
+      const response = await fetch(`${BASE_URL}/payments`, {
         method:'POST',
         headers:{ Authorization:`Bearer ${getToken()}`, 'Content-Type':'application/json' },
         body: JSON.stringify({
           ...form,
+          case_id: caseId,
           amount: finalAmount,
           gross_amount: grossAmount,
           discount_amount: discountAmt,
+          discount_percentage: discountPercentage,
         }),
       });
+      
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to record payment');
+      }
+      
+      // Show success message with payment details
+      alert(`✅ Payment Recorded!\n\nGross: ₹${grossAmount.toLocaleString('en-IN')}\nDiscount: ${discountPercentage}%\nCollectable: ₹${finalAmount.toLocaleString('en-IN')}\n\nRemaining Pending: ₹${(result.remaining_pending || 0).toLocaleString('en-IN')}`);
       onDone();
     } catch(e) {
       setValidationError(e?.message || 'Unable to record payment for this case.');
@@ -2630,7 +2750,7 @@ function InvoiceModal({ caseData, companyData, caseInvoices, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">🖨 Print Invoice</h3>

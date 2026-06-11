@@ -401,7 +401,7 @@ const FAILURE_TYPES = [
 ];
 
 //  Inward Print (exported so CasesPage can use too) 
-function buildInwardFormHtml(caseData, template = "standard") {
+export function buildInwardFormHtml(caseData, template = "standard") {
   const co = (() => {
     try {
       return JSON.parse(
@@ -563,6 +563,15 @@ function buildInwardFormHtml(caseData, template = "standard") {
     </div>
   </div>
 
+  ${caseData.engineer_name ? `
+  <div class="section full" style="margin-bottom:10px;">
+    <div class="sec-title"> Assigned Engineer</div>
+    <table class="fields">
+      <tr><td class="fl">Name</td><td class="fv">${caseData.engineer_name}</td></tr>
+      <tr><td class="fl">Email</td><td class="fv">${caseData.engineer_email || '—'}</td></tr>
+    </table>
+  </div>` : ''}
+
   ${
     total > 0 || adv > 0
       ? `
@@ -625,7 +634,7 @@ function buildInwardFormHtml(caseData, template = "standard") {
 </script>
 </body></html>`;
 
-  openPrintPreviewWindow(html);
+  return html;
 }
 
 export function printInwardForm(caseData, template = "standard") {
@@ -2095,6 +2104,10 @@ export default function NewCaseModal({ onClose, onCreated }) {
         advance_amount: form.advance_amount ? parseFloat(form.advance_amount) : undefined,
         customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
       };
+      console.log('[NewCaseModal] Case creation payload - customFields:', payload.customFields);
+      if (payload.customFields) {
+        console.log('[NewCaseModal] Custom field keys:', Object.keys(payload.customFields));
+      }
       if (payload.capacity === "__others__" && form.selected_custom_capacity) {
         payload.capacity = form.selected_custom_capacity;
       }
@@ -2102,8 +2115,23 @@ export default function NewCaseModal({ onClose, onCreated }) {
       delete payload.capacity;
       delete payload.failure_types;
       // Don't send raw image data to backend (too heavy), store reference
-      const images = form.images || [];
-      const attachments = form.attachments || [];
+      // Ensure images is always an array
+      let images = [];
+      if (Array.isArray(form.images)) {
+        images = form.images;
+      } else if (form.images && typeof form.images === 'object') {
+        // If it's an object, convert to array
+        images = Object.values(form.images).filter(img => img && img.name && img.data);
+      }
+      
+      let attachments = [];
+      if (Array.isArray(form.attachments)) {
+        attachments = form.attachments;
+      } else if (form.attachments && typeof form.attachments === 'object') {
+        // If it's an object, convert to array
+        attachments = Object.values(form.attachments);
+      }
+      
       delete payload.images;
       delete payload.attachments;
 
@@ -2127,25 +2155,35 @@ export default function NewCaseModal({ onClose, onCreated }) {
       }
 
       // Store images in localStorage keyed by case id (demo mode)
-      if (images.length > 0) {
+      if (Array.isArray(images) && images.length > 0) {
         try {
           localStorage.setItem(
             `case_images_${newCase.id}`,
-            JSON.stringify(images.map((i) => ({ name: i.name, data: i.data }))),
+            JSON.stringify(images.map((i) => ({ name: i?.name || 'image', data: i?.data || '' }))),
           );
-        } catch {}
+        } catch (e) {
+          console.warn('Failed to store images:', e);
+        }
       }
-      if (attachments.length > 0) {
+      if (Array.isArray(attachments) && attachments.length > 0) {
         try {
           localStorage.setItem(
             `case_files_${newCase.id}`,
             JSON.stringify(attachments),
           );
-        } catch {}
+        } catch (e) {
+          console.warn('Failed to store attachments:', e);
+        }
       }
 
+      const assignedEng = engineers.find(e => e.id === (form.assigned_engineer || payload.assigned_engineer));
+      const pdfData = {
+        ...newCase, ...payload, images,
+        engineer_name: assignedEng?.full_name || null,
+        engineer_email: assignedEng?.email || null,
+      };
       try {
-        const pdfBlob = await generateInwardPdfBlob({ ...newCase, ...payload, images }, printTemplate);
+        const pdfBlob = await generateInwardPdfBlob(pdfData, printTemplate);
         const file = new File([pdfBlob], `${newCase.case_number || newCase.id}-inward.pdf`, {
           type: 'application/pdf',
         });
@@ -2165,7 +2203,7 @@ export default function NewCaseModal({ onClose, onCreated }) {
 
       onCreated(newCase);
       onClose();
-      printInwardForm({ ...newCase, ...payload, images }, printTemplate);
+      printInwardForm(pdfData, printTemplate);
     } catch (err) {
       setError(err.message || "Failed to create case");
     } finally {

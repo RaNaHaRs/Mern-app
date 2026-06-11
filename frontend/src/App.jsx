@@ -74,12 +74,33 @@ function LoadingScreen() {
 }
 
 // ── Sidebar ────────────────────────────────────────────────────
-function Sidebar({ open, onClose, branding }) {
+function Sidebar({ open, collapsed, onClose, branding }) {
   const { user, logout, isSuperAdmin, isPlatformStaff, isOwner, isAdmin, hasPermission } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [collapsedTooltip, setCollapsedTooltip] = useState({ label: '', top: 0, left: 0, visible: false });
+
+  useEffect(() => {
+    if (!collapsed) {
+      setCollapsedTooltip((tooltip) => ({ ...tooltip, visible: false }));
+    }
+  }, [collapsed]);
 
   const handleLogout = async () => { await logout(); navigate('/login'); };
+  const showCollapsedTooltip = (event, label) => {
+    if (!collapsed) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const top = Math.min(Math.max(rect.top + rect.height / 2, 24), window.innerHeight - 24);
+    setCollapsedTooltip({
+      label,
+      top,
+      left: rect.right + 12,
+      visible: true,
+    });
+  };
+  const hideCollapsedTooltip = () => {
+    setCollapsedTooltip((tooltip) => ({ ...tooltip, visible: false }));
+  };
 
   const hasSuperAdminAccess = isSuperAdmin || isPlatformStaff;
 
@@ -149,7 +170,7 @@ function Sidebar({ open, onClose, branding }) {
   return (
     <>
       <div className={`sidebar-overlay${open ? ' visible' : ''}`} onClick={onClose} />
-      <nav className={`sidebar${open ? ' open' : ''}`}>
+      <nav className={`sidebar${open ? ' open' : ''}${collapsed ? ' collapsed' : ''}`}>
           <div className="sidebar-logo">
           <div className="logo-mark">
             <div className="logo-icon" style={{ overflow: 'hidden', position: 'relative', background: branding?.logo_url ? 'none' : undefined, boxShadow: branding?.logo_url ? 'none' : undefined }}>
@@ -165,42 +186,53 @@ function Sidebar({ open, onClose, branding }) {
         </div>
 
         <div className="sidebar-nav">
-          {nav.map((group, i) => (
-            <div key={`${i}-${group.group}`} className="nav-section">
-              <div className="nav-section-label">{group.group}</div>
-              {group.items.map((item, j) => (
-                <div key={`${item.to}-${j}`}>
-                  <NavLink
-                    to={item.to}
-                    end={item.to === '/' || !!item.end}
-                    className={({ isActive: navActive }) => {
-                      const active = item.to === '/super-admin' ? navActive && item.tab === (sessionStorage.getItem('sa_active_tab') || 'dashboard') : navActive;
-                      return `nav-item${active ? ' active' : ''}`;
-                    }}
-                    onClick={() => { if (item.tab) sessionStorage.setItem('sa_active_tab', item.tab); if(!item.subItems) onClose(); }}
-                  >
-                    <span className="nav-icon">{item.icon}</span>
-                    {item.label}
-                  </NavLink>
-                  {item.subItems && (
-                    <div className="nav-sub-items" style={{ paddingLeft: '24px' }}>
-                      {item.subItems.map((sub, k) => (
-                        <NavLink
-                          key={`${sub.to}-${k}`}
-                          to={sub.to}
-                          className="nav-item"
-                          onClick={onClose}
-                          style={{ fontSize: '0.75rem' }}
-                        >
-                          {sub.label}
-                        </NavLink>
-                      ))}
+          {(() => {
+            let staggerIdx = 0;
+            return nav.map((group, i) => (
+              <div key={`${i}-${group.group}`} className="nav-section">
+                <div className="nav-section-label">{group.group}</div>
+                {group.items.map((item, j) => {
+                  const idx = staggerIdx++;
+                  return (
+                    <div key={`${item.to}-${j}`} style={{ '--stagger-order': idx }}>
+                      <NavLink
+                        to={item.to}
+                        end={item.to === '/' || !!item.end}
+                        aria-label={item.label}
+                        className={({ isActive: navActive }) => {
+                          const active = item.to === '/super-admin' ? navActive && item.tab === (sessionStorage.getItem('sa_active_tab') || 'dashboard') : navActive;
+                          return `nav-item${active ? ' active' : ''}`;
+                        }}
+                        onClick={() => { if (item.tab) sessionStorage.setItem('sa_active_tab', item.tab); if(!item.subItems) onClose(); }}
+                        onMouseEnter={(event) => showCollapsedTooltip(event, item.label)}
+                        onMouseLeave={hideCollapsedTooltip}
+                        onFocus={(event) => showCollapsedTooltip(event, item.label)}
+                        onBlur={hideCollapsedTooltip}
+                      >
+                        <span className="nav-icon">{item.icon}</span>
+                        <span className="nav-label">{item.label}</span>
+                      </NavLink>
+                      {item.subItems && (
+                        <div className="nav-sub-items" style={{ paddingLeft: '24px' }}>
+                          {item.subItems.map((sub, k) => (
+                            <NavLink
+                              key={`${sub.to}-${k}`}
+                              to={sub.to}
+                              className="nav-item"
+                              onClick={onClose}
+                              style={{ fontSize: '0.75rem' }}
+                            >
+                              <span className="nav-label">{sub.label}</span>
+                            </NavLink>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
+                  );
+                })}
+              </div>
+            ));
+          })()}
         </div>
 
         <div className="sidebar-footer">
@@ -222,16 +254,24 @@ function Sidebar({ open, onClose, branding }) {
             )}
           </div>
           <button onClick={handleLogout} title="Sign out">
-            {Icons.logout} Logout
+            {Icons.logout}<span className="nav-label"> Logout</span>
           </button>
         </div>
       </nav>
+      <div
+        className={`collapsed-nav-tooltip${collapsedTooltip.visible ? ' visible' : ''}`}
+        style={{ top: collapsedTooltip.top, left: collapsedTooltip.left }}
+        role="tooltip"
+        aria-hidden={!collapsedTooltip.visible}
+      >
+        {collapsedTooltip.label}
+      </div>
     </>
   );
 }
 
 // ── Header ─────────────────────────────────────────────────────
-function Header() {
+function Header({ onToggleSidebar, sidebarExpanded }) {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { fontSize, setFontSize } = useFontSize();
@@ -268,6 +308,14 @@ function Header() {
         </div>
       )}
       <header className="app-header">
+        <button
+          className={`hamburger-btn${sidebarExpanded ? ' expanded' : ''}`}
+          onClick={onToggleSidebar}
+          title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+          aria-label={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
         <h1 className="page-title">{title}</h1>
         <div className="header-actions">
           <div className="font-size-toggle">
@@ -280,9 +328,6 @@ function Header() {
             title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
             {theme === 'dark' ? Icons.moon : Icons.sun}
           </button>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-          </div>
         </div>
       </header>
     </>
@@ -324,7 +369,16 @@ function ProtectedRoute({ children }) {
 // ── Main App Layout ────────────────────────────────────────────
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    const stored = localStorage.getItem('sidebar_expanded');
+    return stored === null ? true : stored === 'true';
+  });
   const [branding, setBranding] = useState(window.__branding || null);
+
+  useEffect(() => {
+    localStorage.setItem('sidebar_expanded', sidebarExpanded);
+  }, [sidebarExpanded]);
+
   const { isSuperAdmin, impersonating, exitImpersonation } = useAuth();
   const hasOverride = !!sessionStorage.getItem('accessTokenOverride');
   const showImpersonationBanner = impersonating || hasOverride;
@@ -349,12 +403,23 @@ function AppLayout() {
           <button onClick={exitImpersonation}>Return to Super Admin</button>
         </div>
       )}
-      <button className="hamburger-btn" onClick={() => setSidebarOpen(o => !o)}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} branding={branding} />
-      <div className="main-content">
-        <Header />
+      <Sidebar
+        open={sidebarOpen}
+        collapsed={!sidebarExpanded}
+        onClose={() => setSidebarOpen(false)}
+        branding={branding}
+      />
+      <div className={`main-content${!sidebarExpanded ? ' sidebar-collapsed' : ''}`}>
+        <Header
+          onToggleSidebar={() => {
+            if (window.innerWidth <= 768) {
+              setSidebarOpen(o => !o);
+            } else {
+              setSidebarExpanded(prev => !prev);
+            }
+          }}
+          sidebarExpanded={sidebarExpanded}
+        />
         <div className="page-content">
           <React.Suspense fallback={<LoadingScreen />}>
             <Routes>

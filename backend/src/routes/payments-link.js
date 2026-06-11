@@ -14,8 +14,10 @@ const logger = require('../config/logger');
 const { query } = require('../config/database');
 const { authenticate, requireSuperAdminPermission } = require('../middleware/auth');
 
-// Load Razorpay service
+// Load services
 const razorpayService = require('../services/razorpayService');
+const emailService = require('../services/emailService');
+const { logActivity } = require('../utils/activityLogger');
 
 // ═══════════════════════════════════════════════════════════════
 // HELPER: Load Razorpay Credentials
@@ -136,6 +138,114 @@ router.post('/generate',
 
       logger.info('Payment link generated', { linkId, paymentLink });
 
+      // Auto-send email if customer email provided
+      let emailSent = false;
+      let emailError = null;
+      if (customer_email) {
+        try {
+          const emailResult = await emailService.sendPaymentLink({
+            to: customer_email,
+            customerName: customer_name || 'Customer',
+            paymentLink,
+            amount,
+            planLabel: plan_label || plan_key,
+            description: description || '',
+          });
+
+          if (emailResult.success) {
+            emailSent = true;
+            
+            // Track email delivery
+            await query(
+              `INSERT INTO payment_link_email_tracking (
+                payment_link_id, recipient_email, email_type, status, message_id, sent_at
+              ) VALUES ($1, $2, 'payment_link', 'sent', $3, NOW())`,
+              [linkId, customer_email, emailResult.messageId || null]
+            );
+
+            // Update payment link email status
+            await query(
+              `UPDATE payment_links SET email_sent_at = NOW(), email_status = 'sent' WHERE id = $1`,
+              [linkId]
+            );
+
+            // Log activity
+            await logActivity({
+              user: req.user,
+              action: 'PAYMENT_LINK_EMAIL_SENT',
+              module: 'payments',
+              resourceType: 'payment_link',
+              resourceId: linkId,
+              title: 'Payment Link Email Sent',
+              description: `Payment link email sent to ${customer_email}`,
+              metadata: {
+                payment_link_id: linkId,
+                recipient_email: customer_email,
+                customer_name,
+                amount,
+                plan_key,
+                message_id: emailResult.messageId,
+              },
+            });
+
+            logger.info('Payment link email sent', { email: customer_email, linkId, messageId: emailResult.messageId });
+          } else {
+            emailError = emailResult.error;
+            
+            // Track failed email delivery
+            await query(
+              `INSERT INTO payment_link_email_tracking (
+                payment_link_id, recipient_email, email_type, status, error_message
+              ) VALUES ($1, $2, 'payment_link', 'failed', $3)`,
+              [linkId, customer_email, emailError]
+            );
+
+            // Update payment link email status
+            await query(
+              `UPDATE payment_links SET email_status = 'failed' WHERE id = $1`,
+              [linkId]
+            );
+
+            // Log activity for failed email
+            await logActivity({
+              user: req.user,
+              action: 'PAYMENT_LINK_EMAIL_FAILED',
+              module: 'payments',
+              resourceType: 'payment_link',
+              resourceId: linkId,
+              title: 'Payment Link Email Failed',
+              description: `Failed to send payment link email to ${customer_email}: ${emailError}`,
+              metadata: {
+                payment_link_id: linkId,
+                recipient_email: customer_email,
+                error: emailError,
+              },
+            });
+
+            logger.warn('Failed to send payment link email', { 
+              email: customer_email, 
+              error: emailError 
+            });
+          }
+        } catch (emailErr) {
+          emailError = emailErr.message;
+          
+          // Track unexpected email error
+          await query(
+            `INSERT INTO payment_link_email_tracking (
+              payment_link_id, recipient_email, email_type, status, error_message
+            ) VALUES ($1, $2, 'payment_link', 'failed', $3)`,
+            [linkId, customer_email, emailError]
+          );
+
+          logger.error('Unexpected error sending payment link email', { 
+            email: customer_email, 
+            error: emailErr.message,
+            stack: emailErr.stack
+          });
+        }
+      }
+
       res.json({
         link_id: linkId,
         payment_link: paymentLink,
@@ -146,7 +256,9 @@ router.post('/generate',
         status: 'active',
         created_at: linkResult.rows[0].created_at,
         customer_email,
-        customer_name
+        customer_name,
+        email_sent: emailSent,
+        email_error: emailError
       });
     } catch (err) {
       logger.error('Payment link generation error', { error: err.message, stack: err.stack });
@@ -156,8 +268,40 @@ router.post('/generate',
 );
 
 // ═══════════════════════════════════════════════════════════════
-// GET /api/payment-link/:link_id
-// Get payment link details and status
+// GET /api/payment-link/:link_id/email-status
+// Get email delivery status for a payment link
+// ═══════════════════════════════════════════════════════════════
+
+router.get('/:link_id/email-status', authenticate, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT 
+        id,
+        payment_link_id,
+        recipient_email,
+        email_type,
+        status,
+        message_id,
+        error_message,
+        sent_at,
+        delivered_at,
+        created_at
+      FROM payment_link_email_tracking 
+      WHERE payment_link_id = $1 
+      ORDER BY created_at DESC`,
+      [req.params.link_id]
+    );
+
+    res.json({
+      link_id: req.params.link_id,
+      email_tracking: result.rows
+    });
+  } catch (err) {
+    logger.error('Failed to fetch email tracking', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 
 router.get('/:link_id', authenticate, async (req, res) => {
@@ -194,9 +338,119 @@ router.get('/:link_id', authenticate, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// POST /api/payment-link/:link_id/checkout
-// Convert payment link to Razorpay checkout order
-// This is called when user wants to pay via the payment link
+// POST /api/payment-link/:link_id/resend-email
+// Resend payment link email to customer
+// ═══════════════════════════════════════════════════════════════
+
+router.post('/:link_id/resend-email',
+  authenticate,
+  requireSuperAdminPermission('payments', 'create'),
+  [
+    body('email').isEmail().withMessage('Valid email required'),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
+
+    try {
+      const { email } = req.body;
+
+      // Get payment link
+      const linkResult = await query(
+        `SELECT * FROM payment_links WHERE id = $1`,
+        [req.params.link_id]
+      );
+
+      if (!linkResult.rows.length) {
+        return res.status(404).json({ error: 'Payment link not found' });
+      }
+
+      const link = linkResult.rows[0];
+      const baseUrl = process.env.FRONTEND_URL || 'https://app.recoverlab.in';
+      const paymentLink = `${baseUrl}/payment/${link.id}`;
+
+      // Send email
+      let emailSent = false;
+      let emailError = null;
+
+      try {
+        const emailResult = await emailService.sendPaymentLink({
+          to: email,
+          customerName: link.customer_name || 'Customer',
+          paymentLink,
+          amount: link.amount,
+          planLabel: link.plan_label || link.plan_key,
+          description: link.description || '',
+        });
+
+        if (emailResult.success) {
+          emailSent = true;
+
+          // Track email delivery
+          await query(
+            `INSERT INTO payment_link_email_tracking (
+              payment_link_id, recipient_email, email_type, status, message_id, sent_at
+            ) VALUES ($1, $2, 'payment_link_resend', 'sent', $3, NOW())`,
+            [link.id, email, emailResult.messageId || null]
+          );
+
+          // Log activity
+          await logActivity({
+            user: req.user,
+            action: 'PAYMENT_LINK_EMAIL_RESENT',
+            module: 'payments',
+            resourceType: 'payment_link',
+            resourceId: link.id,
+            title: 'Payment Link Email Resent',
+            description: `Payment link email resent to ${email}`,
+            metadata: {
+              payment_link_id: link.id,
+              recipient_email: email,
+              message_id: emailResult.messageId,
+            },
+          });
+
+          logger.info('Payment link email resent', { email, linkId: link.id });
+        } else {
+          emailError = emailResult.error;
+
+          // Track failed email delivery
+          await query(
+            `INSERT INTO payment_link_email_tracking (
+              payment_link_id, recipient_email, email_type, status, error_message
+            ) VALUES ($1, $2, 'payment_link_resend', 'failed', $3)`,
+            [link.id, email, emailError]
+          );
+
+          logger.warn('Failed to resend payment link email', { email, error: emailError });
+        }
+      } catch (emailErr) {
+        emailError = emailErr.message;
+        await query(
+          `INSERT INTO payment_link_email_tracking (
+            payment_link_id, recipient_email, email_type, status, error_message
+          ) VALUES ($1, $2, 'payment_link_resend', 'failed', $3)`,
+          [link.id, email, emailError]
+        );
+        logger.error('Error resending payment link email', { email, error: emailErr.message });
+      }
+
+      res.json({
+        link_id: link.id,
+        email,
+        email_sent: emailSent,
+        email_error: emailError,
+        message: emailSent 
+          ? 'Payment link email sent successfully' 
+          : `Failed to send email: ${emailError}`
+      });
+    } catch (err) {
+      logger.error('Resend email error', { error: err.message });
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 // ═══════════════════════════════════════════════════════════════
 
 router.post('/:link_id/checkout',

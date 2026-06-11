@@ -34,6 +34,8 @@ const chartOptions = {
   },
 };
 
+const getChartBorderColor = (theme) => theme === 'light' ? 'transparent' : '#1a2235';
+
 function createChartOptions(theme, extra = {}) {
   const themeIsDark = theme !== 'light';
   return {
@@ -75,20 +77,21 @@ function useChartRefresh(chartRef, deps) {
 export function StageDistributionChart({ data = [] }) {
   if (!data.length) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>No stage data available</div>;
   
+  const { theme } = useTheme();
+  const chartBorderColor = getChartBorderColor(theme);
   const total = data.reduce((s, d) => s + parseInt(d.count), 0);
   const chartData = {
     labels: data.map(d => d.stage?.replace(/_/g, ' ') || 'Unknown'),
     datasets: [{
       data: data.map(d => parseInt(d.count)),
       backgroundColor: data.map(d => STAGE_COLORS_HEX[d.stage] || '#94a3b8'),
-      borderColor: 'var(--bg-card)',
+      borderColor: chartBorderColor,
       borderWidth: 3,
       hoverBorderWidth: 4,
       hoverOffset: 8,
     }],
   };
 
-  const { theme } = useTheme();
   const chartRef = useRef(null);
   const options = useMemo(() => createChartOptions(theme, {
     plugins: {
@@ -117,6 +120,7 @@ export function RevenueTrendChart({ data = [] }) {
   if (!data.length) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>No revenue data</div>;
 
   const { theme } = useTheme();
+  const chartBorderColor = getChartBorderColor(theme);
   const chartRef = useRef(null);
   const formatDate = (value) => {
     const dateValue = value?.date ?? value?.month ?? value;
@@ -138,7 +142,7 @@ export function RevenueTrendChart({ data = [] }) {
       borderWidth: 2,
       tension: 0.4,
       pointBackgroundColor: 'var(--accent-primary)',
-      pointBorderColor: 'var(--bg-card)',
+      pointBorderColor: chartBorderColor,
       pointBorderWidth: 2,
       pointRadius: 5,
       pointHoverRadius: 7,
@@ -168,6 +172,8 @@ export function RevenueTrendChart({ data = [] }) {
 export function FailureTypeChart({ data = [] }) {
   if (!data.length) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)' }}>No failure data</div>;
 
+  const { theme } = useTheme();
+  const chartBorderColor = getChartBorderColor(theme);
   const colors = { logical: '#3b82f6', firmware: '#6366f1', electrical: '#f59e0b', mechanical: '#ef4444', unknown: '#64748b' };
   const chartData = {
     labels: data.map(d => d.label),
@@ -175,14 +181,13 @@ export function FailureTypeChart({ data = [] }) {
       label: 'Count',
       data: data.map(d => d.count),
       backgroundColor: data.map(d => colors[d.label] || '#94a3b8'),
-      borderColor: 'var(--bg-card)',
+      borderColor: chartBorderColor,
       borderWidth: 2,
       hoverBackgroundColor: data.map(d => colors[d.label] || '#94a3b8'),
       borderRadius: 6,
     }],
   };
 
-  const { theme } = useTheme();
   const chartRef = useRef(null);
   const options = useMemo(() => createChartOptions(theme, {
     indexAxis: 'y',
@@ -203,6 +208,7 @@ export function BrandDistributionChart({ data = [] }) {
 
   const { theme } = useTheme();
   const chartRef = useRef(null);
+  const chartBorderColor = getChartBorderColor(theme);
   const colors = ['#00d4ff', '#7c3aed', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899', '#fbbf24'];
   const chartData = {
     labels: data.map(d => d.label),
@@ -210,7 +216,7 @@ export function BrandDistributionChart({ data = [] }) {
       label: 'Cases',
       data: data.map(d => d.count),
       backgroundColor: data.map((_, i) => colors[i % colors.length]),
-      borderColor: 'var(--bg-card)',
+      borderColor: chartBorderColor,
       borderWidth: 2,
       borderRadius: 6,
     }],
@@ -232,12 +238,13 @@ export function BrandDistributionChart({ data = [] }) {
 export function CaseStatusChart({ total = 0, active = 0, completed = 0, failed = 0 }) {
   const { theme } = useTheme();
   const chartRef = useRef(null);
+  const chartBorderColor = getChartBorderColor(theme);
   const chartData = {
     labels: ['Active', 'Completed', 'Failed'],
     datasets: [{
       data: [active, completed, failed],
       backgroundColor: ['#00d4ff', '#10b981', '#ef4444'],
-      borderColor: 'var(--bg-card)',
+      borderColor: chartBorderColor,
       borderWidth: 3,
       hoverBorderWidth: 4,
       hoverOffset: 6,

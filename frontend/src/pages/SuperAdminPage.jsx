@@ -290,14 +290,14 @@ function AddTenantModal({ onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Create New Subscriber</h3>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
         {fieldErrors._general && <div style={{ padding: '10px 16px', margin: '0 20px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, color: '#ef4444', fontSize: '0.82rem', fontWeight: 600 }}>{fieldErrors._general}</div>}
-        <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
           {/* Left — Account Details */}
           <div>
             <div className="card-title" style={{ marginBottom: 12 }}>Account Details</div>
@@ -350,7 +350,7 @@ function AddTenantModal({ onClose, onDone }) {
           {/* Right — Plan & Billing */}
           <div>
             <div className="card-title" style={{ marginBottom: 12 }}>Subscription Plan</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginBottom: 16 }}>
               {dynamicPlans.map(p => (
                 <div key={p.key} onClick={() => setForm(f => ({ ...f, plan: p.key, max_team_users: p.maxUsers === -1 ? 99 : p.maxUsers }))}
                   style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', border: `2px solid ${form.plan === p.key ? p.color : 'var(--border-subtle)'}`, background: form.plan === p.key ? `${p.color}10` : 'var(--bg-elevated)', cursor: 'pointer', transition: 'all 0.15s' }}>
@@ -465,7 +465,7 @@ function EditTenantModal({ tenant, onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
         <div className="modal-header">
           <h3 className="modal-title">Edit Subscriber — {tenant.company_name}</h3>
@@ -552,7 +552,7 @@ function TenantUsersModal({ tenant, onClose }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
         <div className="modal-header">
           <h3 className="modal-title">Users — {tenant.company_name}</h3>
@@ -672,7 +672,7 @@ function TenantRow({ tenant, onEdit, onImpersonate, onToggle, onViewUsers }) {
 function ConfirmDeleteModal({ target, onConfirm, onCancel }) {
   if (!target) return null;
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">{target.mode === 'forever' ? 'Permanently Delete Plan' : 'Remove Plan'}</h3>
@@ -786,10 +786,22 @@ function PlansManager({ tenants }) {
     }
   };
   const removePlan = async (id) => {
-    if (!confirm('Permanently remove this plan?')) return;
+    if (!confirm('Move this plan to recycle bin?')) return;
     try {
       await saApi.del(`/plans/${id}`);
       loadActivePlans();
+      loadDeletedPlans();
+    } catch (e) { alert(e.message); }
+  };
+  const confirmDeletePlan = async () => {
+    if (!deleteTarget) return;
+    try {
+      if (deleteTarget.mode === 'forever') {
+        await saApi.del(`/plans/${deleteTarget.key}/permanent`);
+      }
+      loadActivePlans();
+      loadDeletedPlans();
+      setDeleteTarget(null);
     } catch (e) { alert(e.message); }
   };
   const restorePlan = async (plan) => {
@@ -873,7 +885,7 @@ function PlansManager({ tenants }) {
           {showAdd && (
             <div className="card" style={{ marginBottom:16, border:'1px solid var(--accent-primary)' }}>
               <div style={{fontWeight:700,marginBottom:12}}>New Plan</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr auto', gap:10, alignItems:'flex-end' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(100px, 1fr))', gap:10, alignItems:'flex-end' }}>
                 <div className="form-group" style={{margin:0}}><label className="form-label">Key (unique)</label><input className="form-input font-mono" value={newPlan.key} onChange={e=>setNewPlan(p=>({...p,key:e.target.value.toLowerCase().replace(/\s/g,'_')}))} placeholder="starter" /></div>
                 <div className="form-group" style={{margin:0}}><label className="form-label">Label</label><input className="form-input" value={newPlan.label} onChange={e=>setNewPlan(p=>({...p,label:e.target.value}))} placeholder="Starter" /></div>
                 <div className="form-group" style={{margin:0}}><label className="form-label">Price/mo (₹)</label><input type="number" className="form-input" value={newPlan.price} onChange={e=>setNewPlan(p=>({...p,price:parseInt(e.target.value)||0}))} /></div>
@@ -893,7 +905,7 @@ function PlansManager({ tenants }) {
                   {isEditing ? (
                     <div>
                       <div className="form-group" style={{margin:'0 0 8px'}}><label className="form-label" style={{fontSize:'0.7rem'}}>Label</label><input className="form-input" value={editing.label} onChange={e=>setEditing(p=>({...p,label:e.target.value}))} /></div>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:8,marginBottom:8}}>
                         <div className="form-group" style={{margin:0}}><label className="form-label" style={{fontSize:'0.7rem'}}>Price/mo (₹)</label><input type="number" className="form-input" value={editing.price} onChange={e=>setEditing(p=>({...p,price:parseInt(e.target.value)||0}))} /></div>
                         <div className="form-group" style={{margin:0}}><label className="form-label" style={{fontSize:'0.7rem'}}>Max Users</label><input type="number" className="form-input" value={editing.maxUsers} onChange={e=>setEditing(p=>({...p,maxUsers:parseInt(e.target.value)||5}))} /></div>
                       </div>
@@ -1110,7 +1122,7 @@ function RazorpayTab({ tenants, simulateWebhook, filtered }) {
         </div>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(280px, 1fr))', gap:20 }}>
         {/* Left — Credentials */}
         <div>
           <div className="card" style={{ marginBottom:16 }}>
@@ -1172,7 +1184,7 @@ function RazorpayTab({ tenants, simulateWebhook, filtered }) {
             </div>
             <div>
               <div style={{ fontSize:'0.72rem', fontWeight:700, color:'var(--text-secondary)', marginBottom:8 }}>Enable these events:</div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:4 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:4 }}>
                 {EVENTS.map(ev => (
                   <div key={ev} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 8px', background:'var(--bg-elevated)', borderRadius:6 }}>
                     <div style={{ width:6, height:6, borderRadius:'50%', background:'#10b981', flexShrink:0 }} />
@@ -1247,7 +1259,7 @@ function CouponManager() {
       {showAdd && (
         <div className="card" style={{ marginBottom:16, border:'1px solid var(--accent-primary)' }}>
           <div style={{fontWeight:700,marginBottom:14}}>New Coupon Code</div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', gap:12 }}>
             <div className="form-group" style={{margin:0}}>
               <label className="form-label">Coupon Code</label>
               <div style={{display:'flex',gap:6}}>
@@ -1969,12 +1981,17 @@ function InvoicesTab({ purchases, tenants }) {
 
   const [invoicePage, setInvoicePage] = useState(1);
   const PER_PAGE = 15;
-  const invoices = purchases.filter(p => p.status === 'success').map((p, i) => ({
-    ...p,
-    invoice_number: `${settings.invoice_prefix}-${String(i + 1).padStart(4, '0')}`,
-    gst_amount: Math.round((p.amount || 0) * (settings.gst_percent || 18) / 100),
-    total_with_gst: Math.round((p.amount || 0) * (1 + (settings.gst_percent || 18) / 100)),
-  }));
+  const invoices = purchases.filter(p => p.status === 'success').map((p, i) => {
+    const baseAmount = Math.round((p.amount || 0) * 100) / 100;
+    const gstPercent = settings.gst_percent || 18;
+    return {
+      ...p,
+      amount: baseAmount,
+      invoice_number: `${settings.invoice_prefix}-${String(i + 1).padStart(4, '0')}`,
+      gst_amount: Math.round(baseAmount * gstPercent / 100),
+      total_with_gst: Math.round(baseAmount * (1 + gstPercent / 100)),
+    };
+  });
   const paginatedInvoices = invoices.slice((invoicePage - 1) * PER_PAGE, invoicePage * PER_PAGE);
 
   return (
@@ -2014,24 +2031,40 @@ function InvoicesTab({ purchases, tenants }) {
           <div className="empty-state" style={{ padding: 40 }}><div className="empty-icon">📭</div><div className="empty-title">No paid subscriptions yet</div><div className="empty-desc">Invoices are auto-generated when Razorpay payment.captured webhook fires</div></div>
         ) : (
           <div className="table-container">
-            <table>
-              <thead><tr><th>Invoice #</th><th>Subscriber</th><th>Plan</th><th>Amount</th><th>GST ({settings.gst_percent}%)</th><th>Total</th><th>Date</th><th>Actions</th></tr></thead>
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead style={{ background: 'var(--bg-elevated)', borderBottom: '2px solid var(--border-subtle)' }}>
+                <tr>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, fontSize: '0.85rem' }}>Invoice #</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, fontSize: '0.85rem' }}>Subscriber</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, fontSize: '0.85rem' }}>Plan</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '0.85rem' }}>Amount</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '0.85rem' }}>GST ({settings.gst_percent}%)</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, fontSize: '0.85rem' }}>Total</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontSize: '0.85rem' }}>Date</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontWeight: 700, fontSize: '0.85rem' }}>Actions</th>
+                </tr>
+              </thead>
               <tbody>
-                {paginatedInvoices.map(inv => (
-                  <tr key={inv.id}>
-                    <td><span className="font-mono text-xs text-accent">{inv.invoice_number}</span></td>
-                    <td><div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{inv.tenant_name}</div><div className="text-xs text-muted">{inv.tenant_email}</div></td>
-                    <td><span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)', fontWeight: 700 }}>{inv.plan_label || inv.plan}</span></td>
-                    <td className="font-mono">₹{(inv.amount || 0).toLocaleString('en-IN')}</td>
-                    <td className="font-mono text-xs text-muted">₹{inv.gst_amount.toLocaleString('en-IN')}</td>
-                    <td className="font-mono" style={{ fontWeight: 800 }}>₹{inv.total_with_gst.toLocaleString('en-IN')}</td>
-                    <td className="text-xs text-muted">{inv.timestamp ? new Date(inv.timestamp).toLocaleDateString('en-IN') : '—'}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn btn-sm btn-secondary" onClick={() => openPdf(inv.id)}>📄 PDF</button>
-                        <button className="btn btn-sm btn-secondary" onClick={() => resendInvoice(inv.id)} disabled={resendingId === inv.id}>{resendingId === inv.id ? 'Sending...' : '📄 Resend'}</button>
-                        {resendMsg && resendingId === null && <span style={{ fontSize: '0.7rem', color: resendMsg.includes('Error') ? '#ef4444' : '#22c55e', alignSelf: 'center' }}>{resendMsg}</span>}
+                {paginatedInvoices.map((inv, idx) => (
+                  <tr key={inv.id} style={{ borderBottom: '1px solid var(--border-subtle)', background: idx % 2 === 0 ? 'transparent' : 'var(--bg-elevated)' }}>
+                    <td style={{ padding: '12px 16px' }}><span className="font-mono text-xs" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{inv.invoice_number}</span></td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-primary)' }}>{inv.tenant_name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{inv.tenant_email}</div>
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <span style={{ fontSize: '0.72rem', padding: '4px 10px', borderRadius: 4, background: 'rgba(0,212,255,0.1)', color: 'var(--accent-primary)', fontWeight: 700 }}>{inv.plan_label || inv.plan}</span>
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 500 }}>₹{Math.round(inv.amount || 0).toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.85rem', color: 'var(--text-muted)' }}>₹{inv.gst_amount.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 800, color: 'var(--text-primary)', fontSize: '0.95rem' }}>₹{inv.total_with_gst.toLocaleString('en-IN')}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{inv.timestamp ? new Date(inv.timestamp).toLocaleDateString('en-IN') : '—'}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                        <button className="btn btn-sm btn-secondary" onClick={() => openPdf(inv.id)} title="View PDF">📄</button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => resendInvoice(inv.id)} disabled={resendingId === inv.id} title="Resend Invoice">{resendingId === inv.id ? '⏳' : '📤'}</button>
                       </div>
+                      {resendMsg && resendingId === null && <div style={{ fontSize: '0.65rem', color: resendMsg.includes('Error') ? '#ef4444' : '#22c55e', marginTop: 4 }}>{resendMsg}</div>}
                     </td>
                   </tr>
                 ))}
@@ -3630,7 +3663,7 @@ export default function SuperAdminPage() {
 
       {/* Invoice Details Modal */}
       {viewInvoice && (
-        <div className="modal-overlay" onClick={() => setViewInvoice(null)}>
+        <div className="modal-overlay">
           <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Invoice Details</div>

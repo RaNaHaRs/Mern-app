@@ -152,7 +152,7 @@ export const casesApi = {
   collectPayment: (id) => api.post(`/cases/${id}/collect-payment`, {}),
   // Solution
   getSolution: (id) => api.get(`/cases/${id}/solution`),
-  saveSolutionNote: (id, textNote) => api.put(`/cases/${id}/solution`, { textNote }),
+  saveSolutionNote: (id, textNote, heading) => api.put(`/cases/${id}/solution`, { textNote, heading }),
   uploadSolutionMedia: (id, formData) => api.upload(`/cases/${id}/solution/media`, formData),
   deleteSolutionMedia: (id, fileId) => api.delete(`/cases/${id}/solution/media/${fileId}`),
   // Device images
@@ -181,6 +181,7 @@ export const mediaRecycleApi = {
 export const suggestionsApi = {
   searchProblems: (params) => api.get('/suggestions/problems', params),
   searchDiagnosis: (params) => api.get('/suggestions/diagnosis', params),
+  searchVendors: (params) => api.get('/suggestions/vendors', params),
   saveProblem: (data) => api.post('/suggestions/problems', data),
   saveDiagnosis: (data) => api.post('/suggestions/diagnosis', data),
 };

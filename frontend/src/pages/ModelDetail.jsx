@@ -342,7 +342,7 @@ export default function ModelDetail() {
           </div>
 
           {showAddFailure && (
-            <div className="modal-overlay" onClick={() => setShowAddFailure(false)}>
+            <div className="modal-overlay">
               <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                   <h3 className="modal-title">🔥 Add Failure Entry</h3>

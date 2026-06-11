@@ -227,7 +227,7 @@ function PurchaseModal({ onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 640 }}>
         <div className="modal-header"><h3 className="modal-title">+ New Purchase</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
         <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
@@ -319,7 +319,30 @@ function PurchaseModal({ onClose, onDone }) {
 
 //  Expense Form Modal 
 function ExpenseModal({ onClose, onDone, edit }) {
-  const [form, setForm] = useState(edit || { date: new Date().toISOString().slice(0, 10), category: 'consumables', description: '', vendor: '', amount: '', tax_amt: '', receipt_note: '', case_number: '' });
+  const [form, setForm] = useState(() => {
+    if (edit?.id) {
+      return {
+        date: edit.date || new Date().toISOString().slice(0, 10),
+        category: edit.category || 'consumables',
+        description: edit.description || '',
+        vendor: edit.vendor || '',
+        amount: edit.amount || '',
+        tax_amt: edit.tax_amt || '',
+        receipt_note: edit.receipt_note || '',
+        case_number: edit.case_number || ''
+      };
+    }
+    return {
+      date: new Date().toISOString().slice(0, 10),
+      category: 'consumables',
+      description: '',
+      vendor: '',
+      amount: '',
+      tax_amt: '',
+      receipt_note: '',
+      case_number: ''
+    };
+  });
   const [loading, setLoading] = useState(false);
   const handle = async () => {
     setLoading(true);
@@ -330,7 +353,7 @@ function ExpenseModal({ onClose, onDone, edit }) {
     } catch (err) { alert(err.message); } finally { setLoading(false); }
   };
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header"><h3 className="modal-title">{edit?.id ? '✏️ Edit Expense' : '+ Record Expense'}</h3><button className="btn btn-ghost btn-icon" onClick={onClose}></button></div>
         <div className="modal-body">
@@ -363,7 +386,8 @@ function ExpenseModal({ onClose, onDone, edit }) {
 //  Main Accounting Page 
 export default function AccountingPage() {
   const { canAccess } = useAuth();
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem('activeTab_Accounting') || 'overview');
+  useEffect(() => { sessionStorage.setItem('activeTab_Accounting', activeTab); }, [activeTab]);
   const [summary, setSummary] = useState(null);
   const [purchases, setPurchases] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -623,8 +647,8 @@ export default function AccountingPage() {
                         <td className="text-xs font-mono text-muted">{p.case_number || '—'}</td>
                         <td><span className="font-mono" style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{fmt(p.total)}</span></td>
                         <td className="text-xs text-muted">{fmtDate(p.purchase_date)}</td>
-                        <td>{canAccess('admin') && (
-                          <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move this purchase to recycle bin? The linked expense will also be moved.')) { await accountingApi.deletePurchase(p.id); load(); loadRecycleBin('purchases'); } }}>
+                        <td>{canAccess('staff') && (
+                          <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move this purchase to recycle bin? The linked expense will also be moved.')) { try { await accountingApi.deletePurchase(p.id); await load(); await loadRecycleBin('purchases'); } catch (e) { alert('Failed to delete: ' + e.message); } } }}>
                             <IconTrash />
                           </button>
                         )}</td>
@@ -671,7 +695,7 @@ export default function AccountingPage() {
                             <button className="btn btn-secondary btn-sm" onClick={() => { const doc = generateInvoicePDF(inv); setPdfInvoice({ doc, invoice: inv }); }}>⬇ PDF</button>
                             <button className="btn btn-secondary btn-sm" onClick={() => printCourierSlip(inv)}>📦 Courier</button>
                             {inv.status !== 'paid' && (
-                              <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move invoice to recycle bin?')) { await accountingApi.deleteInvoice(inv.id); load(); loadRecycleBin('invoices'); } }}>
+                              <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move invoice to recycle bin?')) { try { await accountingApi.deleteInvoice(inv.id); await load(); await loadRecycleBin('invoices'); } catch (e) { alert('Failed to delete: ' + e.message); } } }}>
                                 <IconTrash />
                               </button>
                             )}
@@ -715,7 +739,7 @@ export default function AccountingPage() {
                               </button>
                             )}
                             {canAccess('admin') && (
-                              <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move expense to recycle bin?')) { await accountingApi.deleteExpense(exp.id); load(); loadRecycleBin('expenses'); } }}>
+                              <button title="Move to Recycle Bin" style={iconBtnStyle('danger')} onClick={async () => { if (confirm('Move expense to recycle bin?')) { try { await accountingApi.deleteExpense(exp.id); await load(); await loadRecycleBin('expenses'); } catch (e) { alert('Failed to delete: ' + e.message); } } }}>
                                 <IconTrash />
                               </button>
                             )}
@@ -737,7 +761,7 @@ export default function AccountingPage() {
       {/* Modals */}
       {showPurchaseForm && <PurchaseModal onClose={() => setShowPurchaseForm(false)} onDone={load} />}
       {pdfInvoice && (
-        <div className="modal-overlay" onClick={() => setPdfInvoice(null)}>
+        <div className="modal-overlay">
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 400 }}>
             <div className="modal-header">
               <h3 className="modal-title"> Invoice — {pdfInvoice.invoice.invoice_number}</h3>
@@ -758,7 +782,7 @@ export default function AccountingPage() {
 
       {/* Recycle Bin Modal */}
       {showRecycleBin && (
-        <div className="modal-overlay" onClick={() => setShowRecycleBin(false)}>
+        <div className="modal-overlay">
           <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxWidth: 780 }}>
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

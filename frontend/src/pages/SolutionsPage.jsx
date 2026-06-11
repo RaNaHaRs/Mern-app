@@ -6,8 +6,42 @@ import { formatSolutionTime, fileTypeIcon } from '../utils/solutionMedia';
 import MediaFileGrid from '../components/MediaFileGrid';
 
 const DEVICE_TYPES = ['HDD', 'SSD', 'Phone', 'PCB', 'NAS', 'Server', 'Flash Drive', 'RAID', 'Other'];
-const PROB_TAGS = ['Head Crash', 'Firmware Corruption', 'Logical Error', 'PCB Damage', 'BSY Error', 'Bad Sectors', 'Motor Seized', 'Not Detected', 'Water Damage', 'Fire Damage', 'Encrypted', 'RAID Rebuild', 'Deleted Files'];
 const TYPE_ICONS = { HDD: '', SSD: '', Phone: '', PCB: '', NAS: '', Server: '', 'Flash Drive': '', RAID: '', Other: '' };
+
+// Default failure types (fallback if case settings not found)
+const DEFAULT_FAILURE_TYPES = ['logical', 'firmware', 'electrical', 'mechanical', 'head_crash', 'pcb_damage', 'motor_failure', 'bad_sectors', 'water_damage', 'fire_damage', 'unknown'];
+
+// Format tag display: convert "head_crash" to "Head Crash"
+function formatTag(tag) {
+  if (!tag) return '';
+  return tag
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+// Normalize tag for comparison: convert "Head Crash" to "head_crash"
+function normalizeTag(tag) {
+  if (!tag) return '';
+  return tag.toLowerCase().replace(/\s+/g, '_');
+}
+
+// Load failure types from localStorage or use defaults
+function loadFailureTypes() {
+  try {
+    const stored = localStorage.getItem('custom_failure_types');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Error loading failure types:', e);
+  }
+  return DEFAULT_FAILURE_TYPES;
+}
 
 function formatSize(bytes) {
   if (!bytes) return '—';
@@ -21,7 +55,7 @@ function notePreview(sol) {
   return sol.notes || '';
 }
 
-function SolutionFormModal({ title, initial, onClose, onDone }) {
+function SolutionFormModal({ title, initial, onClose, onDone, failureTypes = DEFAULT_FAILURE_TYPES }) {
   const [form, setForm] = useState(initial);
   const [files, setFiles] = useState([]);
   const [dragging, setDragging] = useState(false);
@@ -32,7 +66,15 @@ function SolutionFormModal({ title, initial, onClose, onDone }) {
     setFiles(prev => [...prev, ...Array.from(newFiles).map(f => ({ file: f, id: `f_${Date.now()}_${Math.random()}` }))]);
   };
 
-  const toggleTag = (tag) => setForm(f => ({ ...f, tags: f.tags.includes(tag) ? f.tags.filter(t => t !== tag) : [...f.tags, tag] }));
+  const toggleTag = (tag) => {
+    const normalizedTag = normalizeTag(tag);
+    setForm(f => ({ 
+      ...f, 
+      tags: f.tags.includes(normalizedTag) 
+        ? f.tags.filter(t => t !== normalizedTag) 
+        : [...f.tags, normalizedTag] 
+    }));
+  };
 
   const handle = async () => {
     if (!form.title || !form.device_type) return;
@@ -49,7 +91,7 @@ function SolutionFormModal({ title, initial, onClose, onDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">{title}</h3>
@@ -81,12 +123,16 @@ function SolutionFormModal({ title, initial, onClose, onDone }) {
           <div className="form-group">
             <label className="form-label">Problem Tags</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {PROB_TAGS.map(tag => (
-                <button key={tag} type="button" onClick={() => toggleTag(tag)}
-                  style={{ padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', cursor: 'pointer', border: `1px solid ${form.tags.includes(tag) ? 'var(--accent-primary)' : 'var(--border-default)'}`, background: form.tags.includes(tag) ? 'rgba(0,212,255,0.12)' : 'var(--bg-elevated)', color: form.tags.includes(tag) ? 'var(--accent-primary)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  {tag}
-                </button>
-              ))}
+              {failureTypes.map(tag => {
+                const normalizedTag = normalizeTag(tag);
+                const formattedTag = formatTag(normalizedTag);
+                return (
+                  <button key={normalizedTag} type="button" onClick={() => toggleTag(tag)}
+                    style={{ padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', cursor: 'pointer', border: `1px solid ${form.tags.includes(normalizedTag) ? 'var(--accent-primary)' : 'var(--border-default)'}`, background: form.tags.includes(normalizedTag) ? 'rgba(0,212,255,0.12)' : 'var(--bg-elevated)', color: form.tags.includes(normalizedTag) ? 'var(--accent-primary)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    {formattedTag}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div className="form-group">
@@ -154,7 +200,7 @@ function SolutionDetailModal({ sol, onClose, onDelete, onEdit, canDelete, canEdi
   const caseRefs = sol.case_refs || [];
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div>
@@ -189,6 +235,7 @@ function SolutionDetailModal({ sol, onClose, onDelete, onEdit, canDelete, canEdi
                 <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
                   {formatSolutionTime(n.createdAt)}{n.createdByName ? ` · ${n.createdByName}` : ''}
                 </div>
+                {n.heading && <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 6, color: 'var(--text-primary)' }}>{n.heading}</div>}
                 <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-sans)', fontSize: '0.82rem', lineHeight: 1.8, margin: 0 }}>{n.text}</pre>
               </div>
             )) : <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No notes</div>}
@@ -234,6 +281,12 @@ export default function SolutionsPage() {
   const [showNew, setShowNew] = useState(false);
   const [editSol, setEditSol] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [failureTypes, setFailureTypes] = useState(DEFAULT_FAILURE_TYPES);
+
+  useEffect(() => {
+    // Load failure types from localStorage when component mounts
+    setFailureTypes(loadFailureTypes());
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -274,7 +327,11 @@ export default function SolutionsPage() {
         </select>
         <select className="form-select" style={{ width: 'auto' }} value={tagFilter} onChange={e => setTagFilter(e.target.value)}>
           <option value="">All Tags</option>
-          {PROB_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+          {failureTypes.map(t => {
+            const normalizedTag = normalizeTag(t);
+            const formattedTag = formatTag(normalizedTag);
+            return <option key={normalizedTag} value={normalizedTag}>{formattedTag}</option>;
+          })}
         </select>
       </div>
 
@@ -321,7 +378,7 @@ export default function SolutionsPage() {
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{preview}</div>
                 )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
-                  {(sol.tags || []).slice(0, 3).map(t => <span key={t} style={{ padding: '2px 6px', borderRadius: 999, fontSize: '0.62rem', background: 'rgba(124,58,237,0.1)', color: '#a78bfa', fontFamily: 'var(--font-mono)' }}>{t}</span>)}
+                  {(sol.tags || []).slice(0, 3).map(t => <span key={t} style={{ padding: '2px 6px', borderRadius: 999, fontSize: '0.62rem', background: 'rgba(124,58,237,0.1)', color: '#a78bfa', fontFamily: 'var(--font-mono)' }}>{formatTag(t)}</span>)}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                   <span>{caseCount} case{caseCount !== 1 ? 's' : ''}</span>
@@ -337,7 +394,7 @@ export default function SolutionsPage() {
       )}
 
       {showNew && (
-        <SolutionFormModal title=" Add Solution / Knowledge Entry" initial={emptyForm} onClose={() => setShowNew(false)} onDone={load} />
+        <SolutionFormModal title=" Add Solution / Knowledge Entry" initial={emptyForm} onClose={() => setShowNew(false)} onDone={load} failureTypes={failureTypes} />
       )}
       {editSol && (
         <SolutionFormModal
@@ -353,6 +410,7 @@ export default function SolutionsPage() {
           }}
           onClose={() => setEditSol(null)}
           onDone={load}
+          failureTypes={failureTypes}
         />
       )}
       {selected && (

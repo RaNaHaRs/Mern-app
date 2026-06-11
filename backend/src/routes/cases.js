@@ -121,6 +121,24 @@ async function ensureCaseAccessible(caseId, user) {
   return result.rows.length > 0;
 }
 
+// ─── GET /api/cases/validate/seagate-date-code ──────────────────
+// Validate Seagate date code format and calculate perfect date
+router.get('/validate/seagate-date-code', async (req, res) => {
+  try {
+    const { dateCode } = req.query;
+    if (!dateCode) {
+      return res.status(400).json({ error: 'dateCode query parameter required' });
+    }
+
+    const { validateSeagateDateCode } = require('../utils/seagateValidator');
+    const validation = validateSeagateDateCode(dateCode);
+    
+    res.json(validation);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/cases ───────────────────────────────────────────────
 router.get('/', async (req, res) => {
   try {
@@ -225,8 +243,8 @@ router.post('/',
     body('symptoms').isArray().optional(),
     body('failure_type').optional().custom((val) => isValidFailureType(val)),
     body('priority').optional().isInt({ min: 1, max: 5 }),
-    body('interface').optional().isIn(['SATA', 'NVMe', 'SAS', 'IDE', 'USB', 'PCIe', 'mSATA', 'M2', 'eSATA']),
-    body('form_factor').optional().isIn(['3.5', '2.5', 'M.2', 'mSATA', 'U.2', 'PCIe_card']),
+    body('interface').optional().isString(),
+    body('form_factor').optional().isString(),
   ],
   auditLog('create_case', 'case'),
   async (req, res) => {
@@ -234,6 +252,9 @@ router.post('/',
     if (!errors.isEmpty()) return res.status(422).json({ errors: errors.array() });
 
     try {
+      console.log(`[Case Creation] Request body keys:`, Object.keys(req.body));
+      console.log(`[Case Creation] Has customFields:`, !!req.body.customFields);
+      
       const {
         client_id, device_brand, device_model, storage_model_id, serial_number,
         capacity_gb, interface: iface, form_factor, failure_type, symptoms,
@@ -387,19 +408,61 @@ if (client_id) {
 }
 
       // Save custom field values if provided
-      if (req.body.customFields && typeof req.body.customFields === 'object') {
+      const savedCustomFields = {};
+      
+      // Log received custom fields
+      if (req.body.customFields) {
+        console.log(`[Case Creation] Received customFields:`, JSON.stringify(req.body.customFields));
+      } else {
+        console.log(`[Case Creation] No customFields in request body`);
+      }
+      
+      if (req.body.customFields && typeof req.body.customFields === 'object' && Object.keys(req.body.customFields).length > 0) {
         for (const [fieldId, fieldValue] of Object.entries(req.body.customFields)) {
           try {
-            await query(
+            console.log(`[Custom Field] Processing field ${fieldId} with value: ${fieldValue}`);
+            
+            // First verify that the custom field exists
+            const fieldCheckResult = await query(
+              `SELECT id, field_label, hdd_type, tenant_id FROM custom_fields WHERE id = $1`,
+              [fieldId]
+            );
+
+            if (!fieldCheckResult.rows.length) {
+              console.warn(`[Custom Field] Custom field ${fieldId} does not exist in database. Available custom fields for this tenant:`);
+              // List all custom fields for debugging
+              const tenantId = isSuperAdmin(req.user) ? null : tenantAdminId(req.user);
+              const allFields = await query(
+                `SELECT id, field_label, hdd_type, tenant_id FROM custom_fields WHERE is_active = true ${tenantId ? 'AND tenant_id = $1' : ''}`,
+                tenantId ? [tenantId] : []
+              );
+              console.warn(`[Custom Field] Available fields for tenant ${tenantId}:`, JSON.stringify(allFields.rows));
+              console.error(`[Custom Field] MISMATCH: Field UUID ${fieldId} not found in database. This usually means:`);
+              console.error(`  1. Field was created but tenant_id doesn't match current user's tenant`);
+              console.error(`  2. Field was deleted or deactivated`);
+              console.error(`  3. Frontend is sending a field_key instead of field UUID`);
+              continue;
+            }
+
+            const fieldInfo = fieldCheckResult.rows[0];
+            console.log(`[Custom Field] Found field: ${fieldInfo.field_label} (hdd_type: ${fieldInfo.hdd_type}, tenant_id: ${fieldInfo.tenant_id})`);
+
+            const insertResult = await query(
               `INSERT INTO case_custom_field_values (case_id, custom_field_id, field_value)
                VALUES ($1, $2, $3)
                ON CONFLICT (case_id, custom_field_id) 
-               DO UPDATE SET field_value = $3, updated_at = NOW()`,
+               DO UPDATE SET field_value = $3, updated_at = NOW()
+               RETURNING id`,
               [result.rows[0].id, fieldId, fieldValue || null]
             );
+
+            if (insertResult.rows.length) {
+              savedCustomFields[fieldId] = fieldValue;
+              console.log(`[Custom Field] ✓ Successfully saved custom field ${fieldId} (${fieldInfo.field_label}) for case ${result.rows[0].id}`);
+            }
           } catch (e) {
             // Log but don't fail if custom field save fails
-            console.error('Failed to save custom field:', e.message);
+            console.error(`[Custom Field] ✗ Failed to save custom field ${fieldId}:`, e.message, e.code);
           }
         }
       }
@@ -425,6 +488,9 @@ if (client_id) {
         };
       }
 
+      // Include saved custom fields in response
+      responseData.customFieldValues = savedCustomFields;
+
       // Emit CASE_CREATED event for automation triggers, unless the client requested a delayed email
       const skipCaseCreated = String(req.body.skip_case_created || '').toLowerCase() === 'true' || req.body.skip_case_created === true;
       if (!skipCaseCreated) {
@@ -432,6 +498,17 @@ if (client_id) {
           const clientInfo = client_id ? await query('SELECT email, first_name FROM clients WHERE id = $1', [client_id]) : null;
           const recipientEmail = clientInfo?.rows[0]?.email || req.body.email || req.body.client_email || '';
           const recipientName = clientInfo?.rows[0]?.first_name || req.body.first_name || req.body.name || 'Client';
+          // Fetch engineer info for summary PDF
+          let engineerName = null, engineerEmail = null;
+          if (result.rows[0].assigned_engineer) {
+            try {
+              const engRes = await query('SELECT full_name, email FROM users WHERE id = $1', [result.rows[0].assigned_engineer]);
+              if (engRes.rows.length) {
+                engineerName = engRes.rows[0].full_name;
+                engineerEmail = engRes.rows[0].email;
+              }
+            } catch (e) { /* non-fatal */ }
+          }
           // Generate clean summary PDF for email attachment
           const summaryPdf = await casePdfService.generateEmailSummaryPdf({
             ...result.rows[0],
@@ -441,6 +518,8 @@ if (client_id) {
             quotation_amount: req.body.quotation_amount,
             advance_amount: req.body.advance_amount,
             problem_description: req.body.problem_description || req.body.symptom_notes || '',
+            engineer_name: engineerName,
+            engineer_email: engineerEmail,
           });
 
           const attachments = summaryPdf && summaryPdf.filePath && fs.existsSync(summaryPdf.filePath)
@@ -512,7 +591,7 @@ router.get('/:id', async (req, res) => {
     const result = await query(
       `SELECT c.*,
               cl.first_name, cl.last_name, cl.phone, cl.email, cl.company, cl.client_code,
-              u.full_name as engineer_name,
+              u.full_name as engineer_name, u.email as engineer_email,
               sm.model_number as storage_model_number, sm.controller_chip, sm.pcb_number,
               sm.firmware_family, sm.risk_level as model_risk_level,
               sm.known_issues, sm.recovery_strategy as model_recovery_strategy,
@@ -528,6 +607,26 @@ router.get('/:id', async (req, res) => {
     if (!result.rows.length) return res.status(404).json({ error: 'Case not found' });
 
     const caseData = result.rows[0];
+
+    // Get custom field values
+    const customFieldsResult = await query(
+      `SELECT ccfv.id, ccfv.custom_field_id, ccfv.field_value, cf.field_label, cf.field_key, cf.field_type
+       FROM case_custom_field_values ccfv
+       LEFT JOIN custom_fields cf ON ccfv.custom_field_id = cf.id
+       WHERE ccfv.case_id = $1`,
+      [req.params.id]
+    );
+
+    const customFieldValues = {};
+    customFieldsResult.rows.forEach(row => {
+      customFieldValues[row.custom_field_id] = {
+        id: row.custom_field_id,
+        label: row.field_label,
+        key: row.field_key,
+        type: row.field_type,
+        value: row.field_value
+      };
+    });
 
     // Get workflow logs
     const logs = await query(
@@ -586,6 +685,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({
       ...caseData,
+      customFieldValues: customFieldValues,
       quotation_total: quotationTotal,
       total_paid: totalPaid,
       balance_due: balanceDue,
@@ -889,6 +989,29 @@ router.get('/:id/donors', async (req, res) => {
   }
 });
 
+// ─── POST /api/cases/:id/timeline-notes ────────────────────────────
+router.post('/:id/timeline-notes', requireMinRole('junior_engineer'), async (req, res) => {
+  try {
+    if (!await ensureCaseAccessible(req.params.id, req.user)) {
+      return res.status(404).json({ error: 'Case not found' });
+    }
+    const { notes } = req.body;
+    if (!notes || !notes.trim()) {
+      return res.status(400).json({ error: 'Notes text is required' });
+    }
+
+    const logRes = await query(
+      `INSERT INTO case_workflow_logs (case_id, from_stage, to_stage, engineer_id, notes)
+       VALUES ($1, 'note', 'note', $2, $3) RETURNING *`,
+      [req.params.id, req.user.id, notes.trim()]
+    );
+
+    res.status(201).json(logRes.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /api/cases/:id/solution ─────────────────────────────────
 router.get('/:id/solution', async (req, res) => {
   try {
@@ -900,7 +1023,7 @@ router.get('/:id/solution', async (req, res) => {
       [req.params.id]
     );
     const notesRes = await query(
-      `SELECT n.id, n.note_text, n.created_at, n.created_by, u.username AS created_by_name
+      `SELECT n.id, n.note_text, n.heading, n.created_at, n.created_by, u.username AS created_by_name
        FROM case_solution_notes n
        LEFT JOIN users u ON u.id = n.created_by
        WHERE n.case_id = $1
@@ -910,6 +1033,7 @@ router.get('/:id/solution', async (req, res) => {
     let notes = notesRes.rows.map(n => ({
       id: n.id,
       text: n.note_text,
+      heading: n.heading || '',
       createdAt: n.created_at,
       createdBy: n.created_by,
       createdByName: n.created_by_name,
@@ -949,16 +1073,16 @@ router.put('/:id/solution', requireMinRole('junior_engineer'), async (req, res) 
     if (!await ensureCaseAccessible(req.params.id, req.user)) {
       return res.status(404).json({ error: 'Case not found' });
     }
-    const { textNote } = req.body;
+    const { textNote, heading } = req.body;
     if (!textNote || !String(textNote).trim()) {
       return res.status(400).json({ error: 'Note text is required' });
     }
 
     const noteRes = await query(
-      `INSERT INTO case_solution_notes (case_id, note_text, created_by)
-       VALUES ($1, $2, $3)
-       RETURNING id, note_text, created_at, created_by`,
-      [req.params.id, textNote.trim(), req.user.id]
+      `INSERT INTO case_solution_notes (case_id, note_text, heading, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, note_text, heading, created_at, created_by`,
+      [req.params.id, textNote.trim(), heading ? heading.trim() : null, req.user.id]
     );
 
     await query(
@@ -979,6 +1103,7 @@ router.put('/:id/solution', requireMinRole('junior_engineer'), async (req, res) 
     res.json({ message: 'Solution note saved', note: {
       id: noteRow.id,
       text: noteRow.note_text,
+      heading: noteRow.heading || '',
       createdAt: noteRow.created_at,
       createdBy: noteRow.created_by,
       createdByName: req.user.username,

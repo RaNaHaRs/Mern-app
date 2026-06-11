@@ -138,7 +138,7 @@ export function AdminUpgradePlanModal({ tenant, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-md" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">Upgrade / Renew Plan</h3>

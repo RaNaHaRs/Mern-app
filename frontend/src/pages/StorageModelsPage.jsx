@@ -56,7 +56,7 @@ function NewModelModal({ brands, onClose, onCreated }) {
   );
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">💿 Add Storage Model</h3>

@@ -172,7 +172,7 @@ function PaymentModal({ plan, user, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-xl" onClick={e => e.stopPropagation()} style={{ maxWidth: 600 }}>
         <div className="modal-header">
           <h3 className="modal-title"> Upgrade to {plan.label}</h3>

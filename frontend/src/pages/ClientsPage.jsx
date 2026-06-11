@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { clientsApi } from '../services/api';
+import { exportApi } from '../services/exportApi';
 import { useAuth } from '../store/AuthContext';
 
 function NewClientModal({ onClose, onCreated, initialData }) {
@@ -27,7 +28,7 @@ function NewClientModal({ onClose, onCreated, initialData }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 className="modal-title">{isEdit ? '✏️ Edit Client' : '👥 New Client'}</h3>
@@ -151,12 +152,18 @@ function CollectModal({ client, onClose, onCollected }) {
   const selectedCase = pendingCases.find(c => c.id === selectedCaseId);
   const remainingBalance = parseFloat(selectedCase?.pending_amount || 0);
   const gross = parseFloat(grossAmount) || 0;
+  
+  // Calculate discount amount - cap at gross amount for safety
   const discountAmt = form.discount_type === 'flat'
-    ? Math.min(parseFloat(form.discount_value) || 0, gross)
+    ? Math.min(Math.max(0, parseFloat(form.discount_value) || 0), gross)
     : form.discount_type === 'percent'
-      ? gross * (Math.min(parseFloat(form.discount_value) || 0, 100) / 100)
+      ? gross * (Math.min(Math.max(0, parseFloat(form.discount_value) || 0), 100) / 100)
       : 0;
+  
   const finalAmount = Math.max(0, gross - discountAmt);
+  
+  // Calculate discount percentage for validation - round to avoid floating point precision issues
+  const discount = gross > 0 ? Math.round((discountAmt / gross) * 10000) / 100 : 0;
   const fmt = v => `₹${parseFloat(v||0).toLocaleString('en-IN', {minimumFractionDigits:0,maximumFractionDigits:2})}`;
 
   const stageLabel = s => s ? s.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) : '';
@@ -178,7 +185,7 @@ function CollectModal({ client, onClose, onCollected }) {
   const validate = () => {
     if (!selectedCaseId) return 'Please select a case.';
     if (!gross || gross <= 0) return 'Enter a valid gross amount.';
-    if (finalAmount <= 0) return 'Final amount must be greater than zero after discount.';
+    // Remove the final amount validation - allow 0 when discount is applied
     if (finalAmount > remainingBalance) return `Amount cannot exceed remaining balance of ${fmt(remainingBalance)}.`;
     return '';
   };
@@ -189,11 +196,14 @@ function CollectModal({ client, onClose, onCollected }) {
     if (err) return;
     setLoading(true);
     try {
+      // Use threshold of 99.5% to account for floating point precision
+      const is100Discount = discount >= 99.5;
       await clientsApi.collectPending(client.id, {
         case_selections: [{ case_id: selectedCaseId, amount: finalAmount }],
         method: form.method,
         reference: form.reference,
         notes: form.notes,
+        is_100_percent_discount: is100Discount,
       });
       if (onCollected) await onCollected();
       try { window.dispatchEvent(new Event('paymentsUpdated')); } catch {}
@@ -227,7 +237,7 @@ function CollectModal({ client, onClose, onCollected }) {
   const formError = validationError || validate();
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay">
       <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth: 520}}>
         <div className="modal-header">
           <h3 className="modal-title"> Collect Payment — {client.first_name} {client.last_name}</h3>
@@ -405,8 +415,10 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState('desc');
+  const [sortField, setSortField] = useState(() => sessionStorage.getItem('clients_sortField') || 'created_at');
+  const [sortOrder, setSortOrder] = useState(() => sessionStorage.getItem('clients_sortOrder') || 'desc');
+  useEffect(() => { sessionStorage.setItem('clients_sortField', sortField); }, [sortField]);
+  useEffect(() => { sessionStorage.setItem('clients_sortOrder', sortOrder); }, [sortOrder]);
   const [showNew, setShowNew] = useState(false);
   const [showEditClient, setShowEditClient] = useState(null);
   const [collectingIds, setCollectingIds] = useState(new Set());
@@ -445,6 +457,23 @@ export default function ClientsPage() {
     setShowCollectClient(client);
   };
 
+  const handleExportClients = async () => {
+    try {
+      const blob = await exportApi.exportClients(
+        {
+          search: search,
+          is_corporate: filters.is_corporate,
+          is_vip: filters.is_vip
+        }
+      );
+      const filename = `clients_export_${new Date().toISOString().split('T')[0]}.csv`;
+      exportApi.downloadFile(blob, filename);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export clients: ' + (err.message || 'Unknown error'));
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -452,9 +481,14 @@ export default function ClientsPage() {
           <h2>Client Management</h2>
           <p>CRM — {pagination.total || 0} total clients</p>
         </div>
-        {canAccess('staff') && (
-          <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New Client</button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleExportClients} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+             Export
+          </button>
+          {canAccess('staff') && (
+            <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New Client</button>
+          )}
+        </div>
       </div>
 
       <div className="filters-bar">
